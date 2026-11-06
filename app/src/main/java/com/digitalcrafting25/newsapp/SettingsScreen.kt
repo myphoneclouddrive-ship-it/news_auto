@@ -41,6 +41,7 @@ private enum class SetTab(val label: String) {
     SITE("🏷️ সাইট"),
     ADS("📢 বিজ্ঞাপন"),
     CONN("🔑 সংযোগ"),
+    AUTO("🌅 অটো পোস্ট"),
     AI("🤖 AI কী"),
     UPDATE("🔄 আপডেট"),
 }
@@ -51,17 +52,18 @@ private val Amber = Color(0xFFB26A00)
 private class Ask(val text: String, val onYes: () -> Unit)
 
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel) {
+fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel) {
     var tab by rememberSaveable { mutableStateOf(SetTab.SITE.name) }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
     LaunchedEffect(Unit) {
         vm.loadCreds()
         vm.loadAi()
+        auto.load()
     }
 
     // অ্যাডমিন না হলে AI কী ট্যাবই দেখায় না (ওয়েবে কার্ড লুকানো থাকে)
-    val tabs = SetTab.entries.filter { it != SetTab.AI || vm.aiOwner == true }
+    val tabs = SetTab.entries.filter { (it != SetTab.AI || vm.aiOwner == true) && (it != SetTab.AUTO || auto.allowed != false) }
     val cur = tabs.firstOrNull { it.name == tab } ?: SetTab.SITE
 
     Column(Modifier.fillMaxSize()) {
@@ -89,6 +91,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
                 SetTab.ADS -> AdsTab(ads)
                 SetTab.CONN -> ConnTab(vm) { ask = it }
                 SetTab.AI -> AiTab(vm) { ask = it }
+                SetTab.AUTO -> AutoPostTab(auto)
                 SetTab.UPDATE -> UpdateScreen(uv)
             }
         }

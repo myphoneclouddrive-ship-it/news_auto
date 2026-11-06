@@ -25,7 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
-    val clips = mutableStateListOf<Clip>()
+    val tl = Timeline()
+    val clips: List<Clip> get() = tl.clips
     var aspect by mutableStateOf(Aspect.LANDSCAPE)
     var caption by mutableStateOf("")
     var logo by mutableStateOf<Uri?>(null)
@@ -33,8 +34,6 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     var musicName by mutableStateOf("")
     var musicVolume by mutableFloatStateOf(0.3f)
     var keepAudio by mutableStateOf(true)
-    private var nextId = 1L
-
     private fun displayName(uri: Uri): String = runCatching {
         app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
@@ -43,6 +42,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun addUris(uris: List<Uri>) {
         viewModelScope.launch {
+            val added = mutableListOf<Clip>()
             for (u in uris) {
                 val clip = withContext(Dispatchers.IO) {
                     val isImage = app.contentResolver.getType(u)?.startsWith("image/") == true
@@ -57,32 +57,17 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                             runCatching { r.release() }
                         }
                     }
-                    Clip(nextId++, u, isImage, dur, displayName(u))
+                    Clip(tl.newId(), u, isImage, dur, displayName(u))
                 }
-                clips.add(clip)
+                added.add(clip)
             }
+            tl.addAll(added)
         }
     }
 
     fun chooseMusic(u: Uri) {
         music = u
         musicName = displayName(u)
-    }
-
-    fun update(id: Long, f: (Clip) -> Clip) {
-        val i = clips.indexOfFirst { it.id == id }
-        if (i >= 0) clips[i] = f(clips[i])
-    }
-
-    fun move(index: Int, delta: Int) {
-        val j = index + delta
-        if (index !in clips.indices || j !in clips.indices) return
-        val c = clips.removeAt(index)
-        clips.add(j, c)
-    }
-
-    fun remove(index: Int) {
-        if (index in clips.indices) clips.removeAt(index)
     }
 
     /** সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে রেন্ডার সার্ভিস চালু করে ও null দেয় */

@@ -260,6 +260,8 @@ private fun Step2(vm: NewPostViewModel, onNext: () -> Unit, onClear: () -> Unit)
 private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { uris -> vm.addPhotos(uris) }
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    var cropOpen by remember { mutableStateOf(false) }
+    var collOpen by remember { mutableStateOf(false) }
 
     FieldLabel("ফোটোকার্ডের শিরোনাম")
     AppField(vm.cardTitle, { vm.cardTitle = it; vm.saveDraft() }, singleLine = false)
@@ -281,7 +283,7 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
         if (pv != null) Image(pv.asImageBitmap(), contentDescription = "কার্ডের প্রিভিউ", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         else CircularProgressIndicator(color = C.Red)
     }
-    if (vm.hasPhoto) Text("👆 ছবির ওপর আঙুল টেনে ছবির পজিশন ঠিক করুন।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
+    if (vm.hasPhoto) Text(if (vm.canEditCollage) "👆 কার্ডের ওপর আঙুল টেনে পুরো কোলাজের পজিশন ঠিক করুন; প্রতিটি ছবি আলাদা সরাতে 🧩 কোলাজ এডিট চাপুন।" else "👆 ছবির ওপর আঙুল টেনে ছবির পজিশন ঠিক করুন, বা ✂️ ক্রপ দিয়ে অংশ কেটে নিন।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
 
     H2("🎨 ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -353,8 +355,23 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
     if (vm.hasPhoto) {
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppBtn("↔️ ফ্লিপ", color = C.Gray, small = true) { vm.flipPhoto() }
+            AppBtn("✂️ ক্রপ", color = C.Blue, small = true) { cropOpen = true }
             AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
         }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (vm.canEditCollage) AppBtn("🧩 কোলাজ এডিট (প্রতিটি ছবি আলাদা)", color = C.Blue, small = true) { collOpen = true }
+            if (vm.canUndoCrop) AppBtn("↩️ ক্রপ ফেরত", color = C.Gray, small = true) { vm.undoCrop() }
+        }
+    }
+
+    if (cropOpen) {
+        val cb = vm.photoForCrop()
+        if (cb == null) cropOpen = false
+        else CropDialog(cb, vm.cropRatio(), onApply = { l, t, r, b -> vm.applyCrop(l, t, r, b); cropOpen = false }, onCancel = { cropOpen = false })
+    }
+    if (collOpen) {
+        if (!vm.canEditCollage) collOpen = false
+        else CollageDialog(vm.collItems, vm.collVertical, onApply = { items, v -> vm.applyCollage(items, v); collOpen = false }, onCancel = { collOpen = false })
     }
 
     AppBtn("নেক্সট →", Modifier.padding(top = 14.dp), color = C.Green) { vm.toStep4() }

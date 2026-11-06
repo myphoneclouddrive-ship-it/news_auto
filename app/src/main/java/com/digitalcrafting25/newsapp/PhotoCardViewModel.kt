@@ -574,6 +574,35 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** ↔️ ছবি ফ্লিপ (ডান-বাম উল্টান) */
     fun flipPhoto() { photo?.let { photo = PostUtil.flipH(it); photoVer++ } }
 
+    // ✂️ ক্রপ: ছবির ০–১ অনুপাতে নেওয়া অংশ কেটে নেয়; আগের ছবি রাখা থাকে, ↩️ দিয়ে ফেরানো যায়
+    private var cropUndo: Bitmap? = null
+    private var cropUndoVer = -1
+    val canUndoCrop: Boolean get() = cropUndo != null && cropUndoVer == photoVer
+    fun photoForCrop(): Bitmap? = photo
+    fun cropRatio(): Float = CardRender.photoBox(tplId).let { it.first / it.second }
+
+    fun applyCrop(l: Float, t: Float, r: Float, b: Float) {
+        val im = photo ?: return
+        val x = (l * im.width).toInt().coerceIn(0, im.width - 1)
+        val y = (t * im.height).toInt().coerceIn(0, im.height - 1)
+        val w = ((r - l) * im.width).toInt().coerceIn(1, im.width - x)
+        val h = ((b - t) * im.height).toInt().coerceIn(1, im.height - y)
+        if (w < 16 || h < 16) { notice = "❌ ক্রপের অংশ খুব ছোট"; return }
+        if (w == im.width && h == im.height) return
+        val out = Bitmap.createBitmap(im, x, y, w, h)
+        cropUndo = im
+        photo = out; fx = 0.5f; fy = 0.5f; notice = null
+        photoVer++
+        cropUndoVer = photoVer
+    }
+
+    fun undoCrop() {
+        val old = cropUndo ?: return
+        if (cropUndoVer != photoVer) return
+        photo = old; cropUndo = null; fx = 0.5f; fy = 0.5f
+        photoVer++
+    }
+
     /** Pictures/NewsPublisher-এ JPEG সেভ; আগেই সেভ হয়ে থাকলে (কিছু না বদলালে) সেটাই ফেরত দেয় */
     suspend fun save(): Uri? = withContext(Dispatchers.IO) {
         savedUri?.let { if (savedSig == sig()) return@withContext it }

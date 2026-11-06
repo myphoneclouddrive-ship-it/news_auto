@@ -67,6 +67,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
     val ocrPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.ocr(uri) }
     var schedOpen by remember { mutableStateOf(false) }
     var confirmPost by remember { mutableStateOf(false) }
+    var cropOpen by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.refreshBalance() }
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
 
@@ -122,11 +123,13 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
                 AppBtn(if (vm.hasPhoto) "📷 ছবি বদলান" else "📷 ছবি বেছে নিন", Modifier.weight(1f), color = C.Blue) { pick() }
                 if (vm.hasPhoto) AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
             }
-            Text(if (vm.hasPhoto) "💡 প্রিভিউতে আঙুল টেনে ছবির অবস্থান ঠিক করুন।" else "ছবি না দিলে নমুনা রঙ দেখাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Text(if (vm.hasPhoto) "💡 প্রিভিউতে আঙুল টেনে ছবির অবস্থান ঠিক করুন, বা ✂️ ক্রপ দিয়ে ছবির অংশ কেটে নিন।" else "ছবি না দিলে নমুনা রঙ দেখাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
 
             if (vm.hasPhoto) {
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppBtn("↔️ ছবি ফ্লিপ (ডান-বাম উল্টান)", color = C.Gray, small = true) { vm.flipPhoto() }
+                    AppBtn("✂️ ক্রপ", color = C.Blue, small = true) { cropOpen = true }
+                    if (vm.canUndoCrop) AppBtn("↩️ ক্রপ ফেরত", color = C.Gray, small = true) { vm.undoCrop() }
                 }
             }
             Text("১টি ছবি দিলে সরাসরি যোগ হবে। একাধিক (সর্বোচ্চ ৬টি) একসাথে বাছলে সব মিলিয়ে একটা কোলাজ ছবি হবে, তারপর টেনে পজিশন ঠিক করা যাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
@@ -282,6 +285,12 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmPost = false }) { Text("বাতিল") } },
         )
         if (schedOpen) SchedulePickDialog(busy = vm.fcBusy, error = vm.fcOut?.takeIf { it.startsWith("❌") }, onConfirm = { at -> vm.schedule(at) { schedOpen = false } }, onDismiss = { schedOpen = false })
+
+        if (cropOpen) {
+            val cb = vm.photoForCrop()
+            if (cb == null) cropOpen = false
+            else CropDialog(cb, vm.cropRatio(), onApply = { l, t, r, b -> vm.applyCrop(l, t, r, b); cropOpen = false }, onCancel = { cropOpen = false })
+        }
 
         if (morning) MorningAutoPanel(vm)
         Box(Modifier.height(24.dp))

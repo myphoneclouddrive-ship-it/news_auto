@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
     private val schedVm: ScheduleViewModel by viewModels()
     private val cardVm: PhotoCardViewModel by viewModels()
     private val newPostVm: NewPostViewModel by viewModels()
+    private val autoVm: AutoPostViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,7 +101,7 @@ class MainActivity : ComponentActivity() {
                 var offMsg by remember { mutableStateOf("") }
                 Box(Modifier.fillMaxSize()) {
                     // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); ইন্টারনেট গেলে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
-                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, newPostVm, !locked)
+                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, newPostVm, autoVm, !locked)
                     if (locked) {
                         OfflineScreen(checking = checking, message = offMsg) {
                             if (checking) return@OfflineScreen
@@ -122,7 +123,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, card: PhotoCardViewModel, np: NewPostViewModel, online: Boolean = true) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, card: PhotoCardViewModel, np: NewPostViewModel, autoVm: AutoPostViewModel, online: Boolean = true) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -164,7 +165,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
                 val tick by Net.refreshTick.collectAsStateWithLifecycle()
@@ -175,7 +176,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                     Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE })
                     Page.CARD -> PhotoCardScreen(card, adsVm)
                     Page.SCHEDULE -> ScheduleScreen(sched)
-                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv)
+                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm)
                 }
                 }
             }
@@ -245,14 +246,12 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
     if (editor) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.padding(14.dp)) { AppBtn("← নতুন পোস্ট", color = C.Gray, onClick = { editor = false }) }
-            Box(Modifier.weight(1f)) { EditorScreen(ev) }
+            Box(Modifier.weight(1f)) { VideoEditorScreen(ev) }
         }
     } else {
         NewPostScreen(np, ads, onOpenVideo = { editor = true }, onScheduled = onScheduled)
     }
 }
-
-private fun fmtMs(ms: Long) = "%d:%02d".format(ms / 60000, (ms / 1000) % 60)
 
 @Composable
 fun Thumb(uri: Uri) {
@@ -278,138 +277,6 @@ fun NumField(label: String, value: Float, modifier: Modifier = Modifier, onChang
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier,
     )
-}
-
-@Composable
-fun EditorScreen(vm: EditorViewModel) {
-    val ctx = LocalContext.current
-    val status by RenderBus.status.collectAsStateWithLifecycle()
-    var error by remember { mutableStateOf<String?>(null) }
-
-    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.addUris(it) }
-    val pickLogo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> if (u != null) vm.logo = u }
-    val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.chooseMusic(u) }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Button(
-            onClick = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("➕ ভিডিও / ছবি যোগ করুন") }
-
-        if (vm.clips.isEmpty()) Text("এখনো কিছু যোগ করা হয়নি। যে ক্রমে যোগ করবেন, সেই ক্রমেই জোড়া লাগবে।")
-
-        vm.clips.forEachIndexed { i, c ->
-            key(c.id) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Thumb(c.uri)
-                            Column(Modifier.weight(1f)) {
-                                Text("${i + 1}. ${c.name}", maxLines = 1)
-                                Text(if (c.isImage) "ছবি" else "ভিডিও · ${fmtMs(c.durationMs)}")
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(onClick = { vm.move(i, -1) }, enabled = i > 0) { Text("⬆️") }
-                            TextButton(onClick = { vm.move(i, 1) }, enabled = i < vm.clips.lastIndex) { Text("⬇️") }
-                            TextButton(onClick = { vm.remove(i) }) { Text("🗑️ মুছুন") }
-                        }
-                        if (c.isImage) {
-                            NumField("কত সেকেন্ড দেখাবে", c.imageSec, Modifier.fillMaxWidth()) { v -> vm.update(c.id) { it.copy(imageSec = v) } }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                NumField("শুরু (সে.)", c.startSec, Modifier.weight(1f)) { v -> vm.update(c.id) { it.copy(startSec = v) } }
-                                NumField("শেষ (সে.) ০=শেষ পর্যন্ত", c.endSec, Modifier.weight(1f)) { v -> vm.update(c.id) { it.copy(endSec = v) } }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Text("ভিডিওর মাপ")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Aspect.values().forEach { a ->
-                FilterChip(selected = vm.aspect == a, onClick = { vm.aspect = a }, label = { Text(a.label) })
-            }
-        }
-
-        OutlinedTextField(
-            value = vm.caption,
-            onValueChange = { vm.caption = it },
-            label = { Text("শিরোনাম (নিচে লাল বারে দেখাবে, ঐচ্ছিক)") },
-            maxLines = 3,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                pickLogo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }) { Text(if (vm.logo == null) "🖼️ লোগো বাছুন" else "🖼️ লোগো বদলান") }
-            if (vm.logo != null) TextButton(onClick = { vm.logo = null }) { Text("লোগো সরান") }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { pickMusic.launch(arrayOf("audio/*")) }) {
-                Text(if (vm.music == null) "🎵 মিউজিক বাছুন" else "🎵 বদলান")
-            }
-            if (vm.music != null) TextButton(onClick = { vm.music = null }) { Text("মিউজিক সরান") }
-        }
-        if (vm.music != null) {
-            Text("মিউজিক: ${vm.musicName}", maxLines = 1)
-            Text("মিউজিকের ভলিউম: ${(vm.musicVolume * 100).toInt()}%")
-            Slider(value = vm.musicVolume, onValueChange = { vm.musicVolume = it })
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Checkbox(checked = vm.keepAudio, onCheckedChange = { vm.keepAudio = it })
-            Text("ভিডিওর আসল সাউন্ড রাখুন", Modifier.padding(top = 12.dp))
-        }
-
-        error?.let { Text("⚠️ $it", color = MaterialTheme.colorScheme.error) }
-
-        when (val s = status) {
-            is RenderStatus.Running -> Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("রেন্ডার হচ্ছে… ${s.progress}%")
-                    LinearProgressIndicator(progress = { s.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("অ্যাপ ব্যাকগ্রাউন্ডে গেলেও চলবে। নোটিফিকেশনে % দেখা যাবে।")
-                    OutlinedButton(onClick = { vm.cancelRender() }) { Text("বাতিল") }
-                }
-            }
-            is RenderStatus.Done -> Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("✅ ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            runCatching {
-                                ctx.startActivity(
-                                    Intent(Intent.ACTION_VIEW).setDataAndType(s.uri, "video/mp4")
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                                )
-                            }
-                        }) { Text("▶️ দেখুন") }
-                        OutlinedButton(onClick = {
-                            val send = Intent(Intent.ACTION_SEND).setType("video/mp4")
-                                .putExtra(Intent.EXTRA_STREAM, s.uri)
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            runCatching { ctx.startActivity(Intent.createChooser(send, "শেয়ার করুন")) }
-                        }) { Text("📤 শেয়ার") }
-                    }
-                }
-            }
-            is RenderStatus.Failed -> Text("❌ ${s.message}", color = MaterialTheme.colorScheme.error)
-            RenderStatus.Idle -> {}
-        }
-
-        Button(
-            onClick = { error = vm.startRender() },
-            enabled = status !is RenderStatus.Running,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("🎬 রেন্ডার শুরু করুন") }
-    }
 }
 
 @Composable

@@ -473,3 +473,80 @@ object Worker {
         j
     }
 }
+
+// ───────────────────────── 🌅 ওয়েবের অটো "শুভ সকাল" প্যানেল (/auto-get, /auto-save, /auto-preview, /auto-now) ─────────────────────────
+
+/** Worker-এ সেভ হওয়া অটো-পোস্ট সেটিং: ওয়েবের autoVals() হুবহু */
+data class AutoCfg(
+    val on: Boolean = false,
+    val time: String = "06:30",
+    val tpl: String = "auto",      // auto | 1..5
+    val siteUrl: String = "",
+    val rashi: Boolean = true,
+)
+
+/** আজকের অটো-পোস্টের অবস্থা (/auto-get-এর run) */
+data class AutoRun(
+    val done: Boolean = false,
+    val ok: Boolean = false,
+    val kind: String = "",
+    val err: String = "",
+    val tries: Int = 0,
+)
+
+data class AutoPreview(
+    val card: String,        // data:image/...;base64,...
+    val title: String,
+    val kind: String,
+    val rashiShown: Boolean,
+    val ai: Boolean,
+    val weather: Boolean,
+)
+
+object AutoApi {
+    private fun cfgJson(c: AutoCfg) = JSONObject()
+        .put("on", c.on).put("time", c.time).put("tpl", c.tpl)
+        .put("siteUrl", c.siteUrl.trim()).put("rashi", c.rashi)
+
+    /** মালিক না হলে Worker ৪০৩ দেয় (ApiError.status == 403) */
+    suspend fun get(ctx: Context): Pair<AutoCfg, AutoRun?> {
+        val d = Worker.post(ctx, "/auto-get", JSONObject(), 20000)
+        val c = d.optJSONObject("cfg") ?: JSONObject()
+        val cfg = AutoCfg(
+            on = c.optBoolean("on", false),
+            time = c.optString("time", "").ifBlank { "06:30" },
+            tpl = c.optString("tpl", "").ifBlank { "auto" },
+            siteUrl = c.optString("siteUrl", ""),
+            rashi = if (c.has("rashi")) c.optBoolean("rashi", true) else true,
+        )
+        val r = d.optJSONObject("run")
+        val run = r?.let {
+            AutoRun(
+                done = it.optBoolean("done", false), ok = it.optBoolean("ok", false),
+                kind = it.optString("kind", ""), err = it.optString("err", ""), tries = it.optInt("tries", 0),
+            )
+        }
+        return cfg to run
+    }
+
+    suspend fun save(ctx: Context, c: AutoCfg) { Worker.post(ctx, "/auto-save", cfgJson(c), 20000) }
+
+    suspend fun preview(ctx: Context, c: AutoCfg): AutoPreview {
+        val d = Worker.post(ctx, "/auto-preview", JSONObject().put("cfg", cfgJson(c)), 120000)
+        val card = d.optString("card", "")
+        if (card.isBlank()) throw ApiError("কার্ড আসেনি")
+        return AutoPreview(
+            card = card, title = d.optString("title", ""), kind = d.optString("kind", ""),
+            rashiShown = (d.optJSONArray("rashi")?.length() ?: 0) > 0,
+            ai = d.optBoolean("ai", false), weather = d.optBoolean("weather", false),
+        )
+    }
+
+    /** আজ আগেই পোস্ট হয়ে থাকলে Worker "আগেই হয়ে গেছে" লেখা ত্রুটি দেয়; তখন again = true দিয়ে আবার ডাকা যায় */
+    suspend fun now(ctx: Context, again: Boolean): Pair<Boolean, String> {
+        val body = JSONObject()
+        if (again) body.put("again", true)
+        val d = Worker.post(ctx, "/auto-now", body, 170000)
+        return d.optBoolean("ok", false) to d.optString("error", "")
+    }
+}

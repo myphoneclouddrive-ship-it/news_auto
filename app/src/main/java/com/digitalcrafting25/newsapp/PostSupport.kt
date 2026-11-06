@@ -75,26 +75,40 @@ object PostUtil {
     /** ছবির সারি: প্রতি সারিতে কয়টা (ওয়েবের LAYOUT) */
     private val LAYOUT = mapOf(2 to listOf(2), 3 to listOf(1, 2), 4 to listOf(2, 2), 5 to listOf(2, 3), 6 to listOf(3, 3))
 
-    /** ২–৬টি ছবি মিলিয়ে ১২০০×১২০০ কোলাজ। ২টি ছবির ক্ষেত্রে [vertical] = উপর-নিচ, নইলে পাশাপাশি */
-    fun collage(imgs: List<Bitmap>, vertical: Boolean = false): Bitmap {
-        val s = 1200
-        val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-        val c = Canvas(out); c.drawColor(Color.WHITE)
-        val rows = if (imgs.size == 2 && vertical) listOf(1, 1) else LAYOUT[imgs.size] ?: listOf(imgs.size)
-        val rh = s.toFloat() / rows.size
-        var idx = 0
-        rows.forEachIndexed { ri, n ->
-            val cw = s.toFloat() / n
-            for (j in 0 until n) {
-                if (idx >= imgs.size) return@forEachIndexed
-                drawCover(c, imgs[idx++], j * cw, ri * rh, cw, rh)
-            }
+    /** কোলাজের একটি ঘরের ছবি: নিজের জুম (১–৪) ও পজিশন (fx, fy = ০–১) আলাদা */
+    data class CollageItem(val bmp: Bitmap, val zoom: Float = 1f, val fx: Float = 0.5f, val fy: Float = 0.5f)
+
+    /** ২–৬টি ছবির ঘরগুলোর মাপ ([s]×[s] ক্যানভাসে)। ২টি ছবির ক্ষেত্রে [vertical] = উপর-নিচ */
+    fun collageCells(n: Int, vertical: Boolean, s: Float = 1200f): List<RectF> {
+        val rows = if (n == 2 && vertical) listOf(1, 1) else LAYOUT[n] ?: listOf(n)
+        val rh = s / rows.size
+        val out = ArrayList<RectF>()
+        rows.forEachIndexed { ri, cnt ->
+            val cw = s / cnt
+            for (j in 0 until cnt) out.add(RectF(j * cw, ri * rh, (j + 1) * cw, (ri + 1) * rh))
         }
         return out
     }
 
-    fun drawCover(c: Canvas, im: Bitmap, x: Float, y: Float, w: Float, h: Float, fx: Float = 0.5f, fy: Float = 0.5f) {
-        val k = maxOf(w / im.width, h / im.height)
+    /** প্রতিটি ছবির আলাদা জুম/পজিশন রেখে কোলাজ ([s]×[s]) */
+    fun collageItems(items: List<CollageItem>, vertical: Boolean = false, s: Int = 1200): Bitmap {
+        val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out); c.drawColor(Color.WHITE)
+        val cells = collageCells(items.size, vertical, s.toFloat())
+        items.forEachIndexed { i, it ->
+            val r = cells.getOrNull(i) ?: return@forEachIndexed
+            drawCover(c, it.bmp, r.left, r.top, r.width(), r.height(), it.fx, it.fy, it.zoom)
+        }
+        return out
+    }
+
+    /** ২–৬টি ছবি মিলিয়ে ১২০০×১২০০ কোলাজ (সব ছবি মাঝখান থেকে, জুম ছাড়া) */
+    fun collage(imgs: List<Bitmap>, vertical: Boolean = false): Bitmap =
+        collageItems(imgs.map { CollageItem(it) }, vertical)
+
+    /** ছবি ঘর ভরে বসায়। [zoom] > ১ হলে আরও বড় করে, [fx]/[fy] দিয়ে কোন অংশ দেখা যাবে ঠিক হয় */
+    fun drawCover(c: Canvas, im: Bitmap, x: Float, y: Float, w: Float, h: Float, fx: Float = 0.5f, fy: Float = 0.5f, zoom: Float = 1f) {
+        val k = maxOf(w / im.width, h / im.height) * zoom.coerceAtLeast(1f)
         val dw = im.width * k; val dh = im.height * k
         c.save(); c.clipRect(x, y, x + w, y + h)
         val l = x + (w - dw) * fx; val t = y + (h - dh) * fy

@@ -49,9 +49,10 @@ object RenderComposer {
                     .setEffects(fit)
                     .build()
             } else {
+                // টাইমলাইনে কাটা টুকরোগুলোর শুরু/শেষ মিলিসেকেন্ডে গোল করা হয়, যাতে জোড়ার জায়গায় ফাঁক/ওভারল্যাপ না হয়
                 val cc = MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs((c.startSec * 1000).toLong())
-                if (c.endSec > c.startSec) cc.setEndPositionMs((c.endSec * 1000).toLong())
+                    .setStartPositionMs(Math.round(c.startSec * 1000.0))
+                if (c.endSec > c.startSec) cc.setEndPositionMs(Math.round(c.endSec * 1000.0))
                 val mi = MediaItem.Builder().setUri(c.uri).setClippingConfiguration(cc.build()).build()
                 EditedMediaItem.Builder(mi)
                     .setRemoveAudio(!spec.keepOriginalAudio)

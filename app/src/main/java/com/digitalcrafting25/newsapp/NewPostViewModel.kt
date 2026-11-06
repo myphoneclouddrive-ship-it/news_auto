@@ -124,7 +124,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         step = 1; src = ""; notes = ""; webNews = false; mTitle = ""; mBody = TextFieldValue(""); showManual = false
         title = ""; body = TextFieldValue(""); cardTitle = ""; category = ""; tag = ""; tplId = "dark"; useAd = true
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
-        photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()
+        photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()
         busy = false; error = null; notice = null; balance = null; pubLink = ""; pubNotes = emptyList()
         loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""
         undo.clear()
@@ -384,11 +384,14 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         photo = b; hasPhoto = true; fx = 0.5f; fy = 0.5f; photoVer++
     }
 
-    fun clearPhoto() { photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++; imgMsg = "" }
+    fun clearPhoto() { collItems = emptyList(); photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++; imgMsg = "" }
 
-    fun flipPhoto() { photo?.let { setPhoto(PostUtil.flipH(it)) } }
+    fun flipPhoto() { photo?.let { collItems = emptyList(); setPhoto(PostUtil.flipH(it)) } }
 
-    private var pickedBmps: List<Bitmap> = emptyList()
+    /** কোলাজের প্রতিটি ছবি নিজের জুম/পজিশনসহ (কোলাজ না হলে ফাঁকা) */
+    var collItems by mutableStateOf<List<PostUtil.CollageItem>>(emptyList())
+        private set
+    val canEditCollage: Boolean get() = collItems.size >= 2
 
     /** গ্যালারি: ১টি হলে সরাসরি, ২–৬টি হলে কোলাজ */
     fun addPhotos(uris: List<Uri>) {
@@ -398,9 +401,13 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val bmps = withContext(Dispatchers.IO) { uris.take(6).mapNotNull { decodeUri(it, 2000) } }
                 if (bmps.isEmpty()) { imgMsg = "⚠️ ছবি খোলা যায়নি"; return@launch }
-                pickedBmps = bmps
-                if (bmps.size == 1) { setPhoto(PostUtil.shrink(bmps[0])); imgMsg = "✅ ছবি যোগ হয়েছে — প্রিভিউতে আঙুল টেনে পজিশন ঠিক করুন" }
-                else { setPhoto(withContext(Dispatchers.Default) { PostUtil.collage(bmps, collVertical) }); imgMsg = "✅ ${PostUtil.bn(bmps.size)}টি ছবির কোলাজ হয়েছে" }
+                if (bmps.size == 1) { collItems = emptyList(); setPhoto(PostUtil.shrink(bmps[0])); imgMsg = "✅ ছবি যোগ হয়েছে — প্রিভিউতে আঙুল টেনে পজিশন ঠিক করুন, বা ✂️ ক্রপ করুন" }
+                else {
+                    val items = bmps.map { PostUtil.CollageItem(it) }
+                    collItems = items
+                    setPhoto(withContext(Dispatchers.Default) { PostUtil.collageItems(items, collVertical) })
+                    imgMsg = "✅ ${PostUtil.bn(bmps.size)}টি ছবির কোলাজ হয়েছে — 🧩 কোলাজ এডিট দিয়ে প্রতিটি ছবি আলাদা সরান/জুম করুন"
+                }
                 imgMode = "upload"
             } catch (e: Exception) { imgMsg = "⚠️ " + (e.message ?: "ছবি যোগ করা যায়নি") }
         }
@@ -410,7 +417,53 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     @JvmName("applyCollVertical")
     fun setCollVertical(v: Boolean) {
         collVertical = v
-        if (pickedBmps.size == 2) viewModelScope.launch { setPhoto(withContext(Dispatchers.Default) { PostUtil.collage(pickedBmps, v) }) }
+        val items = collItems
+        if (items.size == 2) viewModelScope.launch { setPhoto(withContext(Dispatchers.Default) { PostUtil.collageItems(items, v) }) }
+    }
+
+    // ✂️ ক্রপ: ছবির ০–১ অনুপাতে নেওয়া অংশ কেটে নেয়; আগের ছবি রাখা থাকে, ↩️ দিয়ে ফেরানো যায়
+    private var cropUndo: Bitmap? = null
+    private var cropUndoItems: List<PostUtil.CollageItem> = emptyList()
+    private var cropUndoVer = -1
+    val canUndoCrop: Boolean get() = cropUndo != null && cropUndoVer == photoVer
+    fun photoForCrop(): Bitmap? = photo
+    fun cropRatio(): Float = CardRender.photoBox(tplId).let { it.first / it.second }
+
+    fun applyCrop(l: Float, t: Float, r: Float, b: Float) {
+        val im = photo ?: return
+        val x = (l * im.width).toInt().coerceIn(0, im.width - 1)
+        val y = (t * im.height).toInt().coerceIn(0, im.height - 1)
+        val w = ((r - l) * im.width).toInt().coerceIn(1, im.width - x)
+        val h = ((b - t) * im.height).toInt().coerceIn(1, im.height - y)
+        if (w < 16 || h < 16) { notice = "❌ ক্রপের অংশ খুব ছোট"; return }
+        if (w == im.width && h == im.height) return
+        val out = Bitmap.createBitmap(im, x, y, w, h)
+        val oldItems = collItems
+        cropUndo = im; cropUndoItems = oldItems
+        collItems = emptyList()          // ক্রপের পর কোলাজ আর আলাদা করে সরানো যাবে না (↩️ দিলে ফিরবে)
+        notice = null
+        setPhoto(out)
+        cropUndoVer = photoVer
+    }
+
+    fun undoCrop() {
+        val old = cropUndo ?: return
+        if (cropUndoVer != photoVer) return
+        val items = cropUndoItems
+        cropUndo = null; cropUndoItems = emptyList()
+        setPhoto(old)
+        collItems = items
+    }
+
+    // 🧩 কোলাজ এডিট: প্রতিটি ছবির জুম/পজিশন আলাদা রেখে আবার কোলাজ বানানো
+    fun applyCollage(items: List<PostUtil.CollageItem>, vertical: Boolean) {
+        if (items.size < 2) return
+        collItems = items
+        collVertical = vertical
+        viewModelScope.launch {
+            setPhoto(withContext(Dispatchers.Default) { PostUtil.collageItems(items, vertical) })
+            imgMsg = "✅ কোলাজ হালনাগাদ হয়েছে"
+        }
     }
 
     fun fetchLink() {
@@ -421,7 +474,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val d = Worker.post(app, "/fetchimg", JSONObject().put("url", u), 30000)
                 val b = PostUtil.fromDataUrl(d.optString("image")) ?: throw ApiError("ছবি খোলা যায়নি")
-                setPhoto(PostUtil.shrink(b)); pickedBmps = emptyList()
+                setPhoto(PostUtil.shrink(b)); collItems = emptyList()
                 imgMsg = "✅ লিংক থেকে ছবি যোগ হয়েছে"
             } catch (e: Exception) { fail(e) } finally { endBusy() }
         }
@@ -443,7 +496,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (img.length < 500) throw ApiError("Worker ছবি পাঠায়নি। worker_dashboard.js নতুন করে ডিপ্লয় আছে কিনা দেখুন")
                 val b = PostUtil.fromDataUrl(img) ?: throw ApiError("ছবি এসেছে কিন্তু খোলা যায়নি। প্রম্পট একটু বদলে আবার চেষ্টা করুন")
                 if (d.optString("prompt").isNotBlank()) { aiPrompt = d.getString("prompt"); promptEdited = false }
-                setPhoto(PostUtil.shrink(b, 1600, ai = true)); pickedBmps = emptyList()
+                setPhoto(PostUtil.shrink(b, 1600, ai = true)); collItems = emptyList()
                 imgMsg = "✅ AI কার্টুন তৈরি হয়েছে (✓ AI Generated চিহ্নসহ)"
             } catch (e: Exception) { fail(e) } finally { endBusy() }
         }
@@ -460,7 +513,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     suspend fun useReference() {
         loadRef()
         val b = refBmp ?: throw ApiError("খবরের ছবি নেই")
-        setPhoto(PostUtil.shrink(b)); pickedBmps = emptyList()
+        setPhoto(PostUtil.shrink(b)); collItems = emptyList()
         imgMsg = "✅ লিংকের খবরের ছবিই সরাসরি যোগ হয়েছে (কার্টুন বানানো হয়নি)"
     }
 
@@ -571,7 +624,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun wipeAfterPost() {
         src = ""; notes = ""; mTitle = ""; mBody = TextFieldValue(""); title = ""; body = TextFieldValue(""); cardTitle = ""
-        photo = null; hasPhoto = false; pickedBmps = emptyList(); refBmp = null; refUrl = ""; imgMsg = ""; imgUrl = ""; aiPrompt = ""; promptEdited = false
+        photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; refBmp = null; refUrl = ""; imgMsg = ""; imgUrl = ""; aiPrompt = ""; promptEdited = false
         fx = 0.5f; fy = 0.5f; photoVer++; undo.clear(); lastInput = ""; lastNotes = ""
         prefs.edit().remove("draft").apply()
     }
