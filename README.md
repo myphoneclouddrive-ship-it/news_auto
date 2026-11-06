@@ -1,0 +1,20 @@
+# নিউজ পাবলিশার — নেটিভ অ্যান্ড্রয়েড অ্যাপ (Kotlin + Media3 Transformer)
+
+## কী আছে
+- ভিডিও/ছবি জোড়া লাগিয়ে রেন্ডার (ট্রিম, ১৬:৯ / ৯:১৬ / ১:১, লোগো, শিরোনাম-বার, ব্যাকগ্রাউন্ড মিউজিক)
+- ফোনের হার্ডওয়্যার এনকোডারে রেন্ডার, ফোরগ্রাউন্ড সার্ভিসে (নোটিফিকেশনে %)
+- আউটপুট: Movies/NewsPublisher
+- আপডেট ট্যাবে ম্যানুয়াল চেক বাটন + প্রতি ২৪ ঘণ্টায় অটো চেক (GitHub Releases থেকে)
+
+## GitHub-এ সেটআপ (একবারই)
+1. নতুন **Public** repository বানান (কী-স্টোর কোডে নেই, Secrets-এ থাকে, তাই Public নিরাপদ)।
+   Public দরকার কারণ অ্যাপ লগইন ছাড়া GitHub থেকে নতুন ভার্সন খোঁজে।
+2. এই ফোল্ডারের সব ফাইল (লুকানো `.github` সহ) আপলোড করুন। **release.keystore আপলোড করবেন না।**
+3. Settings → Secrets and variables → Actions → New repository secret: চারটা secret দিন
+   (মান SECRETS_SETUP.txt-এ আছে): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`
+4. Actions → Build & Release APK → Run workflow।
+5. শেষ হলে Releases পেজ থেকে `NewsPublisher.apk` নামিয়ে ইন্সটল করুন।
+
+## পরে নতুন ভার্সন দিতে
+কোড বদলে আপলোড (push) করুন বা Run workflow চাপুন। প্রতিবার নিজে নিজে নতুন ভার্সন নম্বর ও Release হবে।
+ইউজারের অ্যাপ দিনে একবার চেক করবে, অথবা আপডেট ট্যাবের বাটনে এখনই।
