@@ -563,6 +563,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    @JvmName("applyCollVertical")
     fun setCollVertical(v: Boolean) {
         collVertical = v
         if (picked.size == 2) viewModelScope.launch {

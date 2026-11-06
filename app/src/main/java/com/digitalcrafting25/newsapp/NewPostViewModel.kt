@@ -228,6 +228,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun fail(e: Throwable) { error = e.message ?: "সমস্যা হয়েছে" }
 
     // ───────── ধাপ ১ → ২: AI দিয়ে লেখা ─────────
+    @JvmName("applyUseOrig")
     fun setUseOrig(v: Boolean) {
         useOrig = v
         prefs.edit().putBoolean("useOrig", v).apply()
@@ -406,6 +407,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** ২টি ছবির সাজানো বদল: পাশাপাশি ↔ উপর-নিচ */
+    @JvmName("applyCollVertical")
     fun setCollVertical(v: Boolean) {
         collVertical = v
         if (pickedBmps.size == 2) viewModelScope.launch { setPhoto(withContext(Dispatchers.Default) { PostUtil.collage(pickedBmps, v) }) }
