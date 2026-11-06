@@ -62,7 +62,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setMusic(u: Uri) {
+    fun chooseMusic(u: Uri) {
         music = u
         musicName = displayName(u)
     }
