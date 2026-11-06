@@ -7,9 +7,7 @@ class NewsApp : Application() {
         super.onCreate()
         Notif.init(this)
         Session.restore(this)   // সংরক্ষিত লগইন ফিরিয়ে আনা
-        // আগের ভার্সনে নামানো পুরনো আপডেট APK মুছে জায়গা খালি করা
-        filesDir.listFiles()?.filter { it.name.startsWith("update-") }?.forEach { it.delete() }
-        // আপডেট ইন্সটল হয়ে গিয়ে থাকলে ডাউনলোড করা APK মুছে ফেলা
-        runCatching { Updater.cleanupInstalled(this) }
+        // ইন্সটল হয়ে যাওয়া আপডেটের APK মুছে ফেলা
+        runCatching { Updater.cleanup(this) }
     }
 }

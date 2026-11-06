@@ -105,16 +105,28 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
     if (upd.showPopup && upd.available != null) {
         val info = upd.available!!
         AlertDialog(
-            onDismissRequest = { uv.dismissPopup() },
+            onDismissRequest = { if (!upd.busy) uv.dismissPopup() },
             title = { Text("🎉 নতুন আপডেট এসেছে") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
                     if (info.notes.isNotBlank()) Text(info.notes)
+                    upd.progress?.let { p ->
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                        Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
+                    }
+                    if (upd.progress == null && upd.message.startsWith("❌")) Text(upd.message)
+                    if (upd.downloaded) Text("ডাউনলোড শেষ। ‘ইন্সটল করুন’ চাপলে ফোন কনফার্মেশন চাইবে, সেখানে ‘Update’ চাপুন।")
                 }
             },
-            confirmButton = { Button(onClick = { uv.startDownload() }) { Text("⬇️ আপডেট") } },
-            dismissButton = { TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
+            confirmButton = {
+                if (upd.downloaded) {
+                    Button(onClick = { uv.installNow() }) { Text("✅ ইন্সটল করুন") }
+                } else {
+                    Button(onClick = { uv.startDownload() }, enabled = !upd.busy) { Text(if (upd.busy) "ডাউনলোড হচ্ছে…" else "⬇️ ডাউনলোড") }
+                }
+            },
+            dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
         )
     }
     var page by rememberSaveable { mutableStateOf(Page.DASH) }
@@ -346,13 +358,20 @@ fun UpdateScreen(vm: UpdateViewModel) {
             Text("🔍 এখনই আপডেট চেক করুন")
         }
         if (st.message.isNotEmpty()) Text(st.message)
+        st.progress?.let { p ->
+            LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+            Text("${(p * 100).toInt()}%")
+        }
         st.available?.let { info ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
                     if (info.notes.isNotBlank()) Text(info.notes)
-                    Button(onClick = { vm.startDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড করুন") }
-                    Text("ডাউনলোড শেষ হলে নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
+                    if (st.downloaded) {
+                        Button(onClick = { vm.installNow() }) { Text("✅ ইন্সটল করুন") }
+                    } else {
+                        Button(onClick = { vm.startDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড") }
+                    }
                 }
             }
         }
