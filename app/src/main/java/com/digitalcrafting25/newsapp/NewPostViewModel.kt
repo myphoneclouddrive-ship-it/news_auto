@@ -323,7 +323,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                     val (t1, t2) = PostUtil.splitText(v)
                     val p1 = JSONObject().put("text", t1).put("split", true)
                     if (n.isNotEmpty()) { p1.put("notes", n); if (webOn) p1.put("web", true) }
-                    d = Worker.postStream(app, "/rewrite", p1, this::procEv, 360000)
+                    d = Worker.postStream(app, "/rewrite", p1, { procEv(it) }, 360000)
                     if (bad(d)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি" + d.optString("error").let { if (it.isNotBlank()) " ($it)" else "" } + "। আবার চেষ্টা করুন।")
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
                     try {
@@ -331,7 +331,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                         val hint = "[নির্দেশ: এটা একটা বড় খবরের দ্বিতীয় অংশ। আগের অংশের শিরোনাম: \"" + d.getString("title") +
                             "\"। আগের অংশে যা বলা হয়েছে তা আবার লিখবেন না, নতুন করে ভূমিকা বা সমাপনী দেবেন না। শুধু নিচের অংশের তথ্য আগের অংশের ধারাবাহিকতায় লিখুন।]\n\n"
                         procEv(JSONObject().put("t", "reset"))
-                        val d2 = Worker.postStream(app, "/rewrite", JSONObject().put("text", hint + t2).put("cont", d.optString("cont_token")), this::procEv, 360000)
+                        val d2 = Worker.postStream(app, "/rewrite", JSONObject().put("text", hint + t2).put("cont", d.optString("cont_token")), { procEv(it) }, 360000)
                         if (bad(d2)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি")
                         text = PostUtil.mergeBodies(text, PostUtil.htmlToEditable(d2.getString("body_html")))
                         if (d2.has("balance")) d.put("balance", d2.getDouble("balance"))
@@ -342,7 +342,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                     val p = JSONObject()
                     if (v.isNotEmpty()) { if (isUrl) p.put("url", v) else p.put("text", v) }
                     if (n.isNotEmpty()) { p.put("notes", n); if (webOn) p.put("web", true) }
-                    d = Worker.postStream(app, "/rewrite", p, this::procEv, 360000)
+                    d = Worker.postStream(app, "/rewrite", p, { procEv(it) }, 360000)
                     if (bad(d)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি" + d.optString("error").let { if (it.isNotBlank()) " ($it)" else "" } + "। Worker-এ সর্বশেষ worker.js ডিপ্লয় আছে কিনা দেখুন।")
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
                 }
