@@ -273,7 +273,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** ফটোকার্ড ↔ বক্তব্য কার্ড; ছবির অবস্থান আর টেমপ্লেট ঐ ধরনের প্রথমটায় ফেরে */
-    fun setMode(m: String) {
+    fun switchMode(m: String) {
         if (m == mode) return
         mode = m; tplId = cardTpls(m).first().first; fx = 0.5f; fy = 0.5f
     }

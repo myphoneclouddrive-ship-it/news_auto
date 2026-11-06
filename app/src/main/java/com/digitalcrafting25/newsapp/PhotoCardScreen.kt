@@ -79,9 +79,9 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
 
         // ধরন: ফটোকার্ড / বক্তব্য কার্ড
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = vm.mode == "photo", onClick = { vm.setMode("photo") }, label = { Text("🖼️ ফটোকার্ড") })
-            FilterChip(selected = vm.mode == "quote", onClick = { vm.setMode("quote") }, label = { Text("💬 বক্তব্য কার্ড") })
-            FilterChip(selected = morning, onClick = { vm.setMode("morning") }, label = { Text("🌅 শুভ সকাল") })
+            FilterChip(selected = vm.mode == "photo", onClick = { vm.switchMode("photo") }, label = { Text("🖼️ ফটোকার্ড") })
+            FilterChip(selected = vm.mode == "quote", onClick = { vm.switchMode("quote") }, label = { Text("💬 বক্তব্য কার্ড") })
+            FilterChip(selected = morning, onClick = { vm.switchMode("morning") }, label = { Text("🌅 শুভ সকাল") })
         }
         if (morning) Text("আজকের বার, বাংলা-ইংরেজি-আরবি তারিখ, সূর্যোদয়-সূর্যাস্ত ও ঢাকার আবহাওয়া নিজে থেকে বসে। চাইলে রাশি লিখুন।", color = C.Label, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
         if (vm.mode == "quote") Text("বক্তব্যের ঘরে বক্তব্য লিখুন, বক্তার নাম ও পদবি দিন, আর ছবিতে বক্তার ছবি দিন।", color = C.Label, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
