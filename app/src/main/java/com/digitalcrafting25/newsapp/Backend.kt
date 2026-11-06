@@ -321,6 +321,70 @@ object Fs {
         )
     }
 
+    /** সেভ করা বিজ্ঞাপন তালিকা + শেষ ব্যবহৃত বিজ্ঞাপনের id (ওয়েবের cfg.ads / cfg.adLast); পুরনো একক ফরম্যাট থাকলে সেটাও তালিকায় নেয় */
+    suspend fun adsCfg(ctx: Context): Pair<List<Ad>, String> {
+        val r = send(ctx, "GET", userUrl() + "/settings/card", null)
+        if (r.code == 404) return emptyList<Ad>() to ""
+        if (r.code !in 200..299) throw fail(r)
+        val d = JSONObject(r.text)
+        fun JSONObject.hex(k: String, dflt: String) = str(k).ifBlank { dflt }
+        val out = ArrayList<Ad>()
+        val arr = d.fld("ads")?.optJSONObject("arrayValue")?.optJSONArray("values")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val f = arr.optJSONObject(i)?.optJSONObject("mapValue")?.optJSONObject("fields") ?: continue
+                val m = JSONObject().put("fields", f)
+                out.add(
+                    Ad(
+                        id = m.str("id").ifBlank { newAdId() },
+                        on = m.fld("on")?.optBoolean("booleanValue") == true,
+                        mode = if (m.str("mode") == "build") "build" else "upload",
+                        img = m.str("img"), logo = m.str("logo"),
+                        t1 = m.str("t1"), t2 = m.str("t2"), t3 = m.str("t3"),
+                        bg1 = m.hex("bg1", "#c2185b"), bg2 = m.hex("bg2", "#8e0e4b"),
+                        c1 = m.hex("c1", "#ffffff"), c2 = m.hex("c2", "#ffd400"),
+                    ),
+                )
+            }
+        }
+        if (out.isEmpty() && (d.str("adImg").isNotBlank() || d.str("adT1").isNotBlank() || d.str("adT2").isNotBlank() || d.str("adT3").isNotBlank())) {
+            out.add(
+                Ad(
+                    id = newAdId(), on = d.fld("adOn")?.optBoolean("booleanValue") == true,
+                    mode = if (d.str("adMode") == "build") "build" else "upload",
+                    img = d.str("adImg"), logo = d.str("adLogo"),
+                    t1 = d.str("adT1"), t2 = d.str("adT2"), t3 = d.str("adT3"),
+                    bg1 = d.hex("adBg1", "#c2185b"), bg2 = d.hex("adBg2", "#8e0e4b"),
+                    c1 = d.hex("adC1", "#ffffff"), c2 = d.hex("adC2", "#ffd400"),
+                ),
+            )
+        }
+        var seen = false   // একাধিক টিক থাকলে প্রথমটা রেখে বাকি বাদ (ওয়েবের মতো)
+        val fixed = out.take(AD_MAX).map { a -> if (a.on && !seen) { seen = true; a } else a.copy(on = false) }
+        return fixed to d.str("adLast")
+    }
+
+    /** শুধু ads, adLast (আর পুরনো একক ফিল্ডগুলো মোছা) বদলায়; বাকি সেটিংস অক্ষত */
+    suspend fun saveAds(ctx: Context, ads: List<Ad>, adLast: String) {
+        fun s(v: String) = JSONObject().put("stringValue", v)
+        val values = JSONArray()
+        for (a in ads) {
+            val f = JSONObject()
+                .put("id", s(a.id)).put("on", JSONObject().put("booleanValue", a.on)).put("mode", s(a.mode))
+                .put("img", s(a.img)).put("logo", s(a.logo))
+                .put("t1", s(a.t1)).put("t2", s(a.t2)).put("t3", s(a.t3))
+                .put("bg1", s(a.bg1)).put("bg2", s(a.bg2)).put("c1", s(a.c1)).put("c2", s(a.c2))
+            values.put(JSONObject().put("mapValue", JSONObject().put("fields", f)))
+        }
+        val arrayValue = JSONObject().put("arrayValue", if (values.length() > 0) JSONObject().put("values", values) else JSONObject())
+        val fields = JSONObject().put("ads", arrayValue).put("adLast", s(adLast))
+            .put("updatedAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val legacy = listOf("adOn", "adMode", "adImg", "adLogo", "adT1", "adT2", "adT3", "adBg1", "adBg2", "adC1", "adC2")
+        val mask = (fields.keys().asSequence().toList() + legacy).joinToString("&") { "updateMask.fieldPaths=$it" }
+        val r = send(ctx, "PATCH", userUrl() + "/settings/card?" + mask, JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
     /** শুধু এই ফিল্ডগুলো বদলায় (updateMask), তাই টেমপ্লেট/বিজ্ঞাপন ইত্যাদি অন্য ফিল্ড অক্ষত থাকে */
     suspend fun saveCardCfg(ctx: Context, c: CardCfg) {
         fun s(v: String) = JSONObject().put("stringValue", v)

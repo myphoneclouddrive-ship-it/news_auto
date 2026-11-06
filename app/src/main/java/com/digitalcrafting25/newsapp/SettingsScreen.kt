@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 
 private enum class SetTab(val label: String) {
     SITE("🏷️ সাইট"),
+    ADS("📢 বিজ্ঞাপন"),
     CONN("🔑 সংযোগ"),
     AI("🤖 AI কী"),
     UPDATE("🔄 আপডেট"),
@@ -50,7 +51,7 @@ private val Amber = Color(0xFFB26A00)
 private class Ask(val text: String, val onYes: () -> Unit)
 
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, uv: UpdateViewModel) {
+fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel) {
     var tab by rememberSaveable { mutableStateOf(SetTab.SITE.name) }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
@@ -85,6 +86,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, uv: UpdateViewMod
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (cur) {
                 SetTab.SITE -> SiteTab(site)
+                SetTab.ADS -> AdsTab(ads)
                 SetTab.CONN -> ConnTab(vm) { ask = it }
                 SetTab.AI -> AiTab(vm) { ask = it }
                 SetTab.UPDATE -> UpdateScreen(uv)
@@ -241,10 +243,6 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             vm.fbMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
         }
 
-        InfoCard {
-            Text("📢 বিজ্ঞাপন ব্যানার", fontWeight = FontWeight.Bold)
-            Small("এটা পরের সাব-ধাপে (২গ) আসছে।", Modifier.padding(top = 4.dp))
-        }
     }
 }
 

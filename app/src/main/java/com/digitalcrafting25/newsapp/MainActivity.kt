@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private val bmVm: BookmarkViewModel by viewModels()
     private val setVm: SettingsViewModel by viewModels()
     private val siteVm: SiteViewModel by viewModels()
+    private val adsVm: AdsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,7 +82,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NewsTheme {
-                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm)
+                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm)
             }
         }
     }
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -104,7 +105,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
@@ -112,7 +113,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                     Page.NEW -> NewPostPlaceholder(ev)
                     Page.CARD -> ComingSoon("🖼️ ফোটোকার্ড", "ফোটোকার্ড তৈরির অংশ পরের ধাপে আসছে।")
                     Page.SCHEDULE -> ComingSoon("⏰ সিডিউল", "অটো পোস্ট ও শিডিউলের অংশ পরের ধাপে আসছে।")
-                    Page.SETTINGS -> SettingsScreen(sv, site, uv)
+                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv)
                 }
             }
             BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
