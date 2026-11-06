@@ -1,5 +1,6 @@
 package com.digitalcrafting25.newsapp
 
+import android.app.TimePickerDialog
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -57,13 +58,14 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
 
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     // লেখা / টেমপ্লেট / ছবি / সাইটের তথ্য বদলালেই প্রিভিউ নতুন করে আঁকা হয়
-    LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }
+    LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.rashi, vm.mnSite, vm.mnVer, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.setPhoto(uri)
     }
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
 
+    val morning = vm.mode == "morning"
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("🖼️ ফোটোকার্ড")
         Text("ছবি ও শিরোনাম দিন, টেমপ্লেট বেছে নিন, তারপর গ্যালারিতে সেভ বা শেয়ার করুন।", color = C.Label, fontSize = 13.sp)
@@ -79,15 +81,17 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = vm.mode == "photo", onClick = { vm.setMode("photo") }, label = { Text("🖼️ ফটোকার্ড") })
             FilterChip(selected = vm.mode == "quote", onClick = { vm.setMode("quote") }, label = { Text("💬 বক্তব্য কার্ড") })
+            FilterChip(selected = morning, onClick = { vm.setMode("morning") }, label = { Text("🌅 শুভ সকাল") })
         }
+        if (morning) Text("আজকের বার, বাংলা-ইংরেজি-আরবি তারিখ, সূর্যোদয়-সূর্যাস্ত ও ঢাকার আবহাওয়া নিজে থেকে বসে। চাইলে রাশি লিখুন।", color = C.Label, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
         if (vm.mode == "quote") Text("বক্তব্যের ঘরে বক্তব্য লিখুন, বক্তার নাম ও পদবি দিন, আর ছবিতে বক্তার ছবি দিন।", color = C.Label, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
 
         // প্রিভিউ
         Box(
             Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId))
                 .clip(RoundedCornerShape(10.dp)).background(Color(0xFFDDDDDD))
-                .pointerInput(vm.hasPhoto) {   // আঙুল টেনে ছবির অবস্থান ঠিক করা
-                    if (vm.hasPhoto) detectDragGestures { change, drag ->
+                .pointerInput(vm.hasPhoto, vm.mode) {   // আঙুল টেনে ছবির অবস্থান ঠিক করা (শুভ সকালে ছবি নেই)
+                    if (vm.hasPhoto && vm.mode != "morning") detectDragGestures { change, drag ->
                         change.consume()
                         val k = CardRender.W / size.width.toFloat()
                         vm.pan(drag.x * k, drag.y * k)
@@ -103,32 +107,39 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             }
         }
 
-        // ছবি
-        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppBtn(if (vm.hasPhoto) "📷 ছবি বদলান" else "📷 ছবি বেছে নিন", Modifier.weight(1f), color = C.Blue) { pick() }
-            if (vm.hasPhoto) AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
-        }
-        Text(if (vm.hasPhoto) "💡 প্রিভিউতে আঙুল টেনে ছবির অবস্থান ঠিক করুন।" else "ছবি না দিলে নমুনা রঙ দেখাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-
-        val quote = vm.mode == "quote"
-        FieldLabel(if (quote) "💬 বক্তব্য" else "📰 শিরোনাম")
-        AppField(vm.title, { vm.title = it }, placeholder = if (quote) "বক্তার কথা লিখুন" else "খবরের শিরোনাম লিখুন", singleLine = false)
-
-        if (quote) {
-            FieldLabel("👤 বক্তার নাম")
-            AppField(vm.name, { vm.name = it }, placeholder = "যেমন: নাহিদ ইসলাম")
-            FieldLabel("🎖️ পদবি")
-            AppField(vm.role, { vm.role = it }, placeholder = "যেমন: আহ্বায়ক, এনসিপি")
+        if (morning) {
+            FieldLabel("🔮 আজ যাদের দিনটি ভালো যাবে (রাশি, কমা দিয়ে — ঐচ্ছিক)")
+            AppField(vm.rashi, { vm.rashi = it }, placeholder = "যেমন: মেষ, সিংহ, ধনু")
+            Text("খালি রাখলে কার্ডে রাশির অংশটা আসবে না। সর্বোচ্চ ৪টা রাশি বসবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         } else {
-            FieldLabel("🏷️ ক্যাটাগরি")
-            AppField(vm.category, { vm.category = it }, placeholder = "যেমন: বাংলাদেশ")
+            // ছবি
+            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppBtn(if (vm.hasPhoto) "📷 ছবি বদলান" else "📷 ছবি বেছে নিন", Modifier.weight(1f), color = C.Blue) { pick() }
+                if (vm.hasPhoto) AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
+            }
+            Text(if (vm.hasPhoto) "💡 প্রিভিউতে আঙুল টেনে ছবির অবস্থান ঠিক করুন।" else "ছবি না দিলে নমুনা রঙ দেখাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
 
-            FieldLabel("📌 ছবির ট্যাগ")
-            AppField(vm.tag, { vm.tag = it }, placeholder = "যেমন: সংগৃহীত (ফাঁকা রাখলে দেখাবে না)")
+            val quote = vm.mode == "quote"
+            FieldLabel(if (quote) "💬 বক্তব্য" else "📰 শিরোনাম")
+            AppField(vm.title, { vm.title = it }, placeholder = if (quote) "বক্তার কথা লিখুন" else "খবরের শিরোনাম লিখুন", singleLine = false)
 
-            FieldLabel("💬 নিচের লেখা (ব্লু নিউজ ও রেড নিউজে)")
-            AppField(vm.cta, { vm.cta = it }, placeholder = "যেমন: বিস্তারিত কমেন্টে")
-            Text("ক্যাটাগরি, ট্যাগ ও এই লেখা শুধু এই কার্ডের জন্য বদলায়; সাইট ট্যাবের ডিফল্ট অক্ষত থাকে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            if (quote) {
+                FieldLabel("👤 বক্তার নাম")
+                AppField(vm.name, { vm.name = it }, placeholder = "যেমন: নাহিদ ইসলাম")
+                FieldLabel("🎖️ পদবি")
+                AppField(vm.role, { vm.role = it }, placeholder = "যেমন: আহ্বায়ক, এনসিপি")
+            } else {
+                FieldLabel("🏷️ ক্যাটাগরি")
+                AppField(vm.category, { vm.category = it }, placeholder = "যেমন: বাংলাদেশ")
+
+                FieldLabel("📌 ছবির ট্যাগ")
+                AppField(vm.tag, { vm.tag = it }, placeholder = "যেমন: সংগৃহীত (ফাঁকা রাখলে দেখাবে না)")
+
+                FieldLabel("💬 নিচের লেখা (ব্লু নিউজ ও রেড নিউজে)")
+                AppField(vm.cta, { vm.cta = it }, placeholder = "যেমন: বিস্তারিত কমেন্টে")
+                Text("ক্যাটাগরি, ট্যাগ ও এই লেখা শুধু এই কার্ডের জন্য বদলায়; সাইট ট্যাবের ডিফল্ট অক্ষত থাকে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+
         }
 
         // বিজ্ঞাপন
@@ -193,6 +204,48 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             }
         }
         vm.notice?.let { Text(it, modifier = Modifier.padding(top = 10.dp), fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Green) }
+
+        if (morning) MorningAutoPanel(vm)
         Box(Modifier.height(24.dp))
     }
+}
+
+/** ⏰ প্রতিদিনের অটো-পোস্ট সেটিং (ওয়েবের শুভ সকাল ট্যাবের ফর্ম) */
+@Composable
+private fun MorningAutoPanel(vm: PhotoCardViewModel) {
+    val ctx = LocalContext.current
+    H2("⏰ প্রতিদিনের অটো-পোস্ট")
+    Text("সময় হলে নিজে থেকে কার্ড বানিয়ে আপনার Facebook পেইজে পোস্ট হবে।", color = C.Label, fontSize = 13.sp)
+
+    FieldLabel("⏰ কখন পোস্ট হবে (বাংলাদেশ সময়)")
+    AppBtn(MnCal.clock(vm.mnTimeMin) + " — বদলান", color = C.Blue) {
+        val t = vm.mnTimeMin
+        TimePickerDialog(ctx, { _, h, m -> vm.setMnTime(h, m) }, t / 60, t % 60, false).show()
+    }
+    Text("সকাল ৬:৩০ থেকে ৮:৩০-এর মধ্যে সময় দিতে পারবেন। এই সময়ের পর পোস্ট হবে (সামান্য দেরি হতে পারে)।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+
+    FieldLabel("🏷️ সাইটের নাম")
+    AppField(vm.mnSite, { vm.mnSite = it }, placeholder = "যেমন: শীর্ষ নিউজ")
+    Text("লোগো না থাকলে কার্ডের নিচের বারে এই নাম বসবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+
+    FieldLabel("📢 ব্যানার")
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        vm.mnChoices.forEach { (v, label) ->
+            FilterChip(selected = vm.mnAd == v, onClick = { vm.mnAd = v }, label = { Text(label) })
+        }
+    }
+    Text("“অটো” বাছলে বিজ্ঞাপন ট্যাবের বিজ্ঞাপনগুলো থেকে প্রতিদিন একটির পর একটি বসবে। চাইলে নির্দিষ্ট একটা বিজ্ঞাপন, বা ব্যানার ছাড়াও বাছতে পারেন।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = vm.mnOn, onCheckedChange = { vm.mnOn = it })
+        Text("✅ এই কার্ড প্রতিদিন আমার Facebook পেইজে পোস্ট হবে", Modifier.clickable { vm.mnOn = !vm.mnOn }.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+    }
+    vm.mnBalance?.let { b ->
+        val t = if (b < 0) "⚠️ ব্যালেন্স মাইনাস (৳" + MnCal.n(b.toInt()) + ")। পোস্ট চলবে, কিন্তু মাইনাস ৭ দিনের বেশি থাকলে বন্ধ হবে। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন।"
+        else if (b < 2) "⚠️ ব্যালেন্স ২ টাকার কম। পোস্ট হবে, ব্যালেন্স মাইনাস হবে (৭ দিনের মধ্যে যোগ করুন)।" else ""
+        if (t.isNotEmpty()) Text(t, color = C.Red, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+
+    AppBtn(if (vm.mnBusy) "⏳ সেভ হচ্ছে…" else "💾 সেভ করুন", Modifier.padding(top = 12.dp), color = C.Green, enabled = !vm.mnBusy) { vm.saveMorning() }
+    vm.mnMsg?.let { Text(it, modifier = Modifier.padding(top = 8.dp), fontSize = 14.sp, color = if (it.startsWith("✅")) C.Green else if (it.startsWith("❌")) C.Red else C.Muted) }
 }

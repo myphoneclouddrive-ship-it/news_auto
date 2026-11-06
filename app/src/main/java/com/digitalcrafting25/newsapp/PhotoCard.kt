@@ -31,6 +31,9 @@ class CardData(
     val fy: Float = 0.5f,
     val name: String = "",   // বক্তব্য কার্ডে বক্তার নাম
     val role: String = "",   // বক্তার পদবি
+    val rashi: String = "",  // শুভ সকাল কার্ডের রাশি (কমা দিয়ে, সর্বোচ্চ ৪টা)
+    val mnBgs: Map<Int, Bitmap> = emptyMap(),   // শুভ সকালের ৫টি ইলাস্ট্রেশন
+    val wx: MnWeather? = null,                  // ঢাকার আজকের আবহাওয়া
 )
 
 /** ধাপ ১: ওয়েবের ৫টি ডিফল্ট ফোটোকার্ড টেমপ্লেট (id to নাম) */
@@ -45,8 +48,12 @@ val CARD_TPLS = listOf(
 /** ধাপ ৩: বক্তব্য কার্ড (১০৮০×১০৮০) */
 val QUOTE_TPLS = listOf("quote1" to "বক্তব্য কার্ড (লাল)")
 
-/** mode: "photo" | "quote" */
-fun cardTpls(mode: String) = if (mode == "quote") QUOTE_TPLS else CARD_TPLS
+/** mode: "photo" | "quote" | "morning" */
+fun cardTpls(mode: String) = when (mode) {
+    "quote" -> QUOTE_TPLS
+    "morning" -> MORNING_TPLS
+    else -> CARD_TPLS
+}
 
 /** ওয়েবের TPL.draw-এর হুবহু হিসাব (১০৮০×১৩৫০). scale দিলে ছোট থাম্বনেইল হয় */
 object CardRender {
@@ -57,7 +64,7 @@ object CardRender {
     fun hOf(id: String) = if (id == "quote1") 1080 else H
     fun aspect(id: String) = W.toFloat() / hOf(id)
 
-    private val FOOT = mapOf("white" to 1270, "red" to 1300, "blue" to 1290)
+    private val FOOT = mapOf("white" to 1270, "red" to 1300, "blue" to 1290) + MN_SPECS.associate { "morning${it.k}" to 1229 }
 
     /** ছবির জায়গার মাপ (টেনে সরানোর হিসাবের জন্য) */
     fun photoBox(id: String): Pair<Float, Float> = when (id) {
@@ -87,7 +94,7 @@ object CardRender {
         val an = 0.5f
         val pb = Bitmap.createBitmap((W * an).toInt(), (sp0 * an).toInt(), Bitmap.Config.ARGB_8888)
         val pc = Canvas(pb); pc.scale(an, an)
-        val rec = CardPainter(pc, d).also { it.skipPhoto = true; it.draw(id) }
+        val rec = CardPainter(pc, d).also { it.skipPhoto = true; if (!isMorningId(id)) it.draw(id) }
         val rects = rec.photoRects.toList()
         var y0 = -1
         if (rects.isNotEmpty()) {
@@ -145,7 +152,7 @@ private class CardPainter(val c: Canvas, val d: CardData) {
             "blue" -> blue()
             "top" -> top()
             "quote1" -> quote1()
-            else -> dark()
+            else -> if (isMorningId(id)) morning(id) else dark()
         }
     }
     private val catDate: String get() = if (d.cat.isBlank()) d.date else d.cat + " | " + d.date
@@ -356,6 +363,164 @@ private class CardPainter(val c: Canvas, val d: CardData) {
         chip(catDate, 0f, 1270f, Color.argb(166, 0, 0, 0), Color.WHITE, 28f)
         if (d.tag.isNotBlank()) chip(d.tag, 1080f, 452f, tagBg, Color.WHITE, 24f, 'r')
         txt(d.url, 1050f, 1310f, Paint.Align.RIGHT, ft, 28f)
+    }
+
+    // ---------- 🌅 শুভ সকাল (ওয়েবের mnDraw-এর হুবহু হিসাব) ----------
+    /** লেখা আঁকে; জায়গা কম পড়লে ফন্ট ছোট হয়; লেখার প্রস্থ ফেরত দেয় (ওয়েবের mnT) */
+    private fun mnT(s: String, x: Float, y: Float, size: Float, col: Int, al: Paint.Align, bold: Boolean, maxW: Float? = null): Float {
+        p.shader = null; p.style = Paint.Style.FILL; face(bold)
+        p.color = col; p.textAlign = al; p.textScaleX = 1f
+        var fs = size; p.textSize = fs
+        if (maxW != null) while (fs > 12f && p.measureText(s) > maxW) { fs -= 1f; p.textSize = fs }
+        val w = p.measureText(s)
+        val fm = p.fontMetrics
+        c.drawText(s, x, y - (fm.ascent + fm.descent) / 2, p)
+        p.textAlign = Paint.Align.LEFT
+        face(true)
+        return w
+    }
+
+    private fun rrect(x: Float, y: Float, w: Float, h: Float, r: Float, col: Int) {
+        p.shader = null; p.style = Paint.Style.FILL; p.color = col
+        c.drawRoundRect(RectF(x, y, x + w, y + h), r, r, p)
+    }
+
+    /** আধখানা সূর্য + দিগন্ত + রশ্মি + ▲/▼ */
+    private fun mnSunIcon(cx: Float, cy: Float, r: Float, col: Int, up: Boolean) {
+        p.shader = null; p.color = col
+        p.style = Paint.Style.FILL
+        c.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), 180f, 180f, true, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.strokeCap = Paint.Cap.ROUND
+        c.drawLine(cx - r - 14, cy + 1, cx + r + 14, cy + 1, p)
+        for (i in 1..5) {
+            val a = Math.PI + i * Math.PI / 6
+            c.drawLine(
+                cx + (Math.cos(a) * (r + 7)).toFloat(), cy + (Math.sin(a) * (r + 7)).toFloat(),
+                cx + (Math.cos(a) * (r + 17)).toFloat(), cy + (Math.sin(a) * (r + 17)).toFloat(), p,
+            )
+        }
+        p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
+        val tri = Path()
+        if (up) { tri.moveTo(cx, cy + 14); tri.lineTo(cx - 8, cy + 27); tri.lineTo(cx + 8, cy + 27) }
+        else { tri.moveTo(cx, cy + 27); tri.lineTo(cx - 8, cy + 14); tri.lineTo(cx + 8, cy + 14) }
+        tri.close()
+        c.drawPath(tri, p)
+    }
+
+    private fun mnCloud(cx: Float, cy: Float, s: Float, col: Int) {
+        p.shader = null; p.style = Paint.Style.FILL; p.color = col
+        c.drawCircle(cx - 0.2f * s, cy + 0.02f * s, 0.18f * s, p)
+        c.drawCircle(cx + 0.02f * s, cy - 0.1f * s, 0.25f * s, p)
+        c.drawCircle(cx + 0.25f * s, cy + 0.04f * s, 0.16f * s, p)
+        c.drawRoundRect(RectF(cx - 0.38f * s, cy, cx - 0.38f * s + 0.79f * s, cy + 0.2f * s), 0.1f * s, 0.1f * s, p)
+    }
+
+    /** আবহাওয়ার আইকন: sun | part | cloud | rain */
+    private fun mnWxIcon(cx: Float, cy: Float, kind: String) {
+        fun sun(x: Float, y: Float, r: Float) {
+            val col = hex("#fbb52c")
+            p.shader = null; p.color = col; p.style = Paint.Style.FILL
+            c.drawCircle(x, y, r, p)
+            p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.strokeCap = Paint.Cap.ROUND
+            for (i in 0 until 8) {
+                val a = i * Math.PI / 4
+                c.drawLine(
+                    x + (Math.cos(a) * (r + 7)).toFloat(), y + (Math.sin(a) * (r + 7)).toFloat(),
+                    x + (Math.cos(a) * (r + 15)).toFloat(), y + (Math.sin(a) * (r + 15)).toFloat(), p,
+                )
+            }
+            p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
+        }
+        when (kind) {
+            "sun" -> sun(cx, cy, 18f)
+            "part" -> { sun(cx - 10, cy - 10, 13f); mnCloud(cx + 6, cy + 8, 56f, hex("#9fb4c4")) }
+            else -> {
+                mnCloud(cx, cy - (if (kind == "rain") 6f else 0f), 62f, hex("#9fb4c4"))
+                if (kind == "rain") {
+                    p.shader = null; p.color = hex("#3d7fd1")
+                    p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.strokeCap = Paint.Cap.ROUND
+                    for (o in intArrayOf(-16, 0, 16)) c.drawLine(cx + o + 3, cy + 14, cx + o - 3, cy + 26, p)
+                    p.style = Paint.Style.FILL; p.strokeCap = Paint.Cap.BUTT
+                }
+            }
+        }
+    }
+
+    /** ওপরে ইলাস্ট্রেশন (১০৮০×৭৩৯), নিচে তথ্যের প্যানেল, একদম নিচে লোগো + ওয়েবসাইট */
+    fun morning(id: String) {
+        val sp = MN_SPECS.firstOrNull { "morning${it.k}" == id } ?: MN_SPECS[0]
+        val ac = hex(sp.ac); val tn = hex(sp.tint); val ln = hex(sp.ln)
+        val yy = 739f
+        val tdy = MnCal.today()
+        val bg = d.mnBgs[sp.k]
+        if (bg != null) { p.shader = null; c.drawBitmap(bg, null, RectF(0f, 0f, 1080f, yy), p) } else rect(0f, 0f, 1080f, yy, ac)
+        rect(0f, yy, 1080f, 611f, Color.WHITE)
+
+        val bl = MnCal.bangla(tdy); val hj = MnCal.hijri(tdy); val se = MnCal.SE[bl.m]
+        // বার + ঋতু
+        mnT(MnCal.WD[MnCal.wd(tdy)], 52f, yy + 52, 56f, ac, Paint.Align.LEFT, true, 560f)
+        p.textSize = 38f; face(true)
+        val sw = p.measureText(se) + 68
+        rrect(1027 - sw, yy + 20, sw, 65f, 32.5f, ac)
+        mnT(se, 1027 - sw / 2, yy + 53, 38f, Color.WHITE, Paint.Align.CENTER, true)
+
+        // বাংলা | ইংরেজি | আরবি তারিখ
+        rrect(40f, yy + 108, 1000f, 140f, 30f, tn)
+        rect(373f, yy + 130, 2f, 98f, ln); rect(707f, yy + 130, 2f, 98f, ln)
+        val cols = ArrayList<List<Any>>()
+        cols.add(listOf(206f, "বাংলা তারিখ", MnCal.n(bl.d) + " " + MnCal.BM[bl.m], MnCal.n(bl.y) + " বঙ্গাব্দ"))
+        cols.add(listOf(540f, "ইংরেজি তারিখ", MnCal.n(tdy.dayOfMonth) + " " + MnCal.EM[tdy.monthValue - 1], MnCal.n(tdy.year) + " খ্রিষ্টাব্দ"))
+        if (hj != null) cols.add(listOf(873f, "আরবি তারিখ", MnCal.n(hj.d) + " " + MnCal.HM[hj.m - 1], MnCal.n(hj.y) + " হিজরি"))
+        cols.forEach { col ->
+            val x = col[0] as Float
+            mnT(col[1] as String, x, yy + 136, 26f, hex("#6b6b6b"), Paint.Align.CENTER, false, 320f)
+            mnT(col[2] as String, x, yy + 181, 40f, hex("#151515"), Paint.Align.CENTER, true, 318f)
+            mnT(col[3] as String, x, yy + 221, 27f, hex("#555555"), Paint.Align.CENTER, false, 318f)
+        }
+
+        // সূর্যোদয় / সূর্যাস্ত
+        listOf(Triple(40f, "সূর্যোদয়", true), Triple(550f, "সূর্যাস্ত", false)).forEach { (x, lb, up) ->
+            rrect(x, yy + 268, 490f, 87f, 26f, tn)
+            mnSunIcon(x + 63, yy + 312, 22f, ac, up)
+            mnT(lb, x + 112, yy + 296, 23f, hex("#6b6b6b"), Paint.Align.LEFT, false, 360f)
+            mnT(MnCal.clock(MnCal.sun(tdy, up)), x + 112, yy + 331, 35f, hex("#151515"), Paint.Align.LEFT, true, 360f)
+        }
+
+        // আজ যাদের দিনটি ভালো যাবে (রাশি) — লিখলে তবেই আসে
+        val rs = d.rashi.split(Regex("[,،、\\s]+")).filter { it.isNotEmpty() }.take(4)
+        if (rs.isNotEmpty()) {
+            mnT("আজ যাদের দিনটি ভালো যাবে", 54f, yy + 389, 30f, hex("#222222"), Paint.Align.LEFT, false, 480f)
+            var x = 54f
+            for (r in rs) {
+                p.textSize = 32f; face(true)
+                val w = p.measureText(r) + 56
+                if (x + w > 535) break
+                rrect(x, yy + 417, w, 58f, 29f, ac)
+                mnT(r, x + w / 2, yy + 447, 32f, Color.WHITE, Paint.Align.CENTER, true)
+                x += w + 20
+            }
+        }
+
+        // ঢাকার আবহাওয়া
+        val w = d.wx
+        if (w != null && w.day == MnCal.iso(tdy)) {
+            val (cond, ic) = MnCal.wx(w.code)
+            rrect(550f, yy + 373, 490f, 107f, 26f, tn)
+            mnWxIcon(607f, yy + 430, ic)
+            mnT("আজকের আবহাওয়া, ঢাকা", 660f, yy + 396, 23f, hex("#6b6b6b"), Paint.Align.LEFT, false, 360f)
+            val tw = mnT(MnCal.n(w.max) + "°সে", 660f, yy + 434, 42f, hex("#111111"), Paint.Align.LEFT, true, 200f)
+            mnT(cond, 660f + tw + 14, yy + 436, 28f, ac, Paint.Align.LEFT, true, 1020f - (660f + tw + 14))
+            mnT(
+                "সর্বনিম্ন " + MnCal.n(w.min) + "°" + (if (w.rain != null) " | বৃষ্টির সম্ভাবনা " + MnCal.n(w.rain) + "%" else ""),
+                660f, yy + 466, 22f, hex("#444444"), Paint.Align.LEFT, false, 365f,
+            )
+        }
+
+        // নিচের বার: লোগো (বা সাইটের নাম) বাঁয়ে, ওয়েবসাইট ডানে
+        rect(0f, 1229f, 1080f, 121f, hex("#f6f6f6")); rect(0f, 1229f, 1080f, 2f, hex("#e2e2e2"))
+        logoSlot(40f, 1241f, 420f, 98f, 'l', listOf("wide", "icon"), hex("#222222"))
+        val site = d.url.replace(Regex("^https?://"), "").trimEnd('/')
+        if (site.isNotBlank()) mnT(site, 1040f, 1291f, 31f, hex("#222222"), Paint.Align.RIGHT, true, 520f)
     }
 
     /** বক্তব্য কার্ড: ছবি বাঁয়ে, লাল প্যানেল ডানে (ওয়েবের quote1) */

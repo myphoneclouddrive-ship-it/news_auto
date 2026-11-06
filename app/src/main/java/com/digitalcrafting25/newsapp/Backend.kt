@@ -168,6 +168,13 @@ data class CardCfg(
     val fiFit: String = "stretch",   // stretch | cover
 )
 
+/** 🌅 শুভ সকালের অটো-পোস্ট সেটিং (ওয়েবের cfg.morningOn / morningTime / morningAd) */
+data class MorningCfg(
+    val on: Boolean? = null,      // null = কখনো সেভ হয়নি
+    val time: String = "06:30",
+    val ad: String = "auto",      // auto | none | বিজ্ঞাপনের id
+)
+
 /** Firestore REST — Rules যেমন ওয়েবে, এখানেও একই (users/<uid>/...) */
 object Fs {
     private const val BASE = "https://firestore.googleapis.com/v1/projects/${Cfg.PROJECT}/databases/(default)/documents"
@@ -409,6 +416,32 @@ object Fs {
             .put("logo", s(c.logo)).put("icon", s(c.icon)).put("iconShape", s(c.iconShape))
             .put("fiMode", s(c.fiMode)).put("fiPreset", s(c.fiPreset))
             .put("fiW", n(c.fiW)).put("fiH", n(c.fiH)).put("fiFit", s(c.fiFit))
+            .put("updatedAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val mask = fields.keys().asSequence().joinToString("&") { "updateMask.fieldPaths=$it" }
+        val r = send(ctx, "PATCH", userUrl() + "/settings/card?" + mask, JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
+    /** শুভ সকালের সময়/চালু-বন্ধ/ব্যানার পছন্দ; ডকুমেন্ট না থাকলে ডিফল্ট */
+    suspend fun morningCfg(ctx: Context): MorningCfg {
+        val r = send(ctx, "GET", userUrl() + "/settings/card", null)
+        if (r.code == 404) return MorningCfg()
+        if (r.code !in 200..299) throw fail(r)
+        val d = JSONObject(r.text)
+        val on = d.fld("morningOn")?.takeIf { it.has("booleanValue") }?.optBoolean("booleanValue")
+        return MorningCfg(
+            on = on,
+            time = d.str("morningTime").ifBlank { "06:30" },
+            ad = d.str("morningAd").ifBlank { "auto" },
+        )
+    }
+
+    /** শুধু morningOn, morningTime, morningAd আর siteName বদলায় (updateMask); বাকি সেটিংস অক্ষত */
+    suspend fun saveMorningCfg(ctx: Context, on: Boolean, time: String, ad: String, siteName: String) {
+        fun s(v: String) = JSONObject().put("stringValue", v)
+        val fields = JSONObject()
+            .put("morningOn", JSONObject().put("booleanValue", on))
+            .put("morningTime", s(time)).put("morningAd", s(ad)).put("siteName", s(siteName))
             .put("updatedAt", JSONObject().put("timestampValue", Instant.now().toString()))
         val mask = fields.keys().asSequence().joinToString("&") { "updateMask.fieldPaths=$it" }
         val r = send(ctx, "PATCH", userUrl() + "/settings/card?" + mask, JSONObject().put("fields", fields).toString())
