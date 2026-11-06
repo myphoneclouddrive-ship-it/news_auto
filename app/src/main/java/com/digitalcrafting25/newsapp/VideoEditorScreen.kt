@@ -152,6 +152,8 @@ fun VideoEditorScreen(vm: EditorViewModel) {
             } else {
                 ClipPanel(tl, sel)
             }
+
+            LayerDock(tl) { m -> error = m; info = null }
         }
 
         Text("ভিডিওর মাপ")
@@ -274,6 +276,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect) {
             contentAlignment = Alignment.Center,
         ) {
             bmp?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            LayerOverlay(tl)
         }
     }
 }
@@ -302,6 +305,7 @@ private fun TimelineStrip(tl: Timeline) {
                         .then(if (selected) Modifier.border(2.dp, C.Red, MaterialTheme.shapes.small) else Modifier)
                         .clickable {
                             tl.selectedId = c.id
+                            tl.selectedLayerId = null
                             val s = tl.startOf(c.id)
                             val e = s + c.lengthMs()
                             if (tl.playheadMs < s || tl.playheadMs >= e) tl.playheadMs = s

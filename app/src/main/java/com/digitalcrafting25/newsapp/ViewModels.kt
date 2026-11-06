@@ -82,7 +82,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (c.endSec != 0f && c.endSec <= c.startSec) return "ক্লিপ ${i + 1}: শেষ সময় শুরুর চেয়ে বেশি দিন (০ = শেষ পর্যন্ত)"
             }
         }
-        RenderBus.spec = RenderSpec(clips.toList(), aspect, caption, logo, music, musicVolume, keepAudio)
+        for (l in tl.visualLayers) LayerDefaults.validate(l)?.let { return it }
+        RenderBus.spec = RenderSpec(clips.toList(), aspect, caption, logo, music, musicVolume, keepAudio, tl.visualLayers)
         RenderBus.status.value = RenderStatus.Running(0)
         ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
         return null

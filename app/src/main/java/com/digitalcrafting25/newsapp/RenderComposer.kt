@@ -76,10 +76,13 @@ object RenderComposer {
             sequences += EditedMediaItemSequence(listOf(mi), true)
         }
 
-        val overlayBmp = makeOverlay(ctx, spec, w, h)
-        val videoFx: List<Effect> = if (overlayBmp != null) {
-            listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(BitmapOverlay.createStaticBitmapOverlay(overlayBmp))))
-        } else emptyList()
+        // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
+        val totalMs = spec.clips.sumOf { it.lengthMs() }
+        val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs }
+        val renderer = LayerFrameRenderer(ctx, w, h, makeOverlay(ctx, spec, w, h), visible)
+        val videoFx: List<Effect> = if (renderer.isEmpty) emptyList() else {
+            listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(LayerFrameOverlay(renderer))))
+        }
 
         return Composition.Builder(sequences)
             .setEffects(Effects(emptyList(), videoFx))

@@ -28,6 +28,7 @@ data class RenderSpec(
     val music: Uri?,
     val musicVolume: Float,
     val keepOriginalAudio: Boolean,
+    val layers: List<Layer> = emptyList(),   // ভিজ্যুয়াল লেয়ার (ধাপ ৪); অডিও লেয়ার ধাপ ৫-এ
 )
 
 sealed interface RenderStatus {

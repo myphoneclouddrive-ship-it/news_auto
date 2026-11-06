@@ -1,5 +1,6 @@
 package com.digitalcrafting25.newsapp
 
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,20 +31,31 @@ fun fmtTime(ms: Long): String {
 class Timeline {
     var clips by mutableStateOf<List<Clip>>(emptyList())
         private set
+    /** ভিডিওর ওপরের লেয়ার (ভিজ্যুয়াল + অডিও); লিস্টের ক্রমই z-order */
+    var layers by mutableStateOf<List<Layer>>(emptyList())
+        private set
     var selectedId by mutableStateOf<Long?>(null)
+    var selectedLayerId by mutableStateOf<Long?>(null)
     var playheadMs by mutableLongStateOf(0L)
     var canUndo by mutableStateOf(false)
         private set
     var canRedo by mutableStateOf(false)
         private set
 
-    private val undoStack = ArrayDeque<List<Clip>>()
-    private val redoStack = ArrayDeque<List<Clip>>()
+    /** আনডু/রিডুর জন্য ক্লিপ + লেয়ারের একসাথে স্ন্যাপশট */
+    private data class Snap(val clips: List<Clip>, val layers: List<Layer>)
+
+    private val undoStack = ArrayDeque<Snap>()
+    private val redoStack = ArrayDeque<Snap>()
     private var nextId = 1L
+    private var lastKey: String? = null
+    private var lastKeyAt = 0L
 
     companion object {
         const val MAX_HISTORY = 60
         const val MIN_PIECE_MS = 300L
+        const val MIN_LAYER_MS = LayerDefaults.MIN_LAYER_MS
+        private const val MERGE_WINDOW_MS = 1000L
     }
 
     fun newId(): Long = nextId++
@@ -55,28 +67,47 @@ class Timeline {
         canRedo = redoStack.isNotEmpty()
         val sel = selectedId
         if (sel != null && clips.none { it.id == sel }) selectedId = null
+        val lsel = selectedLayerId
+        if (lsel != null && layers.none { it.id == lsel }) selectedLayerId = null
         playheadMs = playheadMs.coerceIn(0L, totalMs)
     }
 
-    private fun commit(next: List<Clip>) {
-        undoStack.addLast(clips)
-        while (undoStack.size > MAX_HISTORY) undoStack.removeFirst()
+    /**
+     * নতুন অবস্থা বসায় ও আগের অবস্থা আনডু স্ট্যাকে রাখে।
+     * mergeKey একই থাকলে ১ সেকেন্ডের ভেতরের পরপর বদল একটাই আনডু ধাপ হয় (স্লাইডার টানার সময়)।
+     */
+    private fun commitAll(nextClips: List<Clip>, nextLayers: List<Layer>, mergeKey: String? = null) {
+        val now = System.currentTimeMillis()
+        val merge = mergeKey != null && mergeKey == lastKey && now - lastKeyAt < MERGE_WINDOW_MS && undoStack.isNotEmpty()
+        if (!merge) {
+            undoStack.addLast(Snap(clips, layers))
+            while (undoStack.size > MAX_HISTORY) undoStack.removeFirst()
+        }
         redoStack.clear()
-        clips = next
+        lastKey = mergeKey
+        lastKeyAt = now
+        clips = nextClips
+        layers = nextLayers
         refresh()
     }
 
+    private fun commit(next: List<Clip>) = commitAll(next, layers)
+
     fun undo() {
         val prev = undoStack.removeLastOrNull() ?: return
-        redoStack.addLast(clips)
-        clips = prev
+        redoStack.addLast(Snap(clips, layers))
+        clips = prev.clips
+        layers = prev.layers
+        lastKey = null
         refresh()
     }
 
     fun redo() {
         val next = redoStack.removeLastOrNull() ?: return
-        undoStack.addLast(clips)
-        clips = next
+        undoStack.addLast(Snap(clips, layers))
+        clips = next.clips
+        layers = next.layers
+        lastKey = null
         refresh()
     }
 
@@ -202,5 +233,79 @@ class Timeline {
             return null
         }
         return "প্লেহেড কোনো ক্লিপের ওপর নেই। স্লাইডার টেনে ক্লিপের ভেতরে আনুন"
+    }
+
+    // ================= লেয়ার =================
+
+    val visualLayers: List<Layer> get() = layers.filterNot { it.isAudio }
+    val audioLayers: List<Layer> get() = layers.filter { it.isAudio }
+
+    fun layerById(id: Long?): Layer? = if (id == null) null else layers.firstOrNull { it.id == id }
+
+    /** এই মুহূর্তে (টাইমলাইনের ms) যেসব লেয়ার চালু */
+    fun layersAt(ms: Long): List<Layer> = layers.filter { it.isActiveAt(ms) }
+
+    /**
+     * প্লেহেডের জায়গায় নতুন লেয়ার যোগ করে ও বাছাই করে। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun addLayer(kind: LayerKind, uri: Uri? = null, text: String = ""): String? {
+        val total = totalMs
+        if (total <= 0L) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর লেয়ার দিন"
+        val (s, e) = LayerDefaults.range(kind, playheadMs, total)
+        val layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
+        commitAll(clips, layers + layer)
+        selectedLayerId = layer.id
+        return null
+    }
+
+    /** লেয়ারের মান বদলায়। একই লেয়ারের পরপর বদল (স্লাইডার) একটাই আনডু ধাপ */
+    fun updateLayer(id: Long, f: (Layer) -> Layer) {
+        val i = layers.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val old = layers[i]
+        val upd = f(old)
+        if (upd == old || upd.id != id) return
+        val m = layers.toMutableList()
+        m[i] = upd
+        commitAll(clips, m, "layer:$id")
+    }
+
+    /** লেয়ারের শুরু-শেষ; ভিডিওর ভেতরে থাকতে বাধ্য, কমপক্ষে ০.৩ সেকেন্ড */
+    fun setLayerTime(id: Long, startMs: Long, endMs: Long) {
+        val total = totalMs
+        val s = startMs.coerceIn(0L, (total - MIN_LAYER_MS).coerceAtLeast(0L))
+        val e = endMs.coerceIn(s + MIN_LAYER_MS, maxOf(total, s + MIN_LAYER_MS))
+        updateLayer(id) { it.withTime(s, e) }
+    }
+
+    fun removeLayer(id: Long) {
+        if (layers.none { it.id == id }) return
+        commitAll(clips, layers.filterNot { it.id == id })
+    }
+
+    /** একই গ্রুপের (ভিজ্যুয়াল / অডিও) ভেতরে ওপরে (delta > 0) বা নিচে (delta < 0) সরায় */
+    fun moveLayer(id: Long, delta: Int) {
+        val i = layers.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val audio = layers[i].isAudio
+        val group = layers.indices.filter { layers[it].isAudio == audio }
+        val gj = group.indexOf(i) + delta
+        if (gj !in group.indices) return
+        val j = group[gj]
+        val m = layers.toMutableList()
+        val t = m[i]
+        m[i] = m[j]
+        m[j] = t
+        commitAll(clips, m)
+    }
+
+    fun duplicateLayer(id: Long) {
+        val i = layers.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val copy = layers[i].withId(newId())
+        val m = layers.toMutableList()
+        m.add(i + 1, copy)
+        commitAll(clips, m)
+        selectedLayerId = copy.id
     }
 }
