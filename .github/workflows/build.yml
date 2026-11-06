@@ -1,0 +1,67 @@
+name: Build & Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write   # GitHub Release বানানোর জন্য
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Keystore বানানো (Secrets থেকে)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "::error::KEYSTORE_BASE64 secret সেট করা নেই"; exit 1; fi
+          echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+
+      - name: ভার্সন নম্বর ঠিক করা
+        run: |
+          echo "VC=$((100 + GITHUB_RUN_NUMBER))" >> $GITHUB_ENV
+          echo "VN=2.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+
+      - name: Release APK বিল্ড
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: >
+          gradle assembleRelease --no-daemon
+          -PappVersionCode=$VC
+          -PappVersionName=$VN
+          -PupdateRepo=${{ github.repository }}
+
+      - name: APK প্রস্তুত
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk NewsPublisher.apk
+          echo "SHA=$(sha256sum NewsPublisher.apk | cut -d' ' -f1)" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: news-app-apk
+          path: NewsPublisher.apk
+
+      - name: GitHub Release প্রকাশ (অ্যাপ এখান থেকেই আপডেট নেয়)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VC" NewsPublisher.apk \
+            --target "$GITHUB_SHA" \
+            --title "$VN" \
+            --notes "সংস্করণ $VN
+          sha256: $SHA"
