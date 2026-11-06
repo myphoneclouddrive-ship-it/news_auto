@@ -82,6 +82,14 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false)
     var busyMsg by mutableStateOf("")
     var elapsed by mutableIntStateOf(0)
+    // ওয়েবের #sp প্রসেসিং প্যানেল: বার (%), লাইভ ৩ লাইনের লগ
+    var rewriting by mutableStateOf(false)
+    var procPct by mutableStateOf(0f)
+    var procLines by mutableStateOf<List<String>>(emptyList())
+    private val procRaw = StringBuilder()
+    private var procExpect = 4000
+    private var procCap = 8f
+    private var procLast = 0L
     var error by mutableStateOf<String?>(null)
     var notice by mutableStateOf<String?>(null)
     var balance by mutableStateOf<Double?>(null)
@@ -101,6 +109,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private var email = ""
     private var job: Job? = null
     private var tickJob: Job? = null
+    private var tick2 = false
     private var settling = false
     private var lastInput = ""
     private var lastNotes = ""
@@ -221,10 +230,20 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun startBusy(msg: String) {
         busy = true; busyMsg = msg; elapsed = 0; error = null; notice = null
         tickJob?.cancel()
-        tickJob = viewModelScope.launch { while (true) { delay(1000); elapsed++ } }
+        tickJob = viewModelScope.launch {
+            while (true) {
+                delay(500)
+                if (rewriting) {   // আউটপুট আসতে থাকলে আন্দাজে নয়, আসল অনুপাতে চলে; নইলে ধীরে এগোয়
+                    val ceil = minOf(procCap + 12f, 94f)
+                    val streaming = System.currentTimeMillis() - procLast < 2500
+                    if (!streaming && procPct < ceil) procPct += maxOf(0.08f, (ceil - procPct) * 0.03f)
+                }
+                tick2 = !tick2; if (!tick2) elapsed++
+            }
+        }
     }
 
-    private fun endBusy() { busy = false; tickJob?.cancel() }
+    private fun endBusy() { busy = false; rewriting = false; tickJob?.cancel() }
 
     private fun fail(e: Throwable) { error = e.message ?: "সমস্যা হয়েছে" }
 
@@ -234,6 +253,46 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         useOrig = v
         prefs.edit().putBoolean("useOrig", v).apply()
         if (v && refUrl.isNotBlank() && !busy) viewModelScope.launch { runCatching { useReference() }.onFailure { imgMsg = "⚠️ " + (it.message ?: "") } }
+    }
+
+
+    // ───────── প্রসেসিং বার ও লাইভ লগ (ওয়েবের procStart/procEv/liveLines) ─────────
+    private fun procReset() { procRaw.setLength(0); procExpect = 4000; procCap = 8f; procLast = 0L; procPct = 0f; procSet(2f); procLines = emptyList() }
+    private fun procSet(p: Float) { procCap = maxOf(procCap, p); procPct = maxOf(procPct, minOf(p, 99f)) }
+    private fun procEv(ev: JSONObject) {
+        when (ev.optString("t")) {
+            "log" -> if (ev.has("p")) procSet(ev.optDouble("p").toFloat())
+            "meta" -> if (ev.optInt("expect") > 0) procExpect = ev.optInt("expect")
+            "reset" -> procRaw.setLength(0)
+            "chunk" -> {
+                procRaw.append(ev.optString("d")); procLast = System.currentTimeMillis()
+                procSet(25f + 65f * minOf(1f, procRaw.length.toFloat() / procExpect))
+            }
+        }
+        procLines = liveLines(procRaw.toString())
+    }
+
+    private val liveLab = mapOf(
+        "facts" to "\n📋 তথ্য:\n• ", "people" to "\n👤 ব্যক্তি: ", "title" to "\n📰 শিরোনাম: ",
+        "body_html" to "\n✍️ লেখা:\n", "card_title" to "\n🖼️ কার্ড: ", "image_prompt" to "\n🎨 ছবির বর্ণনা: ",
+    )
+
+    /** AI-র চলমান JSON আউটপুট থেকে পড়ার মতো শেষ ৩ লাইন (অসম্পূর্ণ হলেও) */
+    private fun liveLines(raw: String): List<String> {
+        var s = raw.replace("\\\"", "\u0001")
+        s = s.replace(Regex("\\{\\s*\"id\"\\s*:\\s*\"[^\"]*\"\\s*,\\s*\"title\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"name\"\\s*:\\s*\"([^\"]*)\"\\s*\\}"), "\$1 \$2")
+        s = s.replace(Regex("\\{\\s*\"id\"[^}]*$"), "")
+        s = s.replace(Regex("\\{\\{\\s*p\\d+(?:\\.\\w+)?\\s*\\}\\}"), "\u0002")
+        s = s.replace(Regex("\"(facts|people|title|body_html|card_title|image_prompt)\"\\s*:\\s*[\\[\\s\"]*")) { liveLab[it.groupValues[1]] ?: "" }
+        s = s.replace(Regex("\"\\s*,\\s*\""), "\n• ")
+        s = s.replace(Regex("</(p|li|h3|ul|ol|blockquote)>", RegexOption.IGNORE_CASE), "\n").replace(Regex("<[^>]*>?"), " ")
+        s = s.replace("\\n", " ")
+        s = s.replace(Regex("\\\\u([0-9a-fA-F]{4})")) { it.groupValues[1].toInt(16).toChar().toString() }
+        val blank = Regex("^[•\\s]*$")
+        return s.split("\n").map { l ->
+            l.replace(Regex("[{}\\[\\]]"), " ").replace(Regex("^[\\s\",]+|[\\s\",]+$"), "").replace(Regex("\\s+"), " ")
+                .replace("\u0002", "〔নাম〕").replace("\u0001", "\"").trim()
+        }.filter { it.isNotEmpty() && !blank.matches(it) }.takeLast(3).map { if (it.length > 150) "…" + it.takeLast(150) else it }
     }
 
     private fun bad(d: JSONObject?) = d == null || d.optString("title").isBlank() || d.optString("body_html").isBlank()
@@ -252,6 +311,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun runRewrite(v: String, n: String) {
         lastInput = v; lastNotes = n
         startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
+        rewriting = true; procReset()
         viewModelScope.launch {
             try {
                 val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(v)
@@ -263,14 +323,15 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                     val (t1, t2) = PostUtil.splitText(v)
                     val p1 = JSONObject().put("text", t1).put("split", true)
                     if (n.isNotEmpty()) { p1.put("notes", n); if (webOn) p1.put("web", true) }
-                    d = Worker.post(app, "/rewrite", p1, 360000)
+                    d = Worker.postStream(app, "/rewrite", p1, this::procEv, 360000)
                     if (bad(d)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি" + d.optString("error").let { if (it.isNotBlank()) " ($it)" else "" } + "। আবার চেষ্টা করুন।")
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
                     try {
                         busyMsg = "⏳ দ্বিতীয় অংশ লেখা হচ্ছে..."
                         val hint = "[নির্দেশ: এটা একটা বড় খবরের দ্বিতীয় অংশ। আগের অংশের শিরোনাম: \"" + d.getString("title") +
                             "\"। আগের অংশে যা বলা হয়েছে তা আবার লিখবেন না, নতুন করে ভূমিকা বা সমাপনী দেবেন না। শুধু নিচের অংশের তথ্য আগের অংশের ধারাবাহিকতায় লিখুন।]\n\n"
-                        val d2 = Worker.post(app, "/rewrite", JSONObject().put("text", hint + t2).put("cont", d.optString("cont_token")), 360000)
+                        procEv(JSONObject().put("t", "reset"))
+                        val d2 = Worker.postStream(app, "/rewrite", JSONObject().put("text", hint + t2).put("cont", d.optString("cont_token")), this::procEv, 360000)
                         if (bad(d2)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি")
                         text = PostUtil.mergeBodies(text, PostUtil.htmlToEditable(d2.getString("body_html")))
                         if (d2.has("balance")) d.put("balance", d2.getDouble("balance"))
@@ -281,7 +342,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                     val p = JSONObject()
                     if (v.isNotEmpty()) { if (isUrl) p.put("url", v) else p.put("text", v) }
                     if (n.isNotEmpty()) { p.put("notes", n); if (webOn) p.put("web", true) }
-                    d = Worker.post(app, "/rewrite", p, 360000)
+                    d = Worker.postStream(app, "/rewrite", p, this::procEv, 360000)
                     if (bad(d)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি" + d.optString("error").let { if (it.isNotBlank()) " ($it)" else "" } + "। Worker-এ সর্বশেষ worker.js ডিপ্লয় আছে কিনা দেখুন।")
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
                 }

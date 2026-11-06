@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -148,7 +149,7 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         StepBar(vm.step)
         vm.balance?.let { Text("💰 ব্যালেন্স: ৳ " + PostUtil.bn(it.toInt()), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(bottom = 6.dp)) }
 
-        if (vm.busy) {
+        if (vm.busy && !vm.rewriting) {
             InfoCard(Modifier.padding(bottom = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(color = C.Red, modifier = Modifier.width(28.dp).height(28.dp), strokeWidth = 3.dp)
@@ -162,7 +163,7 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         vm.error?.let { Text("⚠️ $it", color = C.Red, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
         vm.notice?.let { Text(it, color = if (it.startsWith("⚠️")) Color(0xFFB26A00) else C.Green, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
 
-        when (vm.step) {
+        if (vm.rewriting) ProcPanel(vm) else when (vm.step) {
             1 -> Step1(vm, onOpenVideo, onClear = { confirmClear = true })
             2 -> Step2(vm, onNext = { if (vm.title.isBlank() || vm.body.text.isBlank()) vm.error = "শিরোনাম ও বডি লিখুন" else warn = true }, onClear = { confirmClear = true })
             3 -> Step3(vm, onClear = { confirmClear = true })
@@ -199,6 +200,34 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         confirmButton = { TextButton(onClick = { confirmClear = false; vm.clearAll() }) { Text("হ্যাঁ, মুছুন") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("না") } },
     )
+}
+
+/** ওয়েবের #sp: স্পিনার, প্রগ্রেস বার, % / সময়, আর AI-র চলমান আউটপুটের শেষ ৩ লাইন */
+@Composable
+private fun ProcPanel(vm: NewPostViewModel) {
+    val pct by androidx.compose.animation.core.animateFloatAsState(vm.procPct.coerceIn(0f, 100f), androidx.compose.animation.core.tween(500), label = "proc")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator(color = C.Red, trackColor = Color(0xFFEEEEEE), strokeWidth = 5.dp, modifier = Modifier.padding(top = 20.dp, bottom = 14.dp).width(46.dp).height(46.dp))
+        Text("⏳ প্রসেসিং হচ্ছে...", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text("AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।", fontSize = 13.sp, color = C.Label, textAlign = TextAlign.Center)
+        Box(Modifier.padding(top = 16.dp, bottom = 6.dp).widthIn(max = 420.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFFE5E5E5))) {
+            Box(Modifier.fillMaxWidth(pct / 100f).height(10.dp).clip(RoundedCornerShape(6.dp)).background(C.Red))
+        }
+        Row(Modifier.widthIn(max = 420.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(PostUtil.bn(Math.round(pct)) + "%", fontSize = 12.sp, color = C.Label)
+            Text(PostUtil.bn(vm.elapsed) + " সেকেন্ড", fontSize = 12.sp, color = C.Label)
+        }
+        Column(Modifier.padding(top = 12.dp).widthIn(max = 420.dp).fillMaxWidth().heightIn(min = 60.dp)) {
+            val lines = vm.procLines
+            if (lines.isEmpty()) Text("…", fontSize = 13.sp, color = C.Text.copy(alpha = 0.5f))
+            lines.forEachIndexed { i, m ->
+                val last = i == lines.lastIndex
+                Text(m, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(vertical = 2.dp),
+                    fontWeight = if (last) FontWeight.Bold else FontWeight.Normal,
+                    color = C.Text.copy(alpha = if (last) 1f else (0.55f - (lines.size - 2 - i) * 0.15f).coerceIn(0.2f, 1f)))
+            }
+        }
+    }
 }
 
 // ───────── ধাপ ১: খবর (ওয়েবের .sec অ্যাকর্ডিয়ন, হুবহু) ─────────

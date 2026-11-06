@@ -472,6 +472,50 @@ object Worker {
         }
         j
     }
+
+    /** ওয়েবের apiStream: Worker লাইভ ইভেন্ট (log/chunk/reset/meta) পাঠায়, শেষে done। ইভেন্ট onEv-তে আসে */
+    suspend fun postStream(ctx: Context, path: String, data: JSONObject, onEv: (JSONObject) -> Unit, ms: Int = 360000): JSONObject = withContext(Dispatchers.IO) {
+        val payload = JSONObject(data.toString()).put("stream", true).toString()
+        var tok = Session.token(ctx)
+        var retried = false
+        while (true) {
+            val c = URL(Cfg.WORKER + path).openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = ms; c.doOutput = true
+                c.setRequestProperty("Authorization", "Bearer $tok")
+                c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                c.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val code = c.responseCode
+                if (code == 401 && !retried) { retried = true; tok = Session.token(ctx, force = true); continue }
+                val stream = if (code in 200..299) c.inputStream else c.errorStream
+                val br = stream?.bufferedReader(Charsets.UTF_8)
+                if (!(c.contentType ?: "").contains("ndjson")) {
+                    val j = runCatching { JSONObject(br?.readText() ?: "") }.getOrDefault(JSONObject())
+                    if (code !in 200..299) throw ApiError(j.optString("error", "").ifBlank { "সমস্যা হয়েছে" }, code)
+                    return@withContext j
+                }
+                var result: JSONObject? = null
+                if (br != null) while (true) {
+                    val line = br.readLine() ?: break
+                    if (line.isBlank()) continue
+                    val ev = runCatching { JSONObject(line) }.getOrNull() ?: continue
+                    when (ev.optString("t")) {
+                        "log", "chunk", "reset", "meta" -> onEv(ev)
+                        "done" -> result = ev.optJSONObject("data")
+                        "error" -> throw ApiError(ev.optString("error", "").ifBlank { "সমস্যা হয়েছে" })
+                    }
+                }
+                return@withContext result ?: throw ApiError("সংযোগ কেটে গেছে, লেখা পাওয়া যায়নি। টাকা কাটা হয়নি, আবার চেষ্টা করুন")
+            } catch (e: SocketTimeoutException) {
+                throw ApiError("সময় শেষ হয়ে গেছে, আবার চেষ্টা করুন")
+            } catch (e: IOException) {
+                throw ApiError("ইন্টারনেট সংযোগ নেই")
+            } finally {
+                c.disconnect()
+            }
+        }
+        throw ApiError("সমস্যা হয়েছে")
+    }
 }
 
 // ───────────────────────── 🌅 ওয়েবের অটো "শুভ সকাল" প্যানেল (/auto-get, /auto-save, /auto-preview, /auto-now) ─────────────────────────
