@@ -1,6 +1,9 @@
 package com.digitalcrafting25.newsapp
 
+import android.app.DownloadManager
+import android.content.Context
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -14,6 +17,36 @@ data class UpdateInfo(
 )
 
 object Updater {
+    private const val PREFS = "updater"
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** আপডেট APK রাখার গোপন ফোল্ডার: অ্যাপের নিজস্ব এক্সটার্নাল ডিরেক্টরি (ফাইল ম্যানেজারে দেখা যায় না) */
+    fun apkDir(ctx: Context): File? = ctx.getExternalFilesDir("updates")
+
+    /** নতুন ডাউনলোডের আইডি ও ভার্সন মনে রাখে */
+    fun rememberDownload(ctx: Context, id: Long, versionCode: Int) {
+        prefs(ctx).edit().putLong("dlId", id).putInt("dlVersion", versionCode).apply()
+    }
+
+    /** আগের ডাউনলোড (রেকর্ড ও ফাইল) মুছে দেয় */
+    fun removePrevious(ctx: Context, dm: DownloadManager) {
+        val old = prefs(ctx).getLong("dlId", -1L)
+        if (old != -1L) runCatching { dm.remove(old) }
+        apkDir(ctx)?.listFiles()?.forEach { it.delete() }
+        prefs(ctx).edit().remove("dlId").remove("dlVersion").apply()
+    }
+
+    /**
+     * অ্যাপ চালু হলে ডাকুন। যদি ডাউনলোড করা ভার্সন ইন্সটল হয়ে গিয়ে থাকে
+     * (বর্তমান ভার্সন >= ডাউনলোড করা ভার্সন), APK মুছে দেয়।
+     */
+    fun cleanupInstalled(ctx: Context) {
+        val dl = prefs(ctx).getInt("dlVersion", -1)
+        if (dl != -1 && BuildConfig.VERSION_CODE >= dl) {
+            val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            removePrevious(ctx, dm)
+        }
+    }
 
     /** GitHub Releases থেকে সর্বশেষ রিলিজ আনে। রিলিজ না থাকলে null। ব্লকিং — IO থ্রেডে ডাকুন। */
     fun fetchLatest(): UpdateInfo? {

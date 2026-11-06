@@ -173,8 +173,11 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 .setDescription("আপডেট ডাউনলোড হচ্ছে")
                 .setMimeType("application/vnd.android.package-archive")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "news-publisher-${info.versionName}.apk")
-            (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+                .setDestinationInExternalFilesDir(app, "updates", "update-${info.versionCode}.apk")
+            val dm = app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+            Updater.removePrevious(app, dm) // আগের ডাউনলোড থাকলে মুছে ফেলে
+            val id = dm.enqueue(req)
+            Updater.rememberDownload(app, id, info.versionCode)
             _state.update {
                 it.copy(
                     showPopup = false,
