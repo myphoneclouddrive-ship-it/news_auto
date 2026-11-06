@@ -12,6 +12,7 @@ class NewsApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Notif.init(this)
+        Session.restore(this)   // সংরক্ষিত লগইন ফিরিয়ে আনা
         // প্রতিদিন ১ বার অটো আপডেট চেক
         val req = PeriodicWorkRequestBuilder<UpdateWorker>(24, TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

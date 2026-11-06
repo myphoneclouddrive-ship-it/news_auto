@@ -8,6 +8,10 @@ import android.os.Bundle
 import android.util.Size
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,6 +68,9 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private val editorVm: EditorViewModel by viewModels()
     private val updateVm: UpdateViewModel by viewModels()
+    private val authVm: AuthViewModel by viewModels()
+    private val dashVm: DashboardViewModel by viewModels()
+    private val bmVm: BookmarkViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,8 +78,8 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFFC62828))) {
-                Surface(Modifier.fillMaxSize()) { AppRoot(editorVm, updateVm) }
+            NewsTheme {
+                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm)
             }
         }
     }
@@ -82,14 +89,78 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel) {
-    var tab by remember { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("🎬 ভিডিও এডিটর") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("🔄 আপডেট") })
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel) {
+    val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
+    if (!loggedIn) {
+        LoginScreen(auth)
+        return
+    }
+    var page by rememberSaveable { mutableStateOf(Page.DASH) }
+    var navH by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    BackHandler(enabled = page != Page.DASH) { page = Page.DASH }
+
+    Box(Modifier.fillMaxSize().background(C.Bg)) {
+        Column(Modifier.fillMaxSize()) {
+            TopBar(onLogout = { dash.reset(); bm.reset(); auth.logout() })
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (page) {
+                    Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
+                    Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
+                    Page.NEW -> NewPostPlaceholder(ev)
+                    Page.CARD -> ComingSoon("🖼️ ফোটোকার্ড", "ফোটোকার্ড তৈরির অংশ পরের ধাপে আসছে।")
+                    Page.SCHEDULE -> ComingSoon("⏰ সিডিউল", "অটো পোস্ট ও শিডিউলের অংশ পরের ধাপে আসছে।")
+                    Page.SETTINGS -> SettingsPlaceholder(uv)
+                }
+            }
+            BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
         }
-        if (tab == 0) EditorScreen(ev) else UpdateScreen(uv)
+        // গোল ড্যাশবোর্ড বাটন: মেনুর উপরে ভাসে; নিচের কিনারা মেনুর ভেতরে ৩৫dp নিচে
+        if (navH > 0) {
+            val bottomPad = with(density) { navH.toDp() } - 35.dp
+            NavCircle(
+                on = page == Page.DASH,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomPad),
+                onClick = { page = Page.DASH },
+            )
+        }
+    }
+}
+
+@Composable
+fun ComingSoon(title: String, text: String) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
+        H1(title)
+        InfoCard { Text(text) }
+    }
+}
+
+@Composable
+fun NewPostPlaceholder(ev: EditorViewModel) {
+    var editor by remember { mutableStateOf(false) }
+    if (editor) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.padding(14.dp)) { AppBtn("← নতুন পোস্ট", color = C.Gray, onClick = { editor = false }) }
+            Box(Modifier.weight(1f)) { EditorScreen(ev) }
+        }
+    } else {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
+            H1("✍️ নতুন পোস্ট")
+            InfoCard { Text("লিংক/খবর থেকে রিরাইট, ফোটোকার্ড ও পাবলিশের অংশ পরের ধাপে আসছে।") }
+            AppBtn("🎬 ভিডিও এডিটর", modifier = Modifier.padding(top = 10.dp), onClick = { editor = true })
+        }
+    }
+}
+
+@Composable
+fun SettingsPlaceholder(uv: UpdateViewModel) {
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(14.dp)) {
+            H1("⚙️ সেটিংস")
+            InfoCard { Text("AI কী, WordPress/Facebook সংযোগ, লোগো ও বিজ্ঞাপনের সেটিংস পরের ধাপে আসছে।") }
+            H2("🔄 অ্যাপ আপডেট")
+        }
+        Box(Modifier.weight(1f)) { UpdateScreen(uv) }
     }
 }
 

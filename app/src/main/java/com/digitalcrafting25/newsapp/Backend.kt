@@ -1,0 +1,294 @@
+package com.digitalcrafting25.newsapp
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URL
+import java.net.URLEncoder
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+/** পুরোনো ওয়েব অ্যাপের একই Firebase প্রজেক্ট ও Worker — তাই ডেটা, ব্যালেন্স, পোস্ট সব এক */
+object Cfg {
+    const val WORKER = "https://news.mishaurav.workers.dev"
+    const val SITE = "আপনার পোর্টালের নাম"
+    const val API_KEY = "AIzaSyC-OAb_qGwkw_H00cEkJ0CtMIb-WqDRy3M"
+    const val PROJECT = "news-auto-publish-f729b"
+    const val PAY_INFO = "bKash / Nagad (Send Money): 01761767167"
+}
+
+class ApiError(message: String, val status: Int = 0) : Exception(message)
+
+internal data class Resp(val code: Int, val text: String)
+
+internal fun httpCall(
+    method: String,
+    url: String,
+    body: String? = null,
+    headers: Map<String, String> = emptyMap(),
+    contentType: String = "application/json; charset=utf-8",
+    readMs: Int = 30000,
+): Resp {
+    val c = URL(url).openConnection() as HttpURLConnection
+    try {
+        c.requestMethod = method
+        c.connectTimeout = 15000
+        c.readTimeout = readMs
+        for ((k, v) in headers) c.setRequestProperty(k, v)
+        if (body != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", contentType)
+            c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        }
+        val code = c.responseCode
+        val stream = if (code in 200..299) c.inputStream else c.errorStream
+        val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+        return Resp(code, text)
+    } catch (e: SocketTimeoutException) {
+        throw ApiError("সময় শেষ হয়ে গেছে, আবার চেষ্টা করুন")
+    } catch (e: IOException) {
+        throw ApiError("ইন্টারনেট সংযোগ নেই")
+    } finally {
+        c.disconnect()
+    }
+}
+
+/** লগইন সেশন (Firebase Auth REST)। টোকেন ফোনে সংরক্ষিত, মেয়াদ শেষের আগে নিজে রিফ্রেশ হয় — ওয়েবের "লগইন মনে রাখা"র মতো */
+object Session {
+    private const val PREFS = "session"
+    val state = MutableStateFlow(false)
+
+    @Volatile var uid: String? = null
+        private set
+    @Volatile private var idToken = ""
+    @Volatile private var refreshToken = ""
+    @Volatile private var expiresAt = 0L
+    private val lock = Mutex()
+
+    fun restore(ctx: Context) {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        uid = p.getString("uid", null)
+        refreshToken = p.getString("refresh", "") ?: ""
+        idToken = p.getString("id", "") ?: ""
+        expiresAt = p.getLong("exp", 0L)
+        state.value = uid != null && refreshToken.isNotEmpty()
+    }
+
+    private fun persist(ctx: Context) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("uid", uid).putString("refresh", refreshToken)
+            .putString("id", idToken).putLong("exp", expiresAt).apply()
+    }
+
+    fun signOut(ctx: Context) {
+        uid = null; idToken = ""; refreshToken = ""; expiresAt = 0L
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        state.value = false
+    }
+
+    private fun loginError(raw: String): String = when {
+        raw.startsWith("INVALID_LOGIN_CREDENTIALS") || raw.startsWith("EMAIL_NOT_FOUND") || raw.startsWith("INVALID_PASSWORD") -> "ইমেইল বা পাসওয়ার্ড ভুল"
+        raw.startsWith("INVALID_EMAIL") || raw.startsWith("MISSING_EMAIL") -> "ইমেইল ঠিক নয়"
+        raw.startsWith("MISSING_PASSWORD") -> "পাসওয়ার্ড দিন"
+        raw.startsWith("TOO_MANY_ATTEMPTS") -> "অনেকবার ভুল হয়েছে, কিছুক্ষণ পরে চেষ্টা করুন"
+        raw.startsWith("USER_DISABLED") -> "এই অ্যাকাউন্ট বন্ধ করা আছে"
+        else -> "লগইন হয়নি: $raw"
+    }
+
+    suspend fun signIn(ctx: Context, email: String, pass: String) {
+        withContext(Dispatchers.IO) {
+            val body = JSONObject().put("email", email).put("password", pass).put("returnSecureToken", true).toString()
+            val r = httpCall("POST", "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${Cfg.API_KEY}", body)
+            val j = runCatching { JSONObject(r.text) }.getOrDefault(JSONObject())
+            if (r.code !in 200..299) {
+                throw ApiError(loginError(j.optJSONObject("error")?.optString("message").orEmpty()), r.code)
+            }
+            idToken = j.getString("idToken")
+            refreshToken = j.getString("refreshToken")
+            uid = j.getString("localId")
+            expiresAt = System.currentTimeMillis() + (j.optString("expiresIn", "3600").toLongOrNull() ?: 3600L) * 1000
+            persist(ctx)
+        }
+        state.value = true
+    }
+
+    /** বৈধ idToken দেয়; মেয়াদ প্রায় শেষ হলে (বা force হলে) রিফ্রেশ করে */
+    suspend fun token(ctx: Context, force: Boolean = false): String = lock.withLock {
+        if (!force && idToken.isNotEmpty() && System.currentTimeMillis() < expiresAt - 60_000) {
+            idToken
+        } else {
+            if (refreshToken.isEmpty()) throw ApiError("লগইনের মেয়াদ শেষ, আবার লগইন করুন", 401)
+            withContext(Dispatchers.IO) {
+                val form = "grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refreshToken, "UTF-8")
+                val r = httpCall("POST", "https://securetoken.googleapis.com/v1/token?key=${Cfg.API_KEY}", form, contentType = "application/x-www-form-urlencoded")
+                val j = runCatching { JSONObject(r.text) }.getOrDefault(JSONObject())
+                if (r.code in 400..499) {   // রিফ্রেশ টোকেন আর চলে না (পাসওয়ার্ড বদল/অ্যাকাউন্ট বন্ধ ইত্যাদি)
+                    signOut(ctx)
+                    throw ApiError("লগইনের মেয়াদ শেষ, আবার লগইন করুন", 401)
+                }
+                if (r.code !in 200..299) throw ApiError("সংযোগে সমস্যা, আবার চেষ্টা করুন", r.code)
+                idToken = j.getString("id_token")
+                refreshToken = j.optString("refresh_token", refreshToken)
+                expiresAt = System.currentTimeMillis() + (j.optString("expires_in", "3600").toLongOrNull() ?: 3600L) * 1000
+                persist(ctx)
+                idToken
+            }
+        }
+    }
+}
+
+data class PostItem(val title: String, val link: String, val at: Long?, val by: String)
+data class BookmarkItem(val id: String, val url: String, val name: String)
+data class SitePost(val title: String, val link: String)
+
+/** Firestore REST — Rules যেমন ওয়েবে, এখানেও একই (users/<uid>/...) */
+object Fs {
+    private const val BASE = "https://firestore.googleapis.com/v1/projects/${Cfg.PROJECT}/databases/(default)/documents"
+
+    private fun uidOrThrow(): String = Session.uid ?: throw ApiError("লগইন করা নেই", 401)
+
+    private suspend fun send(ctx: Context, method: String, url: String, body: String?): Resp = withContext(Dispatchers.IO) {
+        fun go(t: String) = httpCall(method, url, body, mapOf("Authorization" to "Bearer $t"))
+        var r = go(Session.token(ctx))
+        if (r.code == 401) r = go(Session.token(ctx, force = true))
+        r
+    }
+
+    private fun fail(r: Resp): ApiError {
+        val detail = runCatching {
+            val t = r.text.trim()
+            val o = if (t.startsWith("[")) JSONArray(t).optJSONObject(0) else JSONObject(t)
+            o?.optJSONObject("error")?.optString("message").orEmpty()
+        }.getOrDefault("")
+        val msg = when (r.code) {
+            401 -> "লগইনের মেয়াদ শেষ, আবার লগইন করুন"
+            403 -> "অনুমতি নেই (Firestore Rules ঠিক আছে কিনা দেখুন)"
+            else -> "সার্ভার থেকে সাড়া এসেছে ${r.code}" + if (detail.isNotBlank()) ": $detail" else ""
+        }
+        return ApiError(msg, r.code)
+    }
+
+    private fun JSONObject.fld(k: String): JSONObject? = optJSONObject("fields")?.optJSONObject(k)
+    private fun JSONObject.str(k: String): String = fld(k)?.optString("stringValue").orEmpty()
+    private fun JSONObject.time(k: String): Long? =
+        fld(k)?.optString("timestampValue")?.takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+
+    private fun userUrl(): String = "$BASE/users/${uidOrThrow()}"
+
+    private fun query(coll: String, orderDesc: Boolean = true, limit: Int? = null): JSONObject {
+        val q = JSONObject().put("from", JSONArray().put(JSONObject().put("collectionId", coll)))
+        if (orderDesc) {
+            q.put("orderBy", JSONArray().put(JSONObject().put("field", JSONObject().put("fieldPath", "createdAt")).put("direction", "DESCENDING")))
+        }
+        if (limit != null) q.put("limit", limit)
+        return q
+    }
+
+    private suspend fun runQuery(ctx: Context, q: JSONObject): List<JSONObject> {
+        val r = send(ctx, "POST", userUrl() + ":runQuery", JSONObject().put("structuredQuery", q).toString())
+        if (r.code !in 200..299) throw fail(r)
+        val arr = JSONArray(r.text)
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until arr.length()) arr.optJSONObject(i)?.optJSONObject("document")?.let { out.add(it) }
+        return out
+    }
+
+    /** since = ISO সময় (এর পর থেকে গোনা); null হলে মোট */
+    private suspend fun count(ctx: Context, coll: String, since: Instant?): Int {
+        val q = query(coll, orderDesc = false)
+        if (since != null) {
+            q.put(
+                "where",
+                JSONObject().put(
+                    "fieldFilter",
+                    JSONObject()
+                        .put("field", JSONObject().put("fieldPath", "createdAt"))
+                        .put("op", "GREATER_THAN_OR_EQUAL")
+                        .put("value", JSONObject().put("timestampValue", since.toString())),
+                ),
+            )
+        }
+        val body = JSONObject().put(
+            "structuredAggregationQuery",
+            JSONObject().put("structuredQuery", q)
+                .put("aggregations", JSONArray().put(JSONObject().put("alias", "c").put("count", JSONObject()))),
+        )
+        val r = send(ctx, "POST", userUrl() + ":runAggregationQuery", body.toString())
+        if (r.code !in 200..299) throw fail(r)
+        val v = JSONArray(r.text).optJSONObject(0)?.optJSONObject("result")?.optJSONObject("aggregateFields")?.optJSONObject("c")
+        return v?.optString("integerValue")?.toIntOrNull() ?: 0
+    }
+
+    suspend fun totalPosts(ctx: Context) = count(ctx, "posts", null)
+
+    suspend fun postsSinceToday(ctx: Context): Int {
+        val s = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()
+        return count(ctx, "posts", s)
+    }
+
+    suspend fun postsSinceMonth(ctx: Context): Int {
+        val s = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault()).toInstant()
+        return count(ctx, "posts", s)
+    }
+
+    suspend fun recentPosts(ctx: Context, n: Int = 5): List<PostItem> =
+        runQuery(ctx, query("posts", limit = n)).map { d ->
+            val fb = d.str("fb")
+            PostItem(
+                title = d.str("title"),
+                link = d.str("link").ifBlank { if (fb.isNotBlank()) "https://www.facebook.com/$fb" else "" },
+                at = d.time("createdAt"),
+                by = d.str("by"),
+            )
+        }
+
+    /** সেটিংসের "সাইটের নাম" (users/<uid>/settings/card.siteName) */
+    suspend fun siteName(ctx: Context): String {
+        val r = send(ctx, "GET", userUrl() + "/settings/card", null)
+        if (r.code == 404) return ""
+        if (r.code !in 200..299) throw fail(r)
+        return JSONObject(r.text).str("siteName")
+    }
+
+    suspend fun bookmarks(ctx: Context): List<BookmarkItem> =
+        runQuery(ctx, query("bookmarks")).map { d ->
+            BookmarkItem(id = d.optString("name").substringAfterLast('/'), url = d.str("url"), name = d.str("name"))
+        }
+
+    suspend fun addBookmark(ctx: Context, url: String, name: String) {
+        val fields = JSONObject()
+            .put("url", JSONObject().put("stringValue", url))
+            .put("name", JSONObject().put("stringValue", name))
+            .put("createdAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val r = send(ctx, "POST", userUrl() + "/bookmarks", JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
+    suspend fun deleteBookmark(ctx: Context, id: String) {
+        val r = send(ctx, "DELETE", userUrl() + "/bookmarks/" + URLEncoder.encode(id, "UTF-8"), null)
+        if (r.code !in 200..299) throw fail(r)
+    }
+}
+
+/** Cloudflare Worker কল — ওয়েবের api() ফাংশনের মতোই (Bearer = Firebase idToken) */
+object Worker {
+    suspend fun post(ctx: Context, path: String, data: JSONObject = JSONObject(), ms: Int = 180000): JSONObject = withContext(Dispatchers.IO) {
+        fun go(t: String) = httpCall("POST", Cfg.WORKER + path, data.toString(), mapOf("Authorization" to "Bearer $t"), readMs = ms)
+        var r = go(Session.token(ctx))
+        if (r.code == 401) r = go(Session.token(ctx, force = true))
+        val j = runCatching { JSONObject(r.text) }.getOrDefault(JSONObject())
+        if (r.code !in 200..299) {
+            throw ApiError(j.optString("error", "").ifBlank { "সমস্যা হয়েছে" }, r.code)
+        }
+        j
+    }
+}
