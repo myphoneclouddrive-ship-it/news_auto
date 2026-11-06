@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,6 +70,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -81,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private val siteVm: SiteViewModel by viewModels()
     private val adsVm: AdsViewModel by viewModels()
     private val schedVm: ScheduleViewModel by viewModels()
+    private val cardVm: PhotoCardViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,11 +92,25 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NewsTheme {
-                val online by Net.online.collectAsStateWithLifecycle()
+                val locked by Net.locked.collectAsStateWithLifecycle()
+                val ctx = LocalContext.current
+                val scope = rememberCoroutineScope()
+                var checking by remember { mutableStateOf(false) }
+                var offMsg by remember { mutableStateOf("") }
                 Box(Modifier.fillMaxSize()) {
-                    // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); অফলাইনে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
-                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, online)
-                    if (!online) OfflineScreen()
+                    // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); ইন্টারনেট গেলে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
+                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, !locked)
+                    if (locked) {
+                        OfflineScreen(checking = checking, message = offMsg) {
+                            if (checking) return@OfflineScreen
+                            checking = true; offMsg = ""
+                            scope.launch {
+                                val ok = try { Net.verify(ctx) } catch (e: Exception) { false }
+                                if (!ok) offMsg = "এখনো ইন্টারনেট পাওয়া যায়নি। সংযোগ ঠিক করে আবার চেক করুন।"
+                                checking = false
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -104,7 +121,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, online: Boolean = true) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, card: PhotoCardViewModel, online: Boolean = true) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -146,15 +163,19 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
+                val tick by Net.refreshTick.collectAsStateWithLifecycle()
+                key(if (page == Page.NEW) 0 else tick) {
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
                     Page.NEW -> NewPostPlaceholder(ev)
-                    Page.CARD -> ComingSoon("🖼️ ফোটোকার্ড", "ফোটোকার্ড তৈরির অংশ পরের ধাপে আসছে।")
+                    Page.CARD -> PhotoCardScreen(card, adsVm)
                     Page.SCHEDULE -> ScheduleScreen(sched)
                     Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv)
+                }
                 }
             }
             BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
@@ -171,9 +192,9 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
     }
 }
 
-/** ইন্টারনেট না থাকলে হোম/লগইন সবকিছুর ওপরে এই ওয়ার্নিং দেখায়; সংযোগ ফিরলে নিজে থেকেই সরে যায় */
+/** ইন্টারনেট না থাকলে হোম/লগইন সবকিছুর ওপরে এই ওয়ার্নিং দেখায়; সংযোগ ফিরলে "চেক করুন" চাপলে তবেই সরে যায় */
 @Composable
-fun OfflineScreen() {
+fun OfflineScreen(checking: Boolean, message: String, onCheck: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -191,10 +212,20 @@ fun OfflineScreen() {
             modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
         )
         Text(
-            "সংযোগ ফিরলে নিজে থেকেই খুলবে।",
+            "সংযোগ ফিরলে নিচের বাটন চেপে চেক করুন।",
             fontSize = 15.sp,
             color = Color(0xFF666666),
             textAlign = TextAlign.Center,
+        )
+        if (message.isNotEmpty()) {
+            Text(
+                "⚠️ $message", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+        AppBtn(
+            if (checking) "চেক হচ্ছে..." else "🔄 চেক করুন", enabled = !checking,
+            modifier = Modifier.padding(top = 20.dp), onClick = onCheck,
         )
     }
 }
