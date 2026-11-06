@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
     private val setVm: SettingsViewModel by viewModels()
     private val siteVm: SiteViewModel by viewModels()
     private val adsVm: AdsViewModel by viewModels()
+    private val schedVm: ScheduleViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 val online by Net.online.collectAsStateWithLifecycle()
                 Box(Modifier.fillMaxSize()) {
                     // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); অফলাইনে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
-                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, online)
+                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, online)
                     if (!online) OfflineScreen()
                 }
             }
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, online: Boolean = true) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, online: Boolean = true) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -145,14 +146,14 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
                     Page.NEW -> NewPostPlaceholder(ev)
                     Page.CARD -> ComingSoon("🖼️ ফোটোকার্ড", "ফোটোকার্ড তৈরির অংশ পরের ধাপে আসছে।")
-                    Page.SCHEDULE -> ComingSoon("⏰ সিডিউল", "অটো পোস্ট ও শিডিউলের অংশ পরের ধাপে আসছে।")
+                    Page.SCHEDULE -> ScheduleScreen(sched)
                     Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv)
                 }
             }

@@ -269,6 +269,20 @@ object Fs {
             )
         }
 
+    /**
+     * সিডিউল হয়ে যাওয়া পোস্ট ড্যাশবোর্ডের হিসাবে তোলা (ওয়েবের setDoc(posts/<সিডিউল id>))।
+     * ডকুমেন্টের id = সিডিউল id, তাই একই পোস্ট দুবার গোনা হয় না।
+     */
+    suspend fun savePost(ctx: Context, id: String, title: String, link: String, fb: String, by: String, atMs: Long) {
+        fun s(v: String) = JSONObject().put("stringValue", v)
+        val fields = JSONObject()
+            .put("title", s(title)).put("link", s(link)).put("fb", s(fb)).put("by", s(by))
+            .put("scheduled", JSONObject().put("booleanValue", true))
+            .put("createdAt", JSONObject().put("timestampValue", Instant.ofEpochMilli(atMs).toString()))
+        val r = send(ctx, "PATCH", userUrl() + "/posts/" + URLEncoder.encode(id, "UTF-8"), JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
     /** সেটিংসের "সাইটের নাম" (users/<uid>/settings/card.siteName) */
     suspend fun siteName(ctx: Context): String {
         val r = send(ctx, "GET", userUrl() + "/settings/card", null)

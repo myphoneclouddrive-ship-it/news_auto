@@ -100,6 +100,8 @@ class DashboardViewModel(private val app: Application) : AndroidViewModel(app) {
                 } catch (_: Exception) {
                 }
             }
+            // সিডিউল হয়ে যাওয়া পোস্ট আগে হিসাবে তুলে নেওয়া (ওয়েবের syncSchedules → loadDash), তারপর গোনা
+            SchedSync.quiet(app)
             try {
                 coroutineScope {
                     val total = async { Fs.totalPosts(app) }
