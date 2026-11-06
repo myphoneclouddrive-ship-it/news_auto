@@ -63,6 +63,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,7 +88,12 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NewsTheme {
-                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm)
+                val online by Net.online.collectAsStateWithLifecycle()
+                Box(Modifier.fillMaxSize()) {
+                    // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); অফলাইনে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
+                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, online)
+                    if (!online) OfflineScreen()
+                }
             }
         }
     }
@@ -94,14 +103,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, online: Boolean = true) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
         return
     }
     val upd by uv.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { uv.autoCheck() }
+    LaunchedEffect(online) { if (online) uv.autoCheck() }
     if (upd.showPopup && upd.available != null) {
         val info = upd.available!!
         AlertDialog(
@@ -158,6 +167,34 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                 onClick = { page = Page.DASH },
             )
         }
+    }
+}
+
+/** ইন্টারনেট না থাকলে হোম/লগইন সবকিছুর ওপরে এই ওয়ার্নিং দেখায়; সংযোগ ফিরলে নিজে থেকেই সরে যায় */
+@Composable
+fun OfflineScreen() {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF4F5F7))
+            .pointerInput(Unit) { detectTapGestures { } } // নিচের স্ক্রিনে ট্যাপ যেতে দেয় না
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("📡", fontSize = 56.sp)
+        Text(
+            "ইন্টারনেট সংযোগ নেই",
+            fontSize = 20.sp,
+            color = Color(0xFF222222),
+            modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
+        )
+        Text(
+            "সংযোগ ফিরলে নিজে থেকেই খুলবে।",
+            fontSize = 15.sp,
+            color = Color(0xFF666666),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
