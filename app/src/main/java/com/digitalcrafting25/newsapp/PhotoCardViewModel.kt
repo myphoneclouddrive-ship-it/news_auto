@@ -125,6 +125,8 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         mnBgs = emptyMap(); weather = null; mnOwner = false; mnLoaded = false; mnVer++
         ads = emptyList(); adLast = ""; adBmp = null; nextAdId = ""; nextAdLabel = ""; savedSig = ""
         photo = null; hasPhoto = false; preview = null; thumbs = emptyMap(); savedUri = null
+        link = ""; balance = null; fcBusy = false; fcOut = null; aiMsg = ""; aiPrompt = ""; aiBusy = false; ocrMsg = ""; ocrText = ""; ocrBusy = false
+        used = false; paid = false; sid = PostUtil.newSid(); picked = emptyList(); collVertical = false
         cfg = CardCfg(); logoBmp = null; iconBmp = null
         photoVer++
     }
@@ -377,6 +379,199 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
             preview = pv; thumbs = th
         }
     }
+
+    // ───────── ওয়েবের বাকি ফোটোকার্ড ফিচার: Facebook-এ পোস্ট, সিডিউল, ১ টাকার হিসাব, AI ছবি, লেখা জেনারেট, ছবি থেকে লেখা, কোলাজ, ফ্লিপ ─────────
+    var link by mutableStateOf("")            // কমেন্টে "বিস্তারিত পড়ুন: লিংক" যায় (ঐচ্ছিক)
+    var balance by mutableStateOf<Double?>(null)
+    var fcBusy by mutableStateOf(false)
+    var fcOut by mutableStateOf<String?>(null)
+    var used by mutableStateOf(false)         // পোস্ট/সিডিউল হয়ে গেছে; "ক্লিয়ার" না চাপা পর্যন্ত আবার নয় (ওয়েবের fcUsed)
+    var aiOpen by mutableStateOf(false)
+    var aiPrompt by mutableStateOf("")
+    var aiBusy by mutableStateOf(false)
+    var aiMsg by mutableStateOf("")
+    var ocrMsg by mutableStateOf("")
+    var ocrText by mutableStateOf("")
+    var ocrBusy by mutableStateOf(false)
+    var collVertical by mutableStateOf(false)
+    private var sid = PostUtil.newSid()       // একটা কার্ডের জন্য মোট ১ টাকা: একই sid-এ আর কাটে না
+    private var paid = false
+    private var email = ""
+    private var picked: List<Bitmap> = emptyList()
+
+    fun refreshBalance() {
+        viewModelScope.launch {
+            runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let { balance = it.optDouble("balance", 0.0) }
+        }
+    }
+
+    private fun postTitle() = if (mode == "morning") "শুভ সকাল" else title.trim()
+
+    /** ওয়েবের fcCheck: কিছু বাদ পড়লে কারণ ফেরত দেয় */
+    fun problem(skipLink: Boolean = false): String? {
+        if (mode != "morning" && title.isBlank()) return if (mode == "quote") "বক্তব্য লিখুন" else "ফোটোকার্ড টাইটেল লিখুন"
+        if (mode != "morning" && !hasPhoto) return "ছবি আপলোড করুন"
+        if (!skipLink && mode == "photo" && link.isNotBlank() && !Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(link.trim()))
+            return "লিংকটি http:// বা https:// দিয়ে শুরু হতে হবে"
+        return null
+    }
+
+    private suspend fun cardDataUrl(): String = withContext(Dispatchers.Default) {
+        PostUtil.toDataUrl(CardRender.render(tplId, data(), 1f, adNow()), 92)
+    }
+
+    private suspend fun afterUse(usedAd: Boolean) {
+        val cur = nextAd(ads, adLast)
+        if (usedAd && cur != null) {
+            adLast = cur.id
+            rebuildAd()
+            runCatching { Fs.saveAds(app, ads, adLast) }.onFailure { notice = "⚠️ বিজ্ঞাপনের ক্রম সেভ হয়নি: " + (it.message ?: "") }
+            adTick++
+        }
+    }
+    var adTick by mutableIntStateOf(0)        // পোস্টের পর বিজ্ঞাপনের "পরেরটা" বদলালে স্ক্রিন বিজ্ঞাপন ট্যাব রিফ্রেশ করে
+
+    private suspend fun ensureEmail() {
+        if (email.isBlank()) email = runCatching { Worker.post(app, "/whoami", JSONObject(), 15000).optString("email") }.getOrDefault("")
+    }
+
+    private fun task(block: suspend () -> Unit) {
+        if (fcBusy) return
+        fcBusy = true; fcOut = null
+        viewModelScope.launch {
+            try { block() } catch (e: Exception) { fcOut = "❌ " + (e.message ?: "সমস্যা হয়েছে") } finally { fcBusy = false }
+        }
+    }
+
+    /** 📘 এখনই Facebook পেইজে ফোটোকার্ড পোস্ট (লিংক দিলে কমেন্টে যায়) */
+    fun postNow() = task {
+        problem()?.let { throw ApiError(it) }
+        val usedAd = adNow() != null
+        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("sid", sid)
+        val d = Worker.post(app, "/photocard", body, 90000)
+        paid = true; used = true
+        if (d.has("balance")) balance = d.optDouble("balance")
+        afterUse(usedAd)
+        val fb = d.optString("facebook_post")
+        val head = if (link.isNotBlank()) {
+            if (d.optBoolean("comment_ok")) "✅ ফোটোকার্ড পোস্ট হয়েছে আর কমেন্টে লিংক দেওয়া হয়েছে। "
+            else "⚠️ ফোটোকার্ড পোস্ট হয়েছে, কিন্তু কমেন্টে লিংক যায়নি (" + d.optString("comment_error").ifBlank { "কারণ অজানা" } + ")। হাতে কমেন্ট করুন। "
+        } else "✅ ফোটোকার্ড পোস্ট হয়েছে। "
+        fcOut = head + if (fb.isNotBlank()) "https://www.facebook.com/$fb" else ""
+        ensureEmail()
+        runCatching { Fs.addPost(app, postTitle(), link.trim(), fb, email) }.onFailure { fcOut += "\nপোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: " + (it.message ?: "") }
+    }
+
+    /** ⏰ সিডিউল পোস্ট: Worker নিজেই সময়মতো পোস্ট করে (অ্যাপ বন্ধ থাকলেও) */
+    fun schedule(atMs: Long, onDone: () -> Unit) = task {
+        problem()?.let { throw ApiError(it) }
+        if (atMs < System.currentTimeMillis() + 60000) throw ApiError("অন্তত ১ মিনিট পরের সময় দিন")
+        val usedAd = adNow() != null
+        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("at", atMs).put("sid", sid)
+        val d = Worker.post(app, "/schedule", body, 60000)
+        paid = true; used = true
+        if (d.has("balance")) balance = d.optDouble("balance")
+        afterUse(usedAd)
+        fcOut = "✅ সিডিউল হয়েছে (সিডিউল ট্যাবে দেখুন)।"
+        onDone()
+    }
+
+    /** সেভ/শেয়ারের আগে: এই কার্ডের ১ টাকা কাটা (একবারই, একই sid-এ)। ব্যর্থ হলে false */
+    suspend fun chargeSave(): Boolean {
+        problem(skipLink = true)?.let { notice = "❌ $it"; return false }
+        if (paid) return true
+        return try {
+            val d = Worker.post(app, "/card-save", JSONObject().put("sid", sid), 30000)
+            paid = true
+            if (d.has("balance")) balance = d.optDouble("balance")
+            true
+        } catch (e: Exception) { notice = "❌ " + (e.message ?: "সমস্যা হয়েছে"); false }
+    }
+
+    /** 🧹 ক্লিয়ার (নতুন করে শুরু): সব খালি, নতুন সেশন */
+    fun clearAll() {
+        title = ""; name = ""; role = ""; rashi = ""; link = ""; photo = null; hasPhoto = false; picked = emptyList()
+        fx = 0.5f; fy = 0.5f; photoVer++; savedUri = null; savedSig = ""
+        sid = PostUtil.newSid(); paid = false; used = false; fcOut = null; notice = null
+        aiMsg = ""; aiPrompt = ""; ocrMsg = ""; ocrText = ""
+        if (mode == "photo") { category = cfg.category; tag = cfg.photoTag; cta = cfg.ctaText }
+    }
+
+    /** ✨ AI দিয়ে ছবি তৈরী (বাংলাদেশের প্রেক্ষাপট, বাস্তব ধাঁচ); ছবির ট্যাগে "AI জেনারেটেড" বসে */
+    fun aiImage() {
+        val p = aiPrompt.trim()
+        if (p.isEmpty()) { aiMsg = "⚠️ আগে প্রম্পট লিখুন (কেমন ছবি চান)"; return }
+        aiBusy = true; aiMsg = "🎨 ছবি বানাচ্ছি... (১০-৩০ সেকেন্ড লাগতে পারে)"
+        viewModelScope.launch {
+            try {
+                val d = Worker.post(app, "/image", JSONObject().put("prompt", p).put("style", "real"), 90000)
+                val img = d.optString("image")
+                if (img.length < 500) throw ApiError("Worker ছবি পাঠায়নি। worker_dashboard.js নতুন করে ডিপ্লয় করেছেন কি না দেখুন, তারপর আবার চেষ্টা করুন")
+                val b = PostUtil.fromDataUrl(img) ?: throw ApiError("ছবি এসেছে কিন্তু খোলা যায়নি। প্রম্পট একটু বদলে আবার চেষ্টা করুন")
+                photo = PostUtil.shrink(b, 1600); hasPhoto = true; fx = 0.5f; fy = 0.5f; picked = emptyList()
+                tag = PostUtil.AI_TAG; photoVer++
+                if (d.optString("prompt").isNotBlank()) aiPrompt = d.getString("prompt")
+                aiMsg = "✅ ছবি তৈরি হয়েছে, ছবির ট্যাগে \"AI জেনারেটেড\" বসেছে। পছন্দ না হলে আবার \"ছবি বানাও\" চাপুন।"
+            } catch (e: Exception) { aiMsg = "⚠️ " + (e.message ?: "ছবি বানানো যায়নি") } finally { aiBusy = false }
+        }
+    }
+
+    /** ✨ জেনারেট: লেখা টাইটেলের ভিত্তিতে AI নতুন টাইটেল লেখে (ওয়েবে ১ টাকা, সফল হলে) */
+    fun genTitle() {
+        val src = title.trim()
+        if (mode != "photo") return
+        if (src.isEmpty()) { fcOut = "❌ আগে ফোটোকার্ড টাইটেলে কিছু লিখুন, তারপর জেনারেট চাপুন"; return }
+        task {
+            val d = Worker.post(app, "/title-gen", JSONObject().put("title", src).put("kind", "title"), 60000)
+            d.optString("title").takeIf { it.isNotBlank() }?.let { title = it }
+            if (d.has("balance")) balance = d.optDouble("balance")
+        }
+    }
+
+    /** 🖼️ ছবি থেকে লেখা (বক্তব্য কার্ড): ছবির ভেতরের বাংলা/ইংরেজি লেখা পড়ে বক্তব্য, নাম, পদবির ঘরে বসায় */
+    fun ocr(uri: Uri) {
+        ocrBusy = true; ocrText = ""; ocrMsg = "⏳ ছবি থেকে লেখা পড়া হচ্ছে..."
+        viewModelScope.launch {
+            try {
+                val bmp = withContext(Dispatchers.IO) { decodePhoto(uri) } ?: throw ApiError("ছবিটা খোলা যায়নি")
+                val img = withContext(Dispatchers.Default) { PostUtil.toDataUrl(PostUtil.shrink(bmp, 2000), 85) }
+                val d = Worker.post(app, "/ocr-text", JSONObject().put("image", img), 70000)
+                ocrText = d.optString("text")
+                if (ocrText.isBlank()) ocrMsg = "⚠️ ছবিতে পড়ার মতো কোনো লেখা পাওয়া যায়নি"
+                else {
+                    val filled = ArrayList<String>()
+                    d.optString("quote").takeIf { it.isNotBlank() }?.let { title = it; filled.add("বক্তব্য") }
+                    d.optString("name").takeIf { it.isNotBlank() }?.let { name = it; filled.add("নাম") }
+                    d.optString("role").takeIf { it.isNotBlank() }?.let { role = it; filled.add("পদবি") }
+                    ocrMsg = "✅ লেখা পাওয়া গেছে। " + if (filled.isNotEmpty()) filled.joinToString(", ") + " ওপরের ঘরে বসে গেছে।" else ""
+                }
+                if (d.has("balance")) balance = d.optDouble("balance")
+            } catch (e: Exception) { ocrMsg = "⚠️ " + (e.message ?: "লেখা পড়া যায়নি") + " — আবার চেষ্টা করুন" } finally { ocrBusy = false }
+        }
+    }
+
+    /** গ্যালারি: ১টি হলে সরাসরি, ২–৬টি হলে কোলাজ */
+    fun setPhotos(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (uris.size == 1) { setPhoto(uris[0]); return }
+        viewModelScope.launch {
+            val bmps = withContext(Dispatchers.IO) { uris.take(6).mapNotNull { decodePhoto(it) } }
+            if (bmps.isEmpty()) { notice = "❌ ছবিটা খোলা যায়নি"; return@launch }
+            picked = bmps
+            photo = withContext(Dispatchers.Default) { PostUtil.collage(bmps, collVertical) }
+            hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f; photoVer++
+        }
+    }
+
+    fun setCollVertical(v: Boolean) {
+        collVertical = v
+        if (picked.size == 2) viewModelScope.launch {
+            photo = withContext(Dispatchers.Default) { PostUtil.collage(picked, v) }; photoVer++
+        }
+    }
+
+    /** ↔️ ছবি ফ্লিপ (ডান-বাম উল্টান) */
+    fun flipPhoto() { photo?.let { photo = PostUtil.flipH(it); photoVer++ } }
 
     /** Pictures/NewsPublisher-এ JPEG সেভ; আগেই সেভ হয়ে থাকলে (কিছু না বদলালে) সেটাই ফেরত দেয় */
     suspend fun save(): Uri? = withContext(Dispatchers.IO) {

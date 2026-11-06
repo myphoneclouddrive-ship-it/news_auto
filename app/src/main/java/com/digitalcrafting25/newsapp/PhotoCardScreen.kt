@@ -60,10 +60,15 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
     // লেখা / টেমপ্লেট / ছবি / সাইটের তথ্য বদলালেই প্রিভিউ নতুন করে আঁকা হয়
     LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.rashi, vm.mnSite, vm.mnVer, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.setPhoto(uri)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { uris ->
+        if (uris.isNotEmpty()) vm.setPhotos(uris)
     }
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    val ocrPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.ocr(uri) }
+    var schedOpen by remember { mutableStateOf(false) }
+    var confirmPost by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { vm.refreshBalance() }
+    LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
 
     val morning = vm.mode == "morning"
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
@@ -119,9 +124,54 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             }
             Text(if (vm.hasPhoto) "💡 প্রিভিউতে আঙুল টেনে ছবির অবস্থান ঠিক করুন।" else "ছবি না দিলে নমুনা রঙ দেখাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
 
+            if (vm.hasPhoto) {
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppBtn("↔️ ছবি ফ্লিপ (ডান-বাম উল্টান)", color = C.Gray, small = true) { vm.flipPhoto() }
+                }
+            }
+            Text("১টি ছবি দিলে সরাসরি যোগ হবে। একাধিক (সর্বোচ্চ ৬টি) একসাথে বাছলে সব মিলিয়ে একটা কোলাজ ছবি হবে, তারপর টেনে পজিশন ঠিক করা যাবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !vm.collVertical, onClick = { vm.setCollVertical(false) }, label = { Text("◀️▶️ পাশাপাশি") })
+                FilterChip(selected = vm.collVertical, onClick = { vm.setCollVertical(true) }, label = { Text("⬆️⬇️ উপর-নিচ") })
+            }
+            Text("দুইটা ছবির সাজানো (যেকোনো সময় বদলানো যাবে)", color = C.Muted, fontSize = 12.sp)
+
+            // ✨ AI দিয়ে ছবি তৈরী
+            AppBtn(if (vm.aiOpen) "▲ AI ছবি বন্ধ করুন" else "✨ ছবি তৈরী করুন (AI)", Modifier.padding(top = 8.dp), color = C.Blue) { vm.aiOpen = !vm.aiOpen }
+            if (vm.aiOpen) {
+                InfoCard(Modifier.padding(top = 8.dp)) {
+                    Text("কেমন ছবি চান? (প্রম্পট লিখুন)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    AppField(vm.aiPrompt, { vm.aiPrompt = it }, placeholder = "যেমন: ঢাকার রাস্তায় বন্যার পানিতে রিকশা", singleLine = false, modifier = Modifier.padding(top = 6.dp))
+                    Text("বাংলাদেশের প্রেক্ষাপটে বাস্তব ছবির ধাঁচে ছবি হবে (কার্টুন নয়)। ছবির ট্যাগে \"AI জেনারেটেড\" লেখা বসবে। ছবি পছন্দ না হলে আবার চাপুন।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppBtn(if (vm.aiBusy) "⏳ বানাচ্ছি…" else "🎨 ছবি বানাও", Modifier.weight(1f), enabled = !vm.aiBusy) { vm.aiImage() }
+                        AppBtn("বন্ধ করুন", color = C.Gray, small = true) { vm.aiOpen = false }
+                    }
+                    if (vm.aiMsg.isNotEmpty()) Text(vm.aiMsg, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp), color = if (vm.aiMsg.startsWith("⚠️")) C.Red else C.Green)
+                }
+            }
+
             val quote = vm.mode == "quote"
+            if (quote) {
+                AppBtn(if (vm.ocrBusy) "⏳ পড়া হচ্ছে…" else "🖼️ ছবি থেকে লেখা", Modifier.padding(top = 8.dp), color = C.Blue, enabled = !vm.ocrBusy) {
+                    ocrPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+                if (vm.ocrMsg.isNotEmpty()) Text(vm.ocrMsg, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp), color = if (vm.ocrMsg.startsWith("⚠️")) C.Red else C.Green)
+                if (vm.ocrText.isNotBlank()) {
+                    FieldLabel("📋 ছবি থেকে পাওয়া পুরো লেখা")
+                    AppField(vm.ocrText, { vm.ocrText = it }, singleLine = false)
+                    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppBtn("📋 কপি", color = C.Gray, small = true) {
+                            (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                .setPrimaryClip(android.content.ClipData.newPlainText("ocr", vm.ocrText))
+                        }
+                        AppBtn("✖ বন্ধ", color = C.Gray, small = true) { vm.ocrText = ""; vm.ocrMsg = "" }
+                    }
+                }
+            }
             FieldLabel(if (quote) "💬 বক্তব্য" else "📰 শিরোনাম")
             AppField(vm.title, { vm.title = it }, placeholder = if (quote) "বক্তার কথা লিখুন" else "খবরের শিরোনাম লিখুন", singleLine = false)
+            if (!quote) AppBtn("✨ জেনারেট (AI টাইটেল, ৳১)", Modifier.padding(top = 6.dp), color = C.Blue, enabled = !vm.fcBusy) { vm.genTitle() }
 
             if (quote) {
                 FieldLabel("👤 বক্তার নাম")
@@ -138,6 +188,9 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
                 FieldLabel("💬 নিচের লেখা (ব্লু নিউজ ও রেড নিউজে)")
                 AppField(vm.cta, { vm.cta = it }, placeholder = "যেমন: বিস্তারিত কমেন্টে")
                 Text("ক্যাটাগরি, ট্যাগ ও এই লেখা শুধু এই কার্ডের জন্য বদলায়; সাইট ট্যাবের ডিফল্ট অক্ষত থাকে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                FieldLabel("🔗 লিংক (ঐচ্ছিক)")
+                AppField(vm.link, { vm.link = it }, placeholder = "https://...", keyboard = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri))
+                Text("লিংক দিলে Facebook পোস্টের কমেন্টে \"বিস্তারিত পড়ুন: লিংক\" যাবে। না দিলে কমেন্ট হবে না, শুধু ফোটোকার্ড পোস্ট হবে।", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             }
 
         }
@@ -183,6 +236,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             AppBtn(if (working) "⏳ অপেক্ষা করুন…" else "💾 গ্যালারিতে সেভ করুন", color = C.Green, enabled = !working && vm.preview != null) {
                 working = true
                 scope.launch {
+                    if (!vm.chargeSave()) { working = false; return@launch }
                     val uri = vm.save()
                     ads.load(force = true)   // বিজ্ঞাপন ট্যাবেও "পরেরটা" নতুন করে দেখাবে
                     vm.notice = if (uri != null) "✅ সেভ হয়েছে (Pictures/NewsPublisher)" else "❌ সেভ করা যায়নি"
@@ -192,6 +246,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
             AppBtn("📤 শেয়ার করুন", color = C.Blue, enabled = !working && vm.preview != null) {
                 working = true
                 scope.launch {
+                    if (!vm.chargeSave()) { working = false; return@launch }
                     val uri = vm.save()
                     ads.load(force = true)
                     working = false
@@ -203,7 +258,30 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel) {
                 }
             }
         }
+        // Facebook-এ পোস্ট / সিডিউল (শুধু Facebook পেইজ, WordPress-এ কিছু যায় না)
+        if (!morning) {
+            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppBtn(if (vm.fcBusy) "⏳ অপেক্ষা করুন…" else "📘 এখনই Facebook-এ পোস্ট", color = C.Green, enabled = !vm.fcBusy && !vm.used && vm.preview != null) {
+                    vm.problem()?.let { vm.fcOut = "❌ $it" } ?: run { confirmPost = true }
+                }
+                AppBtn("⏰ সিডিউল পোস্ট", color = C.Blue, enabled = !vm.fcBusy && !vm.used && vm.preview != null) {
+                    vm.problem()?.let { vm.fcOut = "❌ $it" } ?: run { schedOpen = true }
+                }
+                AppBtn("🧹 ক্লিয়ার (নতুন করে শুরু)", color = C.Gray) { vm.clearAll() }
+            }
+            Text("এখান থেকে শুধু Facebook পেইজে ফোটোকার্ড পোস্ট হবে। একটা কার্ডের জন্য মোট ৳১ কাটে (পোস্ট, সিডিউল বা সেভ — যেটা আগে হয়, একবারই)।" +
+                (vm.balance?.let { " ব্যালেন্স: ৳" + PostUtil.bn(it.toInt()) } ?: ""), color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            vm.fcOut?.let { Text(it, modifier = Modifier.padding(top = 8.dp), fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else if (it.startsWith("⚠️")) Color(0xFFB26A00) else C.Green) }
+        }
         vm.notice?.let { Text(it, modifier = Modifier.padding(top = 10.dp), fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Green) }
+        if (confirmPost) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmPost = false },
+            title = { Text("📘 Facebook-এ পোস্ট") },
+            text = { Text("Facebook পেইজে এখনই ফোটোকার্ড পোস্ট করবেন? (ওয়াটারমার্ক ছাড়া যাবে)" + if (vm.link.isNotBlank()) "\nকমেন্টে লিংকও যাবে।" else "") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmPost = false; vm.postNow() }) { Text("✅ পোস্ট করুন") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmPost = false }) { Text("বাতিল") } },
+        )
+        if (schedOpen) SchedulePickDialog(busy = vm.fcBusy, error = vm.fcOut?.takeIf { it.startsWith("❌") }, onConfirm = { at -> vm.schedule(at) { schedOpen = false } }, onDismiss = { schedOpen = false })
 
         if (morning) MorningAutoPanel(vm)
         Box(Modifier.height(24.dp))

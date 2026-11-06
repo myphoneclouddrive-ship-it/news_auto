@@ -290,6 +290,17 @@ object Fs {
         if (r.code !in 200..299) throw fail(r)
     }
 
+    /** পাবলিশ/ফোটোকার্ড পোস্ট হলে ড্যাশবোর্ডের হিসাবে যোগ (ওয়েবের addDoc(ucol('posts'), ...)) */
+    suspend fun addPost(ctx: Context, title: String, link: String, fb: String, by: String) {
+        fun s(v: String) = JSONObject().put("stringValue", v)
+        val fields = JSONObject()
+            .put("title", s(title)).put("link", s(link)).put("fb", s(fb)).put("by", s(by))
+            .put("createdAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val id = java.util.UUID.randomUUID().toString().replace("-", "").take(20)
+        val r = send(ctx, "PATCH", userUrl() + "/posts/" + id, JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
     /** সেটিংসের "সাইটের নাম" (users/<uid>/settings/card.siteName) */
     suspend fun siteName(ctx: Context): String {
         val r = send(ctx, "GET", userUrl() + "/settings/card", null)

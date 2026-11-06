@@ -55,7 +55,7 @@ fun leftText(ms: Long): String {
     ).joinToString(" ")
 }
 
-private fun pickDateTime(ctx: Context, initial: Long, onPicked: (Long) -> Unit) {
+internal fun pickDateTime(ctx: Context, initial: Long, onPicked: (Long) -> Unit) {
     val c = Calendar.getInstance().apply { timeInMillis = initial }
     DatePickerDialog(
         ctx,

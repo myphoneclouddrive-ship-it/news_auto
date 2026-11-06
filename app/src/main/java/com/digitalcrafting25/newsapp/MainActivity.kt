@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
     private val adsVm: AdsViewModel by viewModels()
     private val schedVm: ScheduleViewModel by viewModels()
     private val cardVm: PhotoCardViewModel by viewModels()
+    private val newPostVm: NewPostViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,7 +100,7 @@ class MainActivity : ComponentActivity() {
                 var offMsg by remember { mutableStateOf("") }
                 Box(Modifier.fillMaxSize()) {
                     // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); ইন্টারনেট গেলে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
-                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, !locked)
+                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, newPostVm, !locked)
                     if (locked) {
                         OfflineScreen(checking = checking, message = offMsg) {
                             if (checking) return@OfflineScreen
@@ -121,7 +122,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, card: PhotoCardViewModel, online: Boolean = true) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel, site: SiteViewModel, adsVm: AdsViewModel, sched: ScheduleViewModel, card: PhotoCardViewModel, np: NewPostViewModel, online: Boolean = true) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -163,7 +164,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
                 val tick by Net.refreshTick.collectAsStateWithLifecycle()
@@ -171,7 +172,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
-                    Page.NEW -> NewPostPlaceholder(ev)
+                    Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE })
                     Page.CARD -> PhotoCardScreen(card, adsVm)
                     Page.SCHEDULE -> ScheduleScreen(sched)
                     Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv)
@@ -239,7 +240,7 @@ fun ComingSoon(title: String, text: String) {
 }
 
 @Composable
-fun NewPostPlaceholder(ev: EditorViewModel) {
+fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, onScheduled: () -> Unit) {
     var editor by remember { mutableStateOf(false) }
     if (editor) {
         Column(Modifier.fillMaxSize()) {
@@ -247,11 +248,7 @@ fun NewPostPlaceholder(ev: EditorViewModel) {
             Box(Modifier.weight(1f)) { EditorScreen(ev) }
         }
     } else {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
-            H1("✍️ নতুন পোস্ট")
-            InfoCard { Text("লিংক/খবর থেকে রিরাইট, ফোটোকার্ড ও পাবলিশের অংশ পরের ধাপে আসছে।") }
-            AppBtn("🎬 ভিডিও এডিটর", modifier = Modifier.padding(top = 10.dp), onClick = { editor = true })
-        }
+        NewPostScreen(np, ads, onOpenVideo = { editor = true }, onScheduled = onScheduled)
     }
 }
 
