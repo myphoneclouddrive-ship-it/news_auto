@@ -116,12 +116,12 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                         Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
                     }
                     if (upd.progress == null && upd.message.startsWith("❌")) Text(upd.message)
-                    if (upd.downloaded) Text("ডাউনলোড শেষ। ‘ইন্সটল করুন’ চাপলে ফোন কনফার্মেশন চাইবে, সেখানে ‘Update’ চাপুন।")
+                    if (upd.downloaded) Text("✅ ডাউনলোড শেষ। স্ক্রিনের ওপরের নোটিফিকেশনে ট্যাপ করুন, তারপর ফোনের কনফার্মেশনে ‘Update’ চাপুন।")
                 }
             },
             confirmButton = {
                 if (upd.downloaded) {
-                    Button(onClick = { uv.installNow() }) { Text("✅ ইন্সটল করুন") }
+                    Button(onClick = { uv.dismissPopup() }) { Text("ঠিক আছে") }
                 } else {
                     Button(onClick = { uv.startDownload() }, enabled = !upd.busy) { Text(if (upd.busy) "ডাউনলোড হচ্ছে…" else "⬇️ ডাউনলোড") }
                 }
@@ -368,7 +368,7 @@ fun UpdateScreen(vm: UpdateViewModel) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
                     if (info.notes.isNotBlank()) Text(info.notes)
                     if (st.downloaded) {
-                        Button(onClick = { vm.installNow() }) { Text("✅ ইন্সটল করুন") }
+                        Text("নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
                     } else {
                         Button(onClick = { vm.startDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড") }
                     }

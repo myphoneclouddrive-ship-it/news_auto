@@ -1,6 +1,7 @@
 package com.digitalcrafting25.newsapp
 
 import android.app.Application
+import android.app.DownloadManager
 import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -15,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -128,11 +130,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 val info = withContext(Dispatchers.IO) { Updater.fetchLatest() }
                 _state.value = when {
                     info == null -> UpdateUiState(message = "কোনো রিলিজ পাওয়া যায়নি")
-                    Updater.isNewer(info) -> UpdateUiState(
-                        message = "🎉 নতুন সংস্করণ পাওয়া গেছে: ${info.versionName}",
-                        available = info,
-                        downloaded = withContext(Dispatchers.IO) { Updater.isDownloaded(app, info) },
-                    )
+                    Updater.isNewer(info) -> UpdateUiState(message = "🎉 নতুন সংস্করণ পাওয়া গেছে: ${info.versionName}", available = info)
                     else -> UpdateUiState(message = "✅ আপনার অ্যাপ আপ-টু-ডেট")
                 }
             } catch (e: Exception) {
@@ -156,8 +154,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 val info = withContext(Dispatchers.IO) { Updater.fetchLatest() }
                 prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply()
                 if (info != null && Updater.isNewer(info)) {
-                    val done = withContext(Dispatchers.IO) { Updater.isDownloaded(app, info) }
-                    _state.update { it.copy(available = info, showPopup = true, downloaded = done) }
+                    _state.update { it.copy(available = info, showPopup = true) }
                 }
             } catch (_: Exception) { /* চুপচাপ বাদ — পরের বার আবার চেক হবে */ }
         }
@@ -165,41 +162,54 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun dismissPopup() = _state.update { it.copy(showPopup = false) }
 
-    /** অ্যাপের ভেতরেই APK ডাউনলোড (প্রগ্রেস বার সহ)। শেষ হলে "ইন্সটল করুন" বাটন আসে। */
+    /**
+     * অ্যাপের ভেতর থেকে ডাউনলোড শুরু (সিস্টেমের DownloadManager দিয়ে), প্রগ্রেস বার সহ।
+     * APK যায় অ্যাপের গোপন ফোল্ডারে। শেষ হলে নোটিফিকেশনে ট্যাপ করে ইন্সটল করতে হবে।
+     * অ্যাপে কোনো ইন্সটল-পারমিশন লাগে না।
+     */
     fun startDownload() {
         val info = _state.value.available ?: return
         if (_state.value.busy) return
         _state.update { it.copy(busy = true, progress = 0f, downloaded = false, message = "ডাউনলোড হচ্ছে…") }
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    Updater.download(app, info) { p -> _state.update { it.copy(progress = p) } }
+                val dm = app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                Updater.removePrevious(app, dm)
+                val req = DownloadManager.Request(Uri.parse(info.apkUrl))
+                    .setTitle("নিউজ পাবলিশার ${info.versionName}")
+                    .setDescription("আপডেট — ডাউনলোড শেষে ট্যাপ করে ইন্সটল করুন")
+                    .setMimeType("application/vnd.android.package-archive")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalFilesDir(app, "updates", "update-${info.versionCode}.apk")
+                val id = dm.enqueue(req)
+                Updater.rememberDownload(app, id, info.versionCode)
+
+                // প্রগ্রেস দেখাতে নিয়মিত অবস্থা জিজ্ঞেস করা
+                while (true) {
+                    val st = withContext(Dispatchers.IO) { Updater.queryStatus(dm, id) }
+                    if (st == null) throw java.io.IOException("ডাউনলোড বাতিল হয়েছে")
+                    when (st.status) {
+                        DownloadManager.STATUS_SUCCESSFUL -> break
+                        DownloadManager.STATUS_FAILED -> throw java.io.IOException("ডাউনলোড ব্যর্থ হয়েছে, আবার চেষ্টা করুন")
+                        else -> _state.update { it.copy(progress = st.progress) }
+                    }
+                    delay(400)
+                }
+
+                val ok = withContext(Dispatchers.IO) { Updater.verify(app, info) }
+                if (!ok) {
+                    Updater.removePrevious(app, dm)
+                    throw java.io.IOException("ডাউনলোড করা ফাইল ঠিক নেই (SHA-256 মেলেনি)")
                 }
                 _state.update {
-                    it.copy(busy = false, progress = null, downloaded = true, message = "✅ ডাউনলোড শেষ। এবার ‘ইন্সটল করুন’ চাপুন")
+                    it.copy(
+                        busy = false, progress = null, downloaded = true,
+                        message = "✅ ডাউনলোড শেষ। নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন",
+                    )
                 }
             } catch (e: Exception) {
                 _state.update { it.copy(busy = false, progress = null, message = "❌ ${e.message}") }
             }
-        }
-    }
-
-    /** ডাউনলোড করা APK ইন্সটল। ফোন কনফার্মেশন চাইলে "Update" চাপতে হবে। */
-    fun installNow() {
-        val info = _state.value.available ?: return
-        if (!app.packageManager.canRequestPackageInstalls()) {
-            app.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-            _state.update { it.copy(message = "‘এই সোর্স থেকে ইন্সটলের অনুমতি’ চালু করে ফিরে এসে আবার ‘ইন্সটল করুন’ চাপুন") }
-            return
-        }
-        try {
-            Updater.install(app, Updater.apkFile(app, info.versionCode))
-            _state.update { it.copy(message = "ইন্সটলার চালু হচ্ছে… ফোন কনফার্ম চাইলে ‘Update’ চাপুন") }
-        } catch (e: Exception) {
-            _state.update { it.copy(message = "❌ ${e.message}") }
         }
     }
 
