@@ -1,6 +1,8 @@
 package com.digitalcrafting25.newsapp
 
 import android.app.Application
+import android.app.DownloadManager
+import android.os.Environment
 import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -110,6 +112,7 @@ data class UpdateUiState(
     val busy: Boolean = false,
     val message: String = "",
     val available: UpdateInfo? = null,
+    val showPopup: Boolean = false,
 )
 
 class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
@@ -134,15 +137,54 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** ব্রাউজারে APK লিংক খোলে — ডাউনলোড শেষে নোটিফিকেশন/ডাউনলোড ফোল্ডার থেকে ফাইলে ট্যাপ করে নিজে ইন্সটল করবেন */
-    fun openDownload() {
-        val info = _state.value.available ?: return
-        try {
-            app.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(info.apkUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        } catch (e: Exception) {
-            _state.update { it.copy(message = "❌ ব্রাউজার খোলা যায়নি: ${e.message}") }
+    /**
+     * অটো চেক: অ্যাপ খুললে (সর্বোচ্চ ৬ ঘণ্টায় একবার) চুপচাপ চেক করে।
+     * নতুন ভার্সন থাকলে হোম পেজে পপ-আপ দেখায়। নেট/GitHub সমস্যায় কিছুই দেখায় না।
+     */
+    fun autoCheck() {
+        if (autoChecked) return
+        autoChecked = true
+        val prefs = app.getSharedPreferences("updater", android.content.Context.MODE_PRIVATE)
+        val last = prefs.getLong("lastCheck", 0L)
+        if (System.currentTimeMillis() - last < 6 * 60 * 60 * 1000L) return
+        viewModelScope.launch {
+            try {
+                val info = withContext(Dispatchers.IO) { Updater.fetchLatest() }
+                prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply()
+                if (info != null && Updater.isNewer(info)) {
+                    _state.update { it.copy(available = info, showPopup = true) }
+                }
+            } catch (_: Exception) { /* চুপচাপ বাদ — পরের বার আবার চেক হবে */ }
         }
     }
+
+    fun dismissPopup() = _state.update { it.copy(showPopup = false) }
+
+    /**
+     * অ্যাপের ভেতর থেকেই ডাউনলোড শুরু করে (সিস্টেমের DownloadManager দিয়ে)।
+     * ডাউনলোড শেষে নোটিফিকেশনে ট্যাপ করলে ফোনের ইন্সটলার খোলে — ইন্সটল আপনি নিজে কনফার্ম করবেন।
+     * অ্যাপে কোনো ইন্সটল-পারমিশন লাগে না।
+     */
+    fun startDownload() {
+        val info = _state.value.available ?: return
+        try {
+            val req = DownloadManager.Request(Uri.parse(info.apkUrl))
+                .setTitle("নিউজ পাবলিশার ${info.versionName}")
+                .setDescription("আপডেট ডাউনলোড হচ্ছে")
+                .setMimeType("application/vnd.android.package-archive")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "news-publisher-${info.versionName}.apk")
+            (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+            _state.update {
+                it.copy(
+                    showPopup = false,
+                    message = "⬇️ ডাউনলোড শুরু হয়েছে। শেষ হলে নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।",
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(message = "❌ ডাউনলোড শুরু করা যায়নি: ${e.message}") }
+        }
+    }
+
+    private companion object { var autoChecked = false }
 }

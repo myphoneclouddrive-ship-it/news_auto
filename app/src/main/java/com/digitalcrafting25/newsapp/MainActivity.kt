@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -45,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -97,6 +99,23 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
     if (!loggedIn) {
         LoginScreen(auth)
         return
+    }
+    val upd by uv.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { uv.autoCheck() }
+    if (upd.showPopup && upd.available != null) {
+        val info = upd.available!!
+        AlertDialog(
+            onDismissRequest = { uv.dismissPopup() },
+            title = { Text("🎉 নতুন আপডেট এসেছে") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("নতুন সংস্করণ: ${info.versionName}")
+                    if (info.notes.isNotBlank()) Text(info.notes)
+                }
+            },
+            confirmButton = { Button(onClick = { uv.startDownload() }) { Text("⬇️ আপডেট") } },
+            dismissButton = { TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
+        )
     }
     var page by rememberSaveable { mutableStateOf(Page.DASH) }
     var navH by remember { mutableIntStateOf(0) }
@@ -332,8 +351,8 @@ fun UpdateScreen(vm: UpdateViewModel) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
                     if (info.notes.isNotBlank()) Text(info.notes)
-                    Button(onClick = { vm.openDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড করুন") }
-                    Text("ডাউনলোড শেষ হলে ফাইলটিতে ট্যাপ করে নিজে ইন্সটল করুন।")
+                    Button(onClick = { vm.startDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড করুন") }
+                    Text("ডাউনলোড শেষ হলে নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
                 }
             }
         }
