@@ -323,18 +323,17 @@ fun UpdateScreen(vm: UpdateViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("বর্তমান সংস্করণ: ${BuildConfig.VERSION_NAME} (কোড ${BuildConfig.VERSION_CODE})")
-        Text(vm.lastAuto())
         Button(onClick = { vm.check() }, enabled = !st.busy, modifier = Modifier.fillMaxWidth()) {
             Text("🔍 এখনই আপডেট চেক করুন")
         }
         if (st.message.isNotEmpty()) Text(st.message)
-        st.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
         st.available?.let { info ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
                     if (info.notes.isNotBlank()) Text(info.notes)
-                    Button(onClick = { vm.installNow() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড ও ইন্সটল") }
+                    Button(onClick = { vm.openDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড করুন") }
+                    Text("ডাউনলোড শেষ হলে ফাইলটিতে ট্যাপ করে নিজে ইন্সটল করুন।")
                 }
             }
         }

@@ -109,15 +109,12 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
 data class UpdateUiState(
     val busy: Boolean = false,
     val message: String = "",
-    val progress: Float? = null,
     val available: UpdateInfo? = null,
 )
 
 class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
-
-    fun lastAuto(): String = Updater.lastAutoText(app)
 
     /** ম্যানুয়াল আপডেট চেক */
     fun check() {
@@ -137,28 +134,15 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun installNow() {
+    /** ব্রাউজারে APK লিংক খোলে — ডাউনলোড শেষে নোটিফিকেশন/ডাউনলোড ফোল্ডার থেকে ফাইলে ট্যাপ করে নিজে ইন্সটল করবেন */
+    fun openDownload() {
         val info = _state.value.available ?: return
-        if (_state.value.busy) return
-        if (!app.packageManager.canRequestPackageInstalls()) {
+        try {
             app.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                Intent(Intent.ACTION_VIEW, Uri.parse(info.apkUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
-            _state.update { it.copy(message = "‘এই সোর্স থেকে ইন্সটল অনুমতি দিন’ চালু করে ফিরে এসে আবার চাপুন") }
-            return
-        }
-        _state.update { it.copy(busy = true, progress = 0f, message = "ডাউনলোড হচ্ছে…") }
-        viewModelScope.launch {
-            try {
-                val f = withContext(Dispatchers.IO) {
-                    Updater.ensureDownloaded(app, info) { p -> _state.update { it.copy(progress = p) } }
-                }
-                Updater.install(app, f)
-                _state.update { it.copy(busy = false, progress = null, message = "ইন্সটলার চালু হচ্ছে… ফোন কনফার্ম চাইলে ‘Update’ চাপুন") }
-            } catch (e: Exception) {
-                _state.update { it.copy(busy = false, progress = null, message = "❌ ${e.message}") }
-            }
+        } catch (e: Exception) {
+            _state.update { it.copy(message = "❌ ব্রাউজার খোলা যায়নি: ${e.message}") }
         }
     }
 }
