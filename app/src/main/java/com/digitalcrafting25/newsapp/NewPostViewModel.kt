@@ -47,6 +47,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     var mTitle by mutableStateOf("")                    // নিজে পোস্ট ক্রিয়েট
     var mBody by mutableStateOf(TextFieldValue(""))
     var showManual by mutableStateOf(false)
+    var sec by mutableStateOf("src")                    // ধাপ ১-এ একসময়ে একটাই সেকশন খোলা: src / notes / manual / video
 
     // ধাপ ২
     var title by mutableStateOf("")
@@ -121,7 +122,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         job?.cancel(); tickJob?.cancel()
-        step = 1; src = ""; notes = ""; webNews = false; mTitle = ""; mBody = TextFieldValue(""); showManual = false
+        step = 1; src = ""; notes = ""; webNews = false; mTitle = ""; mBody = TextFieldValue(""); showManual = false; sec = "src"
         title = ""; body = TextFieldValue(""); cardTitle = ""; category = ""; tag = ""; tplId = "dark"; useAd = true
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
         photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()

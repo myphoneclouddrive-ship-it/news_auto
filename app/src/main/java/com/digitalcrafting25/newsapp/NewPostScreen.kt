@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -91,15 +92,20 @@ fun SchedulePickDialog(busy: Boolean, error: String? = null, onConfirm: (Long) -
 
 @Composable
 private fun StepBar(step: Int) {
-    Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    // ওয়েবের #stepbar: নিচে ৩px রেখা — চলমান লাল, শেষ হওয়া সবুজ, বাকি ধূসর
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         listOf("১ খবর", "২ লেখা", "৩ কার্ড", "৪ কনফার্ম", "✔ শেষ").forEachIndexed { i, l ->
             val on = step == i + 1
-            Text(
-                l, Modifier.weight(1f).clip(RoundedCornerShape(6.dp))
-                    .background(if (on) C.Red else if (step > i + 1) Color(0xFFFFCDD2) else Color(0xFFE6E6E6)).padding(vertical = 6.dp),
-                textAlign = TextAlign.Center, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                color = if (on) Color.White else C.Text,
-            )
+            val done = step > i + 1
+            val col = if (on) C.Red else if (done) C.Green else Color(0xFF888888)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    l, Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 2.dp),
+                    textAlign = TextAlign.Center, fontSize = 12.sp,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, color = col,
+                )
+                Box(Modifier.fillMaxWidth().height(3.dp).background(if (on) C.Red else if (done) C.Green else C.NavLine))
+            }
         }
     }
 }
@@ -195,46 +201,115 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
     )
 }
 
-// ───────── ধাপ ১: খবর ─────────
+// ───────── ধাপ ১: খবর (ওয়েবের .sec অ্যাকর্ডিয়ন, হুবহু) ─────────
+private val SecBorder = Color(0xFFDDDDDD)
+
+/** ওয়েবের .sec: সাদা বক্স, ১px #ddd বর্ডার, ১০ ব্যাসার্ধ; খোলা থাকলে হেডার #fdeeee/#b71c1c; ডানে ▾ (বন্ধে ঘোরানো ▸) */
 @Composable
-private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> Unit) {
-    FieldLabel("১. খবরের লিংক অথবা পুরো খবর পেস্ট করুন")
-    AppField(vm.src, { vm.src = it }, placeholder = "https://... লিংক দিলে খবর নিজে থেকে আসবে, অথবা খবরের টেক্সট পেস্ট করুন", singleLine = false, modifier = Modifier.heightIn(min = 170.dp))
-    CheckRow(vm.useOrig, "🖼️ লিংকের খবরের ছবিই সরাসরি ব্যবহার করুন (কার্টুন বানাবে না)", "") { vm.setUseOrig(it) }
-
-    FieldLabel("📍 মাঠ পর্যায়ের তথ্য ও কারণ (ঐচ্ছিক)")
-    AppField(vm.notes, { vm.notes = it }, placeholder = "নিজে ঘটনাস্থলে গিয়ে যা জেনেছেন, এলোমেলো থাকলেও লিখুন: কে, কোথায়, কী, কেন…", singleLine = false, modifier = Modifier.heightIn(min = 120.dp))
-    CheckRow(vm.webNews, "🌐 অনলাইনে সাম্প্রতিক খবর থেকে তথ্য নিবে",
-        "টিক দিলে নোট থেকে শিরোনাম বানিয়ে গত ৩ ঘণ্টার বাংলাদেশি নিউজ সাইটের লিংক খোঁজা হবে। শিরোনামের সঙ্গে মিললে সেই খবর পড়ে আপনার তথ্যের সাথে মিলিয়ে লেখা হবে। না পেলে শুধু আপনার তথ্য দিয়েই লেখা হবে।") { vm.webNews = it }
-
-    Text("AI দিয়ে লিখলে সফল হওয়ার পর ৳${PostUtil.bn(PostUtil.RW_COST)} কাটে।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 8.dp))
-    AppBtn(if (vm.busy) "⏳ প্রসেসিং হচ্ছে..." else "AI দিয়ে নতুন করে লিখুন", Modifier.padding(top = 6.dp), enabled = !vm.busy) { vm.rewrite() }
-
-    AppBtn(if (vm.showManual) "▲ নিজে পোস্ট ক্রিয়েট বন্ধ করুন" else "✍️ নিজে পোস্ট ক্রিয়েট করুন", Modifier.padding(top = 8.dp), color = C.Blue) { vm.showManual = !vm.showManual }
-    if (vm.showManual) {
-        InfoCard(Modifier.padding(top = 8.dp)) {
-            FieldLabel("শিরোনাম")
-            AppField(vm.mTitle, { vm.mTitle = it }, singleLine = false)
-            FieldLabel("পোস্ট (এখানে পেস্ট করে এডিট করুন)")
-            Text("যে লেখা বোল্ড বা উপশিরোনাম হবে, সেটা সিলেক্ট করে নিচের বাটনে চাপুন।", fontSize = 12.sp, color = C.Muted)
-            FormatBar(vm, manual = true)
-            BodyField(vm.mBody, { vm.mBody = it }, 8)
-            Text("এই অবস্থায় ৳৫ কাটে (AI ছাড়া)।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 6.dp))
-            AppBtn("✅ পোস্ট করুন", Modifier.padding(top = 6.dp), color = C.Green, enabled = !vm.busy) { vm.manualPost() }
+private fun Sec(title: String, open: Boolean, onHeader: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.padding(top = 10.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp)).background(Color.White)
+            .border(1.dp, SecBorder, RoundedCornerShape(10.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().background(if (open) Color(0xFFFDEEEE) else Color.White)
+                .clickable(onClick = onHeader).padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (open) Color(0xFFB71C1C) else C.Text)
+            Text(if (open) "▾" else "▸", color = Color(0xFF888888), fontSize = 14.sp)
         }
+        if (open) Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), content = content)
     }
-    AppBtn("🎬 ভিডিও পোস্ট করুন", Modifier.padding(top = 8.dp), color = C.Gray, onClick = onOpenVideo)
-    AppBtn("🗑️ ক্লিয়ার", Modifier.padding(top = 8.dp), color = C.Gray, onClick = onClear)
+}
+
+/** ওয়েবের textarea: ১px #ccc বর্ডার, ৮ ব্যাসার্ধ, প্যাডিং ১০, ওপরে ৮ ফাঁক */
+@Composable
+private fun SecArea(value: String, onChange: (String) -> Unit, placeholder: String, minHeight: Int) {
+    OutlinedTextField(
+        value = value, onValueChange = onChange,
+        modifier = Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = minHeight.dp),
+        placeholder = { Text(placeholder, color = Color(0xFF757575), fontSize = 16.sp) },
+        shape = RoundedCornerShape(8.dp), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp),
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = C.Red, unfocusedBorderColor = C.Border,
+            focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+        ),
+    )
+}
+
+/** ওয়েবের .chk: ছোট চেকবক্স + হালকা (non-bold) লেখা */
+@Composable
+private fun CheckRow(checked: Boolean, label: String, hint: String, onChange: (Boolean) -> Unit) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier.padding(top = 2.dp).width(18.dp).height(18.dp).clip(RoundedCornerShape(3.dp))
+                    .background(if (checked) Color(0xFF1A73E8) else Color.White)
+                    .border(1.5.dp, if (checked) Color(0xFF1A73E8) else Color(0xFF767676), RoundedCornerShape(3.dp)),
+                contentAlignment = Alignment.Center,
+            ) { if (checked) Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            Text(label, fontSize = 16.sp, color = C.Text)
+        }
+        if (hint.isNotEmpty()) Text(hint, fontSize = 12.sp, color = C.Text.copy(alpha = 0.7f), modifier = Modifier.padding(start = 26.dp, top = 2.dp))
+    }
+}
+
+/** ওয়েবের .navrow .btn: প্যাডিং ১০/৬, ফন্ট ১৪ */
+@Composable
+private fun NavBtn(text: String, modifier: Modifier, color: Color = C.Red, enabled: Boolean = true, onClick: () -> Unit) {
+    androidx.compose.material3.Button(
+        onClick = onClick, enabled = enabled, modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = color, contentColor = Color.White,
+            disabledContainerColor = color.copy(alpha = 0.5f), disabledContentColor = Color.White.copy(alpha = 0.9f),
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+    ) { Text(text, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = TextAlign.Center) }
 }
 
 @Composable
-private fun CheckRow(checked: Boolean, label: String, hint: String, onChange: (Boolean) -> Unit) {
-    Row(Modifier.padding(top = 8.dp).clickable { onChange(!checked) }, verticalAlignment = Alignment.Top) {
-        Checkbox(checked = checked, onCheckedChange = onChange)
-        Column(Modifier.padding(top = 10.dp)) {
-            Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            if (hint.isNotEmpty()) Text(hint, color = C.Muted, fontSize = 12.sp)
+private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> Unit) {
+    fun setSec(m: String) { vm.sec = m; vm.showManual = m == "manual" }
+    val hasText = vm.title.isNotBlank() && vm.body.text.isNotBlank()
+
+    Sec("১. খবরের লিংক অথবা পুরো খবর পেস্ট করুন", vm.sec == "src", { setSec("src") }) {
+        SecArea(vm.src, { vm.src = it }, "https://... লিংক দিলে খবর নিজে থেকে আসবে, অথবা খবরের টেক্সট পেস্ট করুন", 170)
+        CheckRow(vm.useOrig, "🖼️ লিংকের খবরের ছবিই সরাসরি ব্যবহার করুন (কার্টুন বানাবে না)", "") { vm.setUseOrig(it) }
+    }
+    Sec("📍 মাঠ পর্যায়ের তথ্য ও কারণ (ঐচ্ছিক)", vm.sec == "notes", { setSec("notes") }) {
+        SecArea(vm.notes, { vm.notes = it }, "নিজে ঘটনাস্থলে গিয়ে যা জেনেছেন, এলোমেলো থাকলেও লিখুন: কে, কোথায়, কী হয়েছে, কেন হয়েছে, স্থানীয়দের কথা, সংখ্যা... AI সাজিয়ে ছোট করে খবর লিখে দেবে। শুধু এই ঘরে লিখলেও চলবে (লিংক বা খবর না দিলেও)।", 125)
+        CheckRow(vm.webNews, "🌐 অনলাইনে সাম্প্রতিক খবর থেকে তথ্য নিবে",
+            "টিক দিলে নোট থেকে শিরোনাম বানিয়ে Gemini দিয়ে গত ৩ ঘণ্টার মধ্যে প্রকাশিত বাংলাদেশি নিউজ সাইটের লিংক খোঁজা হবে। শিরোনামের সঙ্গে মিললে সেই লিংকের পুরো খবর পড়ে আপনার তথ্যের সঙ্গে মিলিয়ে নতুন করে লেখা হবে। না পেলে শুধু আপনার তথ্য দিয়েই লেখা হবে।") { vm.webNews = it }
+    }
+    Sec("✍️ নিজে পোস্ট ক্রিয়েট করুন", vm.sec == "manual", { setSec("manual") }) {
+        FieldLabel("শিরোনাম")
+        AppField(vm.mTitle, { vm.mTitle = it }, placeholder = "পোস্টের শিরোনাম লিখুন", singleLine = false)
+        FieldLabel("পোস্ট (এখানে পেস্ট করে এডিট করুন)")
+        Text("যে লেখা বোল্ড বা উপশিরোনাম হবে, সেটা সিলেক্ট করে নিচের বাটনে চাপুন।", fontSize = 12.sp, color = C.Label)
+        FormatBar(vm, manual = true)
+        BodyField(vm.mBody, { vm.mBody = it }, 10, "এখানে আপনার পোস্টটা পেস্ট করুন...")
+    }
+    Sec("🎬 ভিডিও পোস্ট করুন", vm.sec == "video", { setSec("video") }) {
+        AppBtn("📁 ভিডিও বাছুন", Modifier.padding(top = 8.dp), color = C.Gray, onClick = onOpenVideo)
+        Text("ভিডিও বাছলে ভিডিও এডিটরে চলে যাবে। এই অবস্থায় কোনো টাকা কাটবে না।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
+    }
+
+    if (vm.sec == "manual") {
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NavBtn("✅ পোস্ট করুন", Modifier.weight(0.78f), color = C.Green, enabled = !vm.busy) { vm.manualPost() }
+            NavBtn("🗑️ ক্লিয়ার", Modifier.weight(0.22f), color = C.Gray, onClick = onClear)
         }
+        Text("এই অবস্থায় ৳${PostUtil.bn(5)} কাটে (AI ছাড়া)।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
+    } else if (vm.sec != "video") {
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NavBtn(if (vm.busy) "⏳ প্রসেসিং হচ্ছে..." else "AI দিয়ে নতুন করে লিখুন", Modifier.weight(if (hasText) 0.39f else 0.78f), enabled = !vm.busy) { vm.rewrite() }
+            if (hasText) NavBtn("নেক্সট →", Modifier.weight(0.39f), color = C.Green) { vm.step = 2; vm.saveDraft() }
+            NavBtn("🗑️ ক্লিয়ার", Modifier.weight(0.22f), color = C.Gray, onClick = onClear)
+        }
+        Text("AI দিয়ে লিখলে সফল হওয়ার পর ৳${PostUtil.bn(PostUtil.RW_COST)} কাটে।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
