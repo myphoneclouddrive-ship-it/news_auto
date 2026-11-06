@@ -150,6 +150,24 @@ data class PostItem(val title: String, val link: String, val at: Long?, val by: 
 data class BookmarkItem(val id: String, val url: String, val name: String)
 data class SitePost(val title: String, val link: String)
 
+/** users/<uid>/settings/card-এর সাইট-সংক্রান্ত অংশ (ওয়েবের cfg-র একই নাম) */
+data class CardCfg(
+    val siteName: String = "",
+    val siteUrl: String = "",
+    val category: String = "বাংলাদেশ",
+    val photoTag: String = "সংগৃহীত",
+    val ctaText: String = "বিস্তারিত কমেন্টে",
+    val siteTagline: String = "",
+    val logo: String = "",          // data:image/png;base64,...
+    val icon: String = "",
+    val iconShape: String = "round",
+    val fiMode: String = "original", // original | fixed
+    val fiPreset: String = "1200x630",
+    val fiW: Int = 1200,
+    val fiH: Int = 630,
+    val fiFit: String = "stretch",   // stretch | cover
+)
+
 /** Firestore REST — Rules যেমন ওয়েবে, এখানেও একই (users/<uid>/...) */
 object Fs {
     private const val BASE = "https://firestore.googleapis.com/v1/projects/${Cfg.PROJECT}/databases/(default)/documents"
@@ -275,6 +293,47 @@ object Fs {
 
     suspend fun deleteBookmark(ctx: Context, id: String) {
         val r = send(ctx, "DELETE", userUrl() + "/bookmarks/" + URLEncoder.encode(id, "UTF-8"), null)
+        if (r.code !in 200..299) throw fail(r)
+    }
+
+    /** সেটিংসের সাইট-তথ্য; ডকুমেন্ট না থাকলে ওয়েবের ডিফল্ট মান */
+    suspend fun cardCfg(ctx: Context): CardCfg {
+        val r = send(ctx, "GET", userUrl() + "/settings/card", null)
+        if (r.code == 404) return CardCfg()
+        if (r.code !in 200..299) throw fail(r)
+        val d = JSONObject(r.text)
+        val def = CardCfg()
+        fun has(k: String) = d.fld(k) != null
+        fun st(k: String, dflt: String) = if (has(k)) d.str(k) else dflt
+        fun num(k: String, dflt: Int): Int {
+            val f = d.fld(k) ?: return dflt
+            return f.optString("integerValue").toIntOrNull() ?: f.optDouble("doubleValue", dflt.toDouble()).toInt()
+        }
+        return CardCfg(
+            siteName = st("siteName", def.siteName), siteUrl = st("siteUrl", def.siteUrl),
+            category = st("category", def.category), photoTag = st("photoTag", def.photoTag),
+            ctaText = st("ctaText", def.ctaText), siteTagline = st("siteTagline", def.siteTagline),
+            logo = st("logo", def.logo), icon = st("icon", def.icon),
+            iconShape = st("iconShape", def.iconShape).ifBlank { "round" },
+            fiMode = st("fiMode", def.fiMode), fiPreset = st("fiPreset", def.fiPreset),
+            fiW = num("fiW", def.fiW), fiH = num("fiH", def.fiH),
+            fiFit = if (st("fiFit", def.fiFit) == "cover") "cover" else "stretch",
+        )
+    }
+
+    /** শুধু এই ফিল্ডগুলো বদলায় (updateMask), তাই টেমপ্লেট/বিজ্ঞাপন ইত্যাদি অন্য ফিল্ড অক্ষত থাকে */
+    suspend fun saveCardCfg(ctx: Context, c: CardCfg) {
+        fun s(v: String) = JSONObject().put("stringValue", v)
+        fun n(v: Int) = JSONObject().put("integerValue", v.toString())
+        val fields = JSONObject()
+            .put("siteName", s(c.siteName)).put("siteUrl", s(c.siteUrl)).put("category", s(c.category))
+            .put("photoTag", s(c.photoTag)).put("ctaText", s(c.ctaText)).put("siteTagline", s(c.siteTagline))
+            .put("logo", s(c.logo)).put("icon", s(c.icon)).put("iconShape", s(c.iconShape))
+            .put("fiMode", s(c.fiMode)).put("fiPreset", s(c.fiPreset))
+            .put("fiW", n(c.fiW)).put("fiH", n(c.fiH)).put("fiFit", s(c.fiFit))
+            .put("updatedAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val mask = fields.keys().asSequence().joinToString("&") { "updateMask.fieldPaths=$it" }
+        val r = send(ctx, "PATCH", userUrl() + "/settings/card?" + mask, JSONObject().put("fields", fields).toString())
         if (r.code !in 200..299) throw fail(r)
     }
 }

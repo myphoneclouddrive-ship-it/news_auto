@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private enum class SetTab(val label: String) {
+    SITE("🏷️ সাইট"),
     CONN("🔑 সংযোগ"),
     AI("🤖 AI কী"),
     UPDATE("🔄 আপডেট"),
@@ -49,8 +50,8 @@ private val Amber = Color(0xFFB26A00)
 private class Ask(val text: String, val onYes: () -> Unit)
 
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel) {
-    var tab by rememberSaveable { mutableStateOf(SetTab.CONN.name) }
+fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, uv: UpdateViewModel) {
+    var tab by rememberSaveable { mutableStateOf(SetTab.SITE.name) }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
     LaunchedEffect(Unit) {
@@ -60,7 +61,7 @@ fun SettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel) {
 
     // অ্যাডমিন না হলে AI কী ট্যাবই দেখায় না (ওয়েবে কার্ড লুকানো থাকে)
     val tabs = SetTab.entries.filter { it != SetTab.AI || vm.aiOwner == true }
-    val cur = tabs.firstOrNull { it.name == tab } ?: SetTab.CONN
+    val cur = tabs.firstOrNull { it.name == tab } ?: SetTab.SITE
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp)) {
@@ -83,6 +84,7 @@ fun SettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel) {
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (cur) {
+                SetTab.SITE -> SiteTab(site)
                 SetTab.CONN -> ConnTab(vm) { ask = it }
                 SetTab.AI -> AiTab(vm) { ask = it }
                 SetTab.UPDATE -> UpdateScreen(uv)
@@ -240,8 +242,8 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
         }
 
         InfoCard {
-            Text("🏷️ লোগো, সাইটের তথ্য ও 📢 বিজ্ঞাপন ব্যানার", fontWeight = FontWeight.Bold)
-            Small("এগুলো পরের সাব-ধাপে (২খ ও ২গ) আসছে।", Modifier.padding(top = 4.dp))
+            Text("📢 বিজ্ঞাপন ব্যানার", fontWeight = FontWeight.Bold)
+            Small("এটা পরের সাব-ধাপে (২গ) আসছে।", Modifier.padding(top = 4.dp))
         }
     }
 }
