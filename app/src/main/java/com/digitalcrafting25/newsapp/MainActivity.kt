@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     private val authVm: AuthViewModel by viewModels()
     private val dashVm: DashboardViewModel by viewModels()
     private val bmVm: BookmarkViewModel by viewModels()
+    private val setVm: SettingsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NewsTheme {
-                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm)
+                AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm)
             }
         }
     }
@@ -89,7 +90,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel) {
+fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash: DashboardViewModel, bm: BookmarkViewModel, sv: SettingsViewModel) {
     val loggedIn by auth.loggedIn.collectAsStateWithLifecycle()
     if (!loggedIn) {
         LoginScreen(auth)
@@ -102,7 +103,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); auth.logout() })
+            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
@@ -110,7 +111,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                     Page.NEW -> NewPostPlaceholder(ev)
                     Page.CARD -> ComingSoon("🖼️ ফোটোকার্ড", "ফোটোকার্ড তৈরির অংশ পরের ধাপে আসছে।")
                     Page.SCHEDULE -> ComingSoon("⏰ সিডিউল", "অটো পোস্ট ও শিডিউলের অংশ পরের ধাপে আসছে।")
-                    Page.SETTINGS -> SettingsPlaceholder(uv)
+                    Page.SETTINGS -> SettingsScreen(sv, uv)
                 }
             }
             BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
@@ -149,18 +150,6 @@ fun NewPostPlaceholder(ev: EditorViewModel) {
             InfoCard { Text("লিংক/খবর থেকে রিরাইট, ফোটোকার্ড ও পাবলিশের অংশ পরের ধাপে আসছে।") }
             AppBtn("🎬 ভিডিও এডিটর", modifier = Modifier.padding(top = 10.dp), onClick = { editor = true })
         }
-    }
-}
-
-@Composable
-fun SettingsPlaceholder(uv: UpdateViewModel) {
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(14.dp)) {
-            H1("⚙️ সেটিংস")
-            InfoCard { Text("AI কী, WordPress/Facebook সংযোগ, লোগো ও বিজ্ঞাপনের সেটিংস পরের ধাপে আসছে।") }
-            H2("🔄 অ্যাপ আপডেট")
-        }
-        Box(Modifier.weight(1f)) { UpdateScreen(uv) }
     }
 }
 
