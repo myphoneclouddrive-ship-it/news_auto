@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -210,10 +212,11 @@ fun EditorDockBar(
     }
 
     EditorDarkTheme {
-            val barShape = RoundedCornerShape(12.dp)
+            Column(Modifier.fillMaxWidth().background(ED.Dock)) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(ED.Border))
             Row(
-                Modifier.fillMaxWidth().clip(barShape).background(ED.Dock).border(1.dp, ED.Border, barShape)
-                    .horizontalScroll(rememberScrollState()).padding(horizontal = 2.dp, vertical = 3.dp),
+                Modifier.fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp),
             ) {
                 when {
                     // ---- ক্লিপ বাছা: ক্লিপ টুল ----
@@ -361,6 +364,7 @@ fun EditorDockBar(
                         DockBtn("☀️", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
                     }
                 }
+            }
             }
     }
 }

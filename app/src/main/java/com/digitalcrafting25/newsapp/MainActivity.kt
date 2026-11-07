@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -282,30 +283,45 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
     }
 }
 
-/** HTML `#vcResume`: 📝 অসমাপ্ত ভিডিও এডিট — নাম, দৈর্ঘ্য, লেয়ার, সেভের সময়, ▶️ চালিয়ে যান / 🗑️ মুছুন */
+/** HTML `#vcResume`: 📝 অসমাপ্ত ভিডিও এডিট — ছোট সারি: বাঁয়ে নাম + দৈর্ঘ্য/লেয়ার/সময় (২-৩ লাইন), পাশে ▶️ ও 🗑️ বাটন */
 @Composable
 fun DraftList(ev: EditorViewModel, onOpen: (Long) -> Unit) {
     val list = ev.drafts
     var delId by remember { mutableStateOf<Long?>(null) }
     if (list.isEmpty()) return
-    InfoCard(Modifier.padding(bottom = 10.dp)) {
-        Text("📝 অসমাপ্ত ভিডিও এডিট" + if (list.size > 1) " (${list.size}টি)" else " আছে", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("📝 অসমাপ্ত ভিডিও এডিট" + if (list.size > 1) " (${list.size}টি)" else " আছে", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 13.sp)
         list.toList().forEach { d ->
             val total = d.clips.sumOf { it.lengthMs() }
             val time = runCatching {
                 java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale("bn", "BD")).format(java.util.Date(d.savedAt))
             }.getOrDefault("")
-            Column(Modifier.padding(top = 8.dp)) {
-                Text(
-                    "🎞️ ${d.clips.firstOrNull()?.name ?: ""}\nমোট দৈর্ঘ্য ${fmtTime(total)}" +
-                        (if (d.layers.isNotEmpty()) " · লেয়ার ${d.layers.size}টি" else "") +
-                        (if (time.isNotEmpty()) " · সেভ: $time" else ""),
-                    fontSize = 12.sp, color = C.Muted,
-                )
-                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppBtn("▶️ চালিয়ে যান", color = C.Green, onClick = { onOpen(d.id) })
-                    AppBtn("🗑️ মুছুন", color = C.Gray, onClick = { delId = d.id })
+            Row(
+                Modifier.fillMaxWidth().clip(shape)
+                    .background(androidx.compose.ui.graphics.Color(0xFFF3F4F6))
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("🎞️ ${d.clips.firstOrNull()?.name ?: ""}", fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(
+                        "দৈর্ঘ্য ${fmtTime(total)}" + (if (d.layers.isNotEmpty()) " · লেয়ার ${d.layers.size}টি" else "") +
+                            (if (time.isNotEmpty()) "\nসেভ: $time" else ""),
+                        fontSize = 11.sp, color = C.Muted, lineHeight = 14.sp,
+                    )
                 }
+                Box(
+                    Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(C.Green)
+                        .clickable { onOpen(d.id) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("▶️ চালান", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, maxLines = 1, softWrap = false) }
+                Box(
+                    Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(C.Gray)
+                        .clickable { delId = d.id }.padding(horizontal = 9.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("🗑️", fontSize = 12.sp) }
             }
         }
     }

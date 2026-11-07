@@ -252,7 +252,7 @@ private fun Ruler(tl: Timeline, scrubbing: MutableState<Boolean>) {
                 val major = t % labelMs == 0L
                 val h = (if (major) 11f else 6f) * d
                 drawLine(
-                    color = if (major) Color(0xFF8B92A3) else Color(0xFF4B5160),
+                    color = if (major) Color(0xFF888888) else Color(0xFFBBBBBB),
                     start = Offset(xp, size.height),
                     end = Offset(xp, size.height - h),
                     strokeWidth = 1f,
@@ -334,7 +334,7 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
             .drawBehind {
                 var gx = 59f * d
                 while (gx < size.width) {
-                    drawLine(Color(0x09FFFFFF), Offset(gx, 0f), Offset(gx, size.height), 1f)
+                    drawLine(Color(0x12000000), Offset(gx, 0f), Offset(gx, size.height), 1f)
                     gx += 60f * d
                 }
             }
@@ -343,10 +343,10 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp)) {
             tl.clips.forEachIndexed { i, c -> ClipBlock(tl, c, i) }
             Box(
-                Modifier.size(ADD_W.dp).dashedBorder(Color(0xFF4B5160)).clip(RoundedCornerShape(10.dp))
+                Modifier.size(ADD_W.dp).dashedBorder(Color(0xFFAAAAAA)).clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onAddMedia),
                 contentAlignment = Alignment.Center,
-            ) { Text("+", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
+            ) { Text("+", fontSize = 26.sp, color = ED.Muted, fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -509,7 +509,7 @@ private fun AudioLanes(tl: Timeline, onAddAudio: () -> Unit) {
         if (audio.isEmpty()) {
             Box(
                 Modifier.padding(horizontal = 6.dp, vertical = 3.dp).height(LANE_H.dp)
-                    .dashedBorder(Color(0xFF4B5160), radius = 6.dp, width = 1.dp)
+                    .dashedBorder(Color(0xFFAAAAAA), radius = 6.dp, width = 1.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .clickable(onClick = onAddAudio)
                     .padding(horizontal = 10.dp),
@@ -541,7 +541,7 @@ private fun AudioLanes(tl: Timeline, onAddAudio: () -> Unit) {
 fun NudgeZoomBar(tl: Timeline, modifier: Modifier = Modifier) {
     val screenDp = LocalConfiguration.current.screenWidthDp
     // স্ক্রিন − বাইরের/ভেতরের প্যাডিং (২৪+২০+২) − ➕ বাটন − শেষের ফাঁক
-    val availDp = (screenDp - 46f - ADD_W - GAP_DP - 16f).coerceAtLeast(120f)
+    val availDp = (screenDp - 24f - ADD_W - GAP_DP - 16f).coerceAtLeast(120f)
     val z = tl.timelineZoom
     val zLabel = if (kotlin.math.abs(z - Math.round(z)) < 0.05f) "${Math.round(z)}x" else "%.1fx".format(z)
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -596,7 +596,7 @@ private fun ZoomSlider(tl: Timeline, modifier: Modifier = Modifier) {
                 val r = thumbR * density
                 val cy = size.height / 2f
                 drawRoundRect(
-                    Color(0xFFE5E7EB), Offset(r, cy - 2f * density),
+                    Color(0xFFCFD2D8), Offset(r, cy - 2f * density),
                     androidx.compose.ui.geometry.Size(size.width - 2 * r, 4f * density), CornerRadius(2f * density),
                 )
                 drawCircle(Color(0xFF3B82F6), r, Offset(r + frac * (size.width - 2 * r), cy))

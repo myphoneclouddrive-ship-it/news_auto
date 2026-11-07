@@ -147,7 +147,6 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("✍️ নতুন পোস্ট")
         StepBar(vm.step)
-        if (vm.step == 1) header()   // অসমাপ্ত ভিডিও এডিটের তালিকা (HTML-এর মতো ওপরে)
         vm.balance?.let { Text("💰 ব্যালেন্স: ৳ " + PostUtil.bn(it.toInt()), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(bottom = 6.dp)) }
 
         if (vm.busy && !vm.rewriting) {
@@ -165,7 +164,7 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         vm.notice?.let { Text(it, color = if (it.startsWith("⚠️")) Color(0xFFB26A00) else C.Green, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
 
         if (vm.rewriting) ProcPanel(vm) else when (vm.step) {
-            1 -> Step1(vm, onOpenVideo, onClear = { confirmClear = true })
+            1 -> Step1(vm, onOpenVideo, onClear = { confirmClear = true }, header = header)
             2 -> Step2(vm, onNext = { if (vm.title.isBlank() || vm.body.text.isBlank()) vm.error = "শিরোনাম ও বডি লিখুন" else warn = true }, onClear = { confirmClear = true })
             3 -> Step3(vm, onClear = { confirmClear = true })
             4 -> Step4(vm, onSchedule = { sched = true }, onClear = { confirmClear = true })
@@ -301,7 +300,7 @@ private fun NavBtn(text: String, modifier: Modifier, color: Color = C.Red, enabl
 }
 
 @Composable
-private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> Unit) {
+private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> Unit, header: @Composable () -> Unit = {}) {
     fun setSec(m: String) { vm.sec = m; vm.showManual = m == "manual" }
     val hasText = vm.title.isNotBlank() && vm.body.text.isNotBlank()
 
@@ -323,6 +322,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
         BodyField(vm.mBody, { vm.mBody = it }, 10, "এখানে আপনার পোস্টটা পেস্ট করুন...")
     }
     Sec("🎬 ভিডিও পোস্ট করুন", vm.sec == "video", { setSec("video") }) {
+        header()   // অসমাপ্ত ভিডিও এডিট — "ভিডিও বাছুন"-এর ঠিক ওপরে
         AppBtn("📁 ভিডিও বাছুন", Modifier.padding(top = 8.dp), color = C.Gray, onClick = onOpenVideo)
         Text("ভিডিও বাছলে গ্যালারি খুলবে, ভিডিও বেছে নিলে সেটা নিয়ে ভিডিও এডিটরে চলে যাবে। এই অবস্থায় কোনো টাকা কাটবে না।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
     }

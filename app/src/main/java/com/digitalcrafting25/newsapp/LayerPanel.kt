@@ -133,7 +133,7 @@ fun LayerOverlay(tl: Timeline) {
         val w = maxWidth
         val h = maxHeight
         for (l in active) key(l.id) {
-            val selMod = if (l.id == tl.selectedLayerId) Modifier.border(1.dp, Color(0xFFFFEB3B)) else Modifier
+            val selMod = if (l.id == tl.selectedLayerId) Modifier.border(1.dp, ED.Amber) else Modifier
             when (l) {
                 is TextLayer -> if (l.text.isNotEmpty()) {
                     Text(

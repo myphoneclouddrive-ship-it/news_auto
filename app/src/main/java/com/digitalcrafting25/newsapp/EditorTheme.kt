@@ -15,7 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,22 +36,22 @@ import androidx.compose.ui.unit.sp
  * (#14161b প্যানেল, #1b1e26 বার, #0d0f13 টাইমলাইন, #0b0d11 ডক, বাছাই = অ্যাম্বার #fbbf24, প্লেহেড = #ef4444)
  */
 object ED {
-    val Panel = Color(0xFF14161B)
-    val Bar = Color(0xFF1B1E26)
-    val Deep = Color(0xFF0D0F13)
-    val Dock = Color(0xFF0B0D11)
-    val Border = Color(0xFF2A2E37)
-    val Border2 = Color(0xFF333A47)
-    val Btn = Color(0xFF232733)
-    val Text = Color(0xFFE5E7EB)
-    val Sub = Color(0xFFC7CBD6)
-    val Muted = Color(0xFF9AA1B1)
-    val Amber = Color(0xFFFBBF24)
+    val Panel = Color(0xFFFFFFFF)
+    val Bar = Color(0xFFFFFFFF)
+    val Deep = Color(0xFFFFFFFF)
+    val Dock = Color(0xFFFFFFFF)
+    val Border = Color(0xFFDDDDDD)
+    val Border2 = Color(0xFFCCCCCC)
+    val Btn = Color(0xFFF0F1F4)
+    val Text = Color(0xFF222222)
+    val Sub = Color(0xFF555555)
+    val Muted = Color(0xFF777777)
+    val Amber = Color(0xFF1565C0)   // বাছাই = অ্যাপের নীল
     val Playhead = Color(0xFFEF4444)
     val Publish = Color(0xFFC62828)
-    val Ok = Color(0xFF86EFAC)
-    val Err = Color(0xFFFCA5A5)
-    val AudioLane = Color(0x140D9488)   // rgba(13,148,136,.08)
+    val Ok = Color(0xFF2E7D32)
+    val Err = Color(0xFFC62828)
+    val AudioLane = Color(0x1A0D9488)   // rgba(13,148,136,.08)
 
     /** ক্লিপের রং: প্রথম ৩টা + তারপর ঘুরে ঘুরে (HTML-এর COL / XCOL) */
     private val SEG = listOf(0xFF7C3AED, 0xFF2563EB, 0xFF059669)
@@ -82,12 +82,12 @@ object ED {
 @Composable
 fun EditorDarkTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = darkColorScheme(
+        colorScheme = lightColorScheme(
             primary = ED.Amber,
-            onPrimary = Color(0xFF111111),
+            onPrimary = Color.White,
             secondary = ED.Amber,
-            onSecondary = Color(0xFF111111),
-            background = ED.Panel,
+            onSecondary = Color.White,
+            background = Color(0xFFF4F5F7),
             onBackground = ED.Text,
             surface = ED.Panel,
             onSurface = ED.Text,
@@ -171,7 +171,7 @@ fun TimePill(text: String, modifier: Modifier = Modifier, fontSize: TextUnit = 1
             .padding(horizontal = hPad, vertical = 8.dp),
         fontFamily = FontFamily.Monospace,
         fontSize = fontSize,
-        color = Color(0xFFF3F4F6),
+        color = ED.Text,
         textAlign = TextAlign.Center,
         maxLines = 1,
         softWrap = false,
@@ -179,7 +179,7 @@ fun TimePill(text: String, modifier: Modifier = Modifier, fontSize: TextUnit = 1
 }
 
 /** এডিটর প্যানেলের ফ্রেম (HTML `.lyed`: #14161b, বর্ডার #2a2e37, কোণা ১২) */
-fun Modifier.edPanel(): Modifier {
+fun Modifier.edPanel(): Modifier {  // হালকা কার্ড
     val shape = RoundedCornerShape(12.dp)
     return this.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(12.dp)
 }
@@ -188,9 +188,9 @@ fun Modifier.edPanel(): Modifier {
 @Composable
 fun PlayBtn(modifier: Modifier = Modifier, label: String = "▶ প্লে", onClick: () -> Unit = {}) {
     Box(
-        modifier.clip(RoundedCornerShape(999.dp)).background(Color.White)
+        modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFF222222))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = ED.Panel, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
+    ) { Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
 }

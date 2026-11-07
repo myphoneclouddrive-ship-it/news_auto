@@ -93,17 +93,28 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
     val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
 
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxSize().padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // ---------- ওপরের স্থির অংশ ----------
+        // ---------- ওপরের অংশ: প্রিভিউ পুরো বাকি উচ্চতা নেয় ----------
+        // এডিট প্যানেল খোলা থাকলে শুধু সেটাই দেখায়: প্রিভিউ/কন্ট্রোল/টাইমলাইন লুকানো (প্লেয়ার ভেতরে থেকে যায়, তাই ফিরে এলে আগের মতো)
+        val selClipNow = tl.clipById(tl.selectedId)
+        val selLayerNow = tl.layerById(tl.selectedLayerId)
+        val panelOpen = (selClipNow?.card != null) || (selLayerNow != null && editOpen)
         if (tl.clips.isNotEmpty()) {
-            StageCard(vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile)
+            StageCard(
+                if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f),
+                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile,
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
         }
 
-        // ---------- নিচের স্ক্রল অংশ ----------
+        // ---------- এডিট প্যানেল (খোলা থাকলে পুরো বাকি জায়গা; লম্বা হলে স্ক্রল) ----------
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            (if (panelOpen) Modifier.weight(1f) else Modifier.heightIn(max = 0.dp))
+                .fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (tl.clips.isNotEmpty()) EditorDockPanel(tl, act, vm, editOpen, setError, setInfo)
@@ -196,6 +207,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
 /** ডার্ক কার্ড: স্টেজ + কন্ট্রোল বার + নাজ বার + টাইমলাইন + বার্তা */
 @Composable
 private fun StageCard(
+    modifier: Modifier,
     vm: EditorViewModel,
     status: RenderStatus,
     error: String?,
@@ -249,11 +261,12 @@ private fun StageCard(
             setError(vm.startRender())
         },
     )
+    EditorDarkTheme {
     Column(
-        Modifier.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(10.dp),
+        modifier.fillMaxWidth().padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FramePreview(tl, vm.aspect, pp, playing)
+        FramePreview(tl, vm.aspect, pp, playing, Modifier.weight(1f))
 
         // কন্ট্রোল বার (HTML `#vc_ctl`): প্লে · সময় · আনডু · রিডু ······ পাবলিশ
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -286,11 +299,12 @@ private fun StageCard(
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
         }
     }
+    }
 }
 
 /** প্লেহেডের জায়গার ফ্রেম (ভিডিওর মাপ অনুযায়ী ক্রপ করে দেখায়) */
 @Composable
-private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playing: Boolean) {
+private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playing: Boolean, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val loc = tl.locate(tl.playheadMs)
     val uri = loc?.first?.uri
@@ -315,9 +329,9 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
             }.getOrNull()
         }
     }
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
-            Modifier.heightIn(max = 170.dp).aspectRatio(aspect.w / aspect.h.toFloat())
+            Modifier.aspectRatio(aspect.w / aspect.h.toFloat())
                 .clip(RoundedCornerShape(8.dp)).background(Color.Black)
                 .border(1.dp, ED.Border, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
