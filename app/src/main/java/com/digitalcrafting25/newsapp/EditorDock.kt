@@ -172,6 +172,14 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                     }
                     // লোগো: সেটিংসের লোগো (না থাকলে আইকন) নিজে বসে; না থাকলে ছবি বাছতে বলে
                     LayerKind.LOGO -> scope.launch {
+                        // লোগো আগে থেকে থাকলে নতুন কিছু বসে না: শুধু বাছা হয় (এডিট/মুছতে/টেনে সরাতে)
+                        val ex = tl.layers.firstOrNull { it.isLogoLayer() }
+                        if (ex != null) {
+                            tl.selectedId = null
+                            tl.selectedLayerId = ex.id
+                            inf("🏷️ লোগো ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে থাকবে; ✏️ এডিটে মাপ/জায়গা বদলান।")
+                            return@launch
+                        }
                         val opt = SettingsMedia.logos(ctx).firstOrNull()
                         if (opt == null) {
                             pendingKind = kind
@@ -203,7 +211,8 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
             },
             addAudioFile = { pickAudio.launch(arrayOf("audio/*")) },
             beep = {
-                val m = tl.addAudioLayer(LayerKind.BEEP, null, "বিপ", 600L)
+                val m = tl.addAudioLayer(LayerKind.BEEP, null, "বিপ", BeepSound.LEN_MS)
+                if (m == null) BeepSound.playOnce()   // HTML-এর মতো বসানোর সময়েই বিপ শোনা যায়
                 msg(m)
                 if (m == null) inf("🔔 বিপ বসেছে (${fmtTime(tl.layerById(tl.selectedLayerId)?.startMs ?: 0L)}); বিপ চলার সময় বাকি শব্দ বন্ধ থাকবে।")
             },
@@ -393,10 +402,15 @@ fun EditorDockBar(
                             DockBtn("🔆", "উজ্জ্বল +") { step(0.1f) }
                             DockBtn("🔅", "উজ্জ্বল −") { step(-0.1f) }
                         }
-                        DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
-                        DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
-                        DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
-                        DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
+                        if (l.isLogoLayer()) {
+                            // লোগো লেয়ার নয়: ওপর-নিচ/কপি নেই, শুধু এডিট ও মুছুন
+                            DockBtn("🗑️", "লোগো মুছুন") { tl.removeLayer(l.id); toMenu() }
+                        } else {
+                            DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
+                            DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
+                            DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
+                            DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
+                        }
                     }
 
                     // ---- কিছু বাছা নেই: মূল টুলবার (৮টা আইকন); কয়েকটা চাপলে ভেতরের সারি খোলে ----
@@ -428,7 +442,7 @@ fun EditorDockBar(
                                     )
                                 }
                                 "brand" -> {
-                                    DockBtn("logo", "লোগো") { act.add(LayerKind.LOGO) }
+                                    DockBtn("logo", "লোগো", active = tl.layers.any { it.isLogoLayer() }) { act.add(LayerKind.LOGO) }
                                     DockBtn("pin", "ট্যাগ") { act.add(LayerKind.TAG) }
                                     DockBtn("user", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
                                     DockBtn("ticker", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }

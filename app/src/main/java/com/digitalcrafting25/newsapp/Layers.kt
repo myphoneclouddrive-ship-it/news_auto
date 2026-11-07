@@ -48,6 +48,8 @@ val Layer.lengthMs: Long get() = (endMs - startMs).coerceAtLeast(0L)
  */
 fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE, cards: List<LongRange> = emptyList()): Boolean {
     if (cards.isNotEmpty() && hiddenInCard() && cards.any { ms in it }) return false
+    // লোগো লেয়ার নয়, HTML-এর মতো সেটিং: ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে সবসময় থাকে (শুরু/শেষ সময় ধরা হয় না)
+    if (isLogoLayer()) return true
     if (this is NameBarLayer && repeatSec > 0) {
         val du = endMs - startMs
         if (du <= 0L || ms < startMs || ms >= maxOf(startMs, stopMs)) return false
@@ -73,6 +75,9 @@ fun cardRangesMs(clips: List<Clip>): List<LongRange> {
 }
 
 /** HTML draw()-এর isOut নিয়ম: ইন্ট্রো/আউট্রো অংশে স্ক্রলিং লেখা, ওপর-নিচের বিজ্ঞাপন, ট্যাগ ও লোগো থাকে না */
+/** লোগো (টাইমলাইনে আলাদা বার নেই; পুরো ভিডিওতে থাকে) */
+fun Layer.isLogoLayer(): Boolean = this is ImageLayer && isLogo
+
 fun Layer.hiddenInCard(): Boolean = this is TickerLayer || this is AdLayer || this is TagLayer || (this is ImageLayer && isLogo)
 
 /** "আবার দেখান"-এর শেষ সীমা: আউট্রো শুরুর ১৫ সেকেন্ড আগে (আউট্রো না থাকলে ভিডিওর শেষের ১৫ সেকেন্ড আগে) */
@@ -130,8 +135,8 @@ data class TagLayer(
     val text: String = "",
     val corner: Corner = Corner.TOP_LEFT,
     val color: Int = WHITE,
-    val bgColor: Int = RED,
-    val sizeFrac: Float = 0.045f,
+    val bgColor: Int = BLACK,        // HTML: ব্যাকগ্রাউন্ড ডিফল্ট কালো (৬০% স্বচ্ছ গ্রেডিয়েন্ট)
+    val sizeFrac: Float = 0.03f,     // HTML: ফ্রেমের প্রস্থের % (৩–১০)
 ) : Layer {
     override val kind get() = LayerKind.TAG
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -162,11 +167,15 @@ data class NameBarLayer(
     override val endMs: Long,
     val name: String = "",
     val title: String = "",
-    val accent: Int = RED,
-    val bgColor: Int = DARK,
+    val accent: Int = 0xFF2563EB.toInt(),   // HTML ডিফল্ট দাগের রং #2563eb
+    val bgColor: Int = DARK,             // এখন ব্যবহার হয় না (HTML-এ পট্টি সবসময় কালো ৭৮%); পুরোনো ড্রাফটের জন্য রাখা
     val textColor: Int = WHITE,
     val bottomFrac: Float = 0.12f,
     val repeatSec: Int = 0,          // ০ = একবার; >০ হলে প্রতি এত সেকেন্ডে (শুরু থেকে শুরু) আবার আসে (HTML-এর "আবার দেখান")
+    val sizeFrac: Float = 0.11f,     // HTML size: বারের উচ্চতা = ফ্রেম উচ্চতার ১১%
+    val liftFrac: Float = 0f,        // HTML lift: ওপরে তোলা (ফ্রেম উচ্চতার ভগ্নাংশ)
+    val right: Boolean = false,      // HTML side: ডান পাশ থেকে
+    val fade: Boolean = true,        // HTML fade: স্লাইড/ফেড ইন-আউট
 ) : Layer {
     override val kind get() = LayerKind.NAME_BAR
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -264,7 +273,7 @@ object LayerDefaults {
             LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.14f)
             LayerKind.TAG -> TagLayer(id, startMs, endMs, text = text)
             LayerKind.TICKER -> TickerLayer(id, startMs, endMs, text = text)
-            LayerKind.NAME_BAR -> NameBarLayer(id, startMs, endMs, name = text)
+            LayerKind.NAME_BAR -> NameBarLayer(id, startMs, endMs, name = text, title = "আপনার পদবি")
             LayerKind.AD_BOTTOM -> AdLayer(id, startMs, endMs, uri, isTop = false)
             LayerKind.AD_TOP -> AdLayer(id, startMs, endMs, uri, isTop = true)
             LayerKind.OVERLAY -> OverlayLayer(id, startMs, endMs)
@@ -278,7 +287,7 @@ object LayerDefaults {
         is TextLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
         is TagLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
         is TickerLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
-        is NameBarLayer -> if (l.name.isBlank() && l.title.isBlank()) "${l.kind.label}: নাম বা পদবি দিন" else null
+        is NameBarLayer -> if (l.name.isBlank()) "${l.kind.label}: নাম দিন" else null
         is ImageLayer -> if (l.uri == null) "${l.kind.label}: ছবি বাছা হয়নি" else null
         is AdLayer -> if (l.uri == null) "${l.kind.label}: ছবি বাছা হয়নি" else null
         is AudioLayer -> if (l.kind != LayerKind.BEEP && l.uri == null) "${l.kind.label}: অডিও ফাইল নেই" else null

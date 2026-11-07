@@ -3,8 +3,7 @@
 package com.digitalcrafting25.newsapp
 
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioTrack
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
@@ -46,7 +45,7 @@ class PreviewPlayer(private val ctx: Context) {
     private var sig = ""
     private val audio = HashMap<Long, ExoPlayer>()
     private val audioUri = HashMap<Long, String>()
-    private var tone: ToneGenerator? = null
+    private var tone: AudioTrack? = null
     private var toneOn = false
 
     /** ক্লিপ তালিকা বদলেছে কিনা বোঝার চাবি */
@@ -114,7 +113,12 @@ class PreviewPlayer(private val ctx: Context) {
     /** প্রতি ফ্রেমে ডাকুন: অডিও লেয়ার/বিপ/ক্লিপ-ভলিউম মেলায় */
     fun syncLayers(layers: List<Layer>, ms: Long, playing: Boolean) {
         val auds = layers.filterIsInstance<AudioLayer>()
-        val beepOn = playing && auds.any { it.uri == null && it.sourceClipId == null && ms >= it.startMs && ms < it.endMs }
+        // বিপ HTML-এর মতো সর্বোচ্চ ০.৬ সেকেন্ড (BeepSound); এর বাইরে বাকি শব্দ চুপ থাকে না
+        val beepLayer = auds.firstOrNull {
+            it.uri == null && it.sourceClipId == null && ms >= it.startMs &&
+                ms < minOf(it.endMs, it.startMs + (BeepSound.LEN_MS - it.sourceOffsetMs).coerceAtLeast(0L))
+        }
+        val beepOn = playing && beepLayer != null
 
         // ক্লিপের আসল শব্দ
         val ci = player.currentMediaItemIndex
@@ -142,26 +146,30 @@ class PreviewPlayer(private val ctx: Context) {
             }
         }
 
-        if (beepOn) startTone() else stopTone()
+        if (beepOn) startTone(beepLayer!!, ms) else stopTone()
     }
 
-    private fun startTone() {
+    private fun startTone(l: AudioLayer, ms: Long) {
         if (toneOn) return
         toneOn = true
         runCatching {
-            val t = tone ?: ToneGenerator(AudioManager.STREAM_MUSIC, 80).also { tone = it }
-            t.startTone(ToneGenerator.TONE_PROP_BEEP2, 60_000)
+            tone?.let { runCatching { it.stop() }; runCatching { it.release() } }
+            val off = l.sourceOffsetMs + (ms - l.startMs).coerceAtLeast(0L)
+            val t = BeepSound.newTrack(if (l.muted) 0f else l.volume, off)
+            tone = t
+            t?.play()
         }
     }
 
     private fun stopTone() {
         if (!toneOn) return
         toneOn = false
-        runCatching { tone?.stopTone() }
+        runCatching { tone?.stop() }
     }
 
     fun release() {
         stopTone()
+        runCatching { tone?.stop() }
         runCatching { tone?.release() }
         audio.values.forEach { it.release() }
         audio.clear()

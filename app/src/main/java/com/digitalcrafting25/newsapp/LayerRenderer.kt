@@ -87,7 +87,7 @@ class LayerFrameRenderer(
         val active = layers.filter { it.isActiveAt(ms, repeatStopMs, cardRanges) }
         val key = active.map { it.id }
         val inCard = cardRanges.any { ms in it }
-        val animated = active.any { it is TickerLayer }
+        val animated = active.any { it is TickerLayer || it is NameBarLayer }   // নাম-বারের স্লাইড ফ্রেমে ফ্রেমে বদলায়
         if (!animated && cur >= 0 && key == lastKey && inCard == lastInCard) return bufs[cur]
 
         cur = if (cur == 0) 1 else 0
@@ -108,14 +108,15 @@ class LayerFrameRenderer(
             cv.translate(0f, yOff.toFloat())
         }
         if (!inCard) base?.let { cv.drawBitmap(it, 0f, 0f, null) }
+        val (topInset, bottomBase) = HtmlBrand.insets(active, h.toFloat())
         for (l in active) {
             when (l) {
                 is TextLayer -> drawText(cv, l)
-                is TagLayer -> drawTag(cv, l)
+                is TagLayer -> HtmlBrand.drawTag(cv, w.toFloat(), h.toFloat(), l, topInset, bottomBase)
                 is ImageLayer -> drawImage(cv, l)
                 is AdLayer -> drawAd(cv, l)
                 is TickerLayer -> drawTicker(cv, l, ms)
-                is NameBarLayer -> drawNameBar(cv, l)
+                is NameBarLayer -> HtmlBrand.drawNameBar(cv, w.toFloat(), h.toFloat(), l, ms, bottomBase)
                 is OverlayLayer -> cv.drawRect(0f, 0f, w.toFloat(), h.toFloat(), fill(l.color, l.alpha))
                 // ব্রাইটনেস: সাদা/কালোর স্বচ্ছ আস্তরণ দিয়ে আনুমানিক (ধাপ ৭-এ আরও ভালো করা যাবে)
                 is AdjustLayer -> if (l.brightness != 0f) {
@@ -179,20 +180,6 @@ class LayerFrameRenderer(
         cv.restore()
     }
 
-    private fun drawTag(cv: Canvas, l: TagLayer) {
-        if (l.text.isEmpty()) return
-        val tp = textPaint(l.color, h * l.sizeFrac, true)
-        val fm = tp.fontMetrics
-        val lineH = fm.descent - fm.ascent
-        val bw = tp.measureText(l.text) + 12 * u
-        val bh = lineH + 4 * u
-        val m = 8 * u
-        val left = if (l.corner == Corner.TOP_LEFT || l.corner == Corner.BOTTOM_LEFT) m else w - m - bw
-        val top = if (l.corner == Corner.TOP_LEFT || l.corner == Corner.TOP_RIGHT) m else h - m - bh
-        if (l.bgColor != 0) cv.drawRect(left, top, left + bw, top + bh, fill(l.bgColor))
-        cv.drawText(l.text, left + 6 * u, top + 2 * u - fm.ascent, tp)
-    }
-
     private fun drawImage(cv: Canvas, l: ImageLayer) {
         val b = images[l.id] ?: return
         val dw = w * l.widthFrac
@@ -208,13 +195,18 @@ class LayerFrameRenderer(
         cv.restore()
     }
 
+    /** HTML strip()/fit()-এর মতো: পুরো প্রস্থের সাদা পট্টি (w × উচ্চতা), ছবি তার ভেতরে অনুপাত ঠিক রেখে মাঝে বসে — দুই পাশ ফাঁকা থাকে না */
     private fun drawAd(cv: Canvas, l: AdLayer) {
         val b = images[l.id] ?: return
-        val dh = h * l.heightFrac
-        val dw = dh * b.width / b.height.toFloat()
+        val sh = h * l.heightFrac
+        val top = if (l.isTop) 0f else h - sh
+        cv.drawRect(0f, top, w.toFloat(), top + sh, Paint().apply { color = android.graphics.Color.WHITE })
+        val r = minOf(w / b.width.toFloat(), sh / b.height.toFloat())
+        val dw = b.width * r
+        val dh = b.height * r
         val left = (w - dw) / 2f
-        val top = if (l.isTop) 0f else h - dh
-        cv.drawBitmap(b, null, RectF(left, top, left + dw, top + dh), Paint(Paint.FILTER_BITMAP_FLAG))
+        val y = top + (sh - dh) / 2f
+        cv.drawBitmap(b, null, RectF(left, y, left + dw, y + dh), Paint(Paint.FILTER_BITMAP_FLAG))
     }
 
     private fun drawTicker(cv: Canvas, l: TickerLayer, ms: Long) {
@@ -233,35 +225,6 @@ class LayerFrameRenderer(
         val baseline = top + (barH - (fm.descent - fm.ascent)) / 2f - fm.ascent
         cv.drawText(l.text, w - shift, baseline, tp)
         cv.restore()
-    }
-
-    private fun drawNameBar(cv: Canvas, l: NameBarLayer) {
-        val hasName = l.name.isNotBlank()
-        val hasTitle = l.title.isNotBlank()
-        if (!hasName && !hasTitle) return
-        val np = textPaint(l.textColor, h * 0.05f, true)
-        val tp = textPaint(l.textColor, h * 0.035f, false)
-        val nfm = np.fontMetrics
-        val tfm = tp.fontMetrics
-        val nameH = if (hasName) nfm.descent - nfm.ascent else 0f
-        val titleH = if (hasTitle) tfm.descent - tfm.ascent else 0f
-        val textW = max(if (hasName) np.measureText(l.name) else 0f, if (hasTitle) tp.measureText(l.title) else 0f)
-        val accentW = 5 * u
-        val padH = 8 * u
-        val padV = 4 * u
-        val bw = min(accentW + 2 * padH + textW, w.toFloat())
-        val bh = 2 * padV + nameH + titleH
-        val bottom = h - h * l.bottomFrac
-        val top = bottom - bh
-        cv.drawRect(0f, top, bw, bottom, fill(l.bgColor))
-        cv.drawRect(0f, top, accentW, bottom, fill(l.accent))
-        var y = top + padV
-        val x = accentW + padH
-        if (hasName) {
-            cv.drawText(l.name, x, y - nfm.ascent, np)
-            y += nameH
-        }
-        if (hasTitle) cv.drawText(l.title, x, y - tfm.ascent, tp)
     }
 }
 

@@ -177,6 +177,7 @@ object DraftStore {
                 put("t", "name"); put("name", l.name); put("title", l.title)
                 put("accent", l.accent); put("bg", l.bgColor); put("textColor", l.textColor)
                 put("bottom", l.bottomFrac.toDouble()); put("rep", l.repeatSec)
+                put("nsz", l.sizeFrac.toDouble()); put("lift", l.liftFrac.toDouble()); put("right", l.right); put("fade", l.fade)
             }
             is AdLayer -> {
                 put("t", "ad"); l.uri?.let { put("uri", it.toString()) }
@@ -212,7 +213,7 @@ object DraftStore {
             "tag" -> TagLayer(
                 id, s, e, o.optString("text"),
                 runCatching { Corner.valueOf(o.optString("corner")) }.getOrDefault(Corner.TOP_LEFT),
-                o.optInt("color", -1), o.optInt("bg", 0xFFD32F2F.toInt()), o.f("size", 0.045f),
+                o.optInt("color", -1), o.optInt("bg", 0xFF000000.toInt()), o.f("size", 0.03f),
             )
             "ticker" -> TickerLayer(
                 id, s, e, o.optString("text"), o.optInt("color", -1), o.optInt("bg", 0xFFD32F2F.toInt()),
@@ -220,8 +221,9 @@ object DraftStore {
             )
             "name" -> NameBarLayer(
                 id, s, e, o.optString("name"), o.optString("title"),
-                o.optInt("accent", 0xFFD32F2F.toInt()), o.optInt("bg", 0xFF1B1E26.toInt()),
+                o.optInt("accent", 0xFF2563EB.toInt()), o.optInt("bg", 0xFF1B1E26.toInt()),
                 o.optInt("textColor", -1), o.f("bottom", 0.12f), o.optInt("rep", 0),
+                o.f("nsz", 0.11f), o.f("lift", 0f), o.optBoolean("right", false), o.optBoolean("fade", true),
             )
             "ad" -> AdLayer(id, s, e, o.uriOrNull("uri"), o.optBoolean("top"), o.f("h", 0.18f), o.optString("adid"))
             "overlay" -> OverlayLayer(id, s, e, o.optInt("color", 0xFF000000.toInt()), o.f("alpha", 0.35f))

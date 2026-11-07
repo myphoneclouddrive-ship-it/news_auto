@@ -287,7 +287,7 @@ private fun Ruler(tl: Timeline, scrubbing: MutableState<Boolean>) {
 
 @Composable
 private fun VisualLanes(tl: Timeline) {
-    val vis = tl.visualLayers
+    val vis = tl.visualLayers.filterNot { it.isLogoLayer() }   // লোগো লেয়ারের সারিতে দেখায় না
     if (vis.isEmpty()) return
     Divider()
     // আলাদা স্ক্রল নেই: পুরো টাইমলাইন (অডিও + মূল ভিডিও + লেয়ার) বাইরের একটাই ওপর-নিচ স্ক্রলে চলে

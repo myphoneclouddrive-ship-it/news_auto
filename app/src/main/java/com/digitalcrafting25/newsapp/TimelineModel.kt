@@ -429,6 +429,15 @@ class Timeline {
     fun addLayer(kind: LayerKind, uri: Uri? = null, text: String = "", adId: String = ""): String? {
         val total = totalMs
         if (total <= 0L) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর লেয়ার দিন"
+        // লোগো একটাই (HTML-এর মতো): আগে থাকলে নতুন লেয়ার নয়, আগেরটার ছবি বদলে বাছা হয়
+        if (kind == LayerKind.LOGO) {
+            val ex = layers.firstOrNull { it.isLogoLayer() }
+            if (ex != null) {
+                if (uri != null) updateLayer(ex.id) { (it as? ImageLayer)?.copy(uri = uri) ?: it }
+                selectedLayerId = ex.id
+                return null
+            }
+        }
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
         var layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
         if (layer is AdLayer && adId.isNotEmpty()) layer = layer.copy(adId = adId)
@@ -465,7 +474,9 @@ class Timeline {
     fun clampLayerRange(l: Layer, s0: Long, e0: Long): Pair<Long, Long> {
         val total = totalMs
         val a = l as? AudioLayer
-        val limited = a != null && a.sourceDurationMs > 0L
+        // বিপ HTML-এর মতো ০.৬ সেকেন্ডের বেশি লম্বা হয় না
+        val srcDur = if (a?.kind == LayerKind.BEEP) BeepSound.LEN_MS else (a?.sourceDurationMs ?: 0L)
+        val limited = a != null && srcDur > 0L
         val moveS = s0 != l.startMs
         val moveE = e0 != l.endMs
         var s = l.startMs
@@ -477,7 +488,7 @@ class Timeline {
         var e = l.endMs
         if (moveE) {
             e = e0.coerceAtMost(maxOf(total, s + MIN_LAYER_MS))
-            if (limited) e = e.coerceAtMost(l.startMs + (a!!.sourceDurationMs - a.sourceOffsetMs))
+            if (limited) e = e.coerceAtMost(l.startMs + (srcDur - a!!.sourceOffsetMs))
             e = e.coerceAtLeast(s + MIN_LAYER_MS)
         }
         return s to e
@@ -571,7 +582,7 @@ class Timeline {
         val end = minOf(total, start + len).coerceAtLeast(start + MIN_LAYER_MS)
         val layer = AudioLayer(
             id = newId(), startMs = start, endMs = end, kind = kind, uri = uri, name = name,
-            sourceDurationMs = if (kind == LayerKind.BEEP) 0L else durationMs,
+            sourceDurationMs = if (kind == LayerKind.BEEP) BeepSound.LEN_MS else durationMs,
         )
         commitAll(clips, layers + layer)
         selectedLayerId = layer.id

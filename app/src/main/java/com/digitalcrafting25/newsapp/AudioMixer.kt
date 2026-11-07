@@ -65,7 +65,7 @@ object AudioMixer {
         val audio = spec.layers.filterIsInstance<AudioLayer>()
         val duck: List<LongRange> = audio
             .filter { it.kind == LayerKind.BEEP && !it.muted && it.volume > 0f }
-            .map { msToFrame(it.startMs)..msToFrame(minOf(it.endMs, totalMs)) }
+            .map { msToFrame(it.startMs)..msToFrame(minOf(it.endMs, totalMs, it.startMs + (BeepSound.LEN_MS - it.sourceOffsetMs).coerceAtLeast(0L))) }
 
         val sources = mutableListOf<Source>()
         if (spec.keepOriginalAudio) {
@@ -81,10 +81,11 @@ object AudioMixer {
         for (l in audio) {
             if (l.muted || l.volume <= 0f) continue
             val start = l.startMs.coerceIn(0L, totalMs)
-            val len = (minOf(l.endMs, totalMs) - start)
+            var len = (minOf(l.endMs, totalMs) - start)
+            if (l.kind == LayerKind.BEEP) len = minOf(len, BeepSound.LEN_MS - l.sourceOffsetMs)   // HTML-এর মতো বিপ ≤ ০.৬ সে.
             if (len <= 0L) continue
             if (l.kind == LayerKind.BEEP) {
-                sources += Source(null, 0L, len, start, l.volume, false, "বিপ")
+                sources += Source(null, l.sourceOffsetMs, len, start, l.volume, false, "বিপ")
             } else if (l.uri != null) {
                 sources += Source(l.uri, l.sourceOffsetMs, len, start, l.volume, true, l.kind.label, l.fadeInMs, l.fadeOutMs, l.denoise)
             }
@@ -101,7 +102,7 @@ object AudioMixer {
                 val maxFrames = min(msToFrame(s.lenMs), totalFrames - startFrame)
                 if (maxFrames <= 0L) continue
                 val sink = Sink(raf, startFrame, maxFrames, s.gain, if (s.ducked) duck else emptyList(), msToFrame(s.fadeInMs), msToFrame(s.fadeOutMs), s.denoise)
-                if (s.uri == null) generateBeep(sink, isCancelled) else decode(ctx, s, sink, isCancelled)
+                if (s.uri == null) generateBeep(sink, s.srcStartMs, isCancelled) else decode(ctx, s, sink, isCancelled)
                 sink.flush()
             }
         }
@@ -268,16 +269,15 @@ object AudioMixer {
         }
     }
 
-    private fun generateBeep(sink: Sink, isCancelled: () -> Boolean) {
+    /** HTML makeBeep()-এর হুবহু শব্দ (BeepSound.sample); offsetMs = বিপের কোন জায়গা থেকে বাজবে */
+    private fun generateBeep(sink: Sink, offsetMs: Long, isCancelled: () -> Boolean) {
         val total = sink.maxFrames
-        val sec = total / SR.toDouble()
+        val offSec = offsetMs / 1000.0
         var f = 0L
         while (f < total) {
             if ((f and 0x3FFFL) == 0L && isCancelled()) throw Cancelled()
-            val t = f / SR.toDouble()
-            // শুরু-শেষে ক্লিক এড়াতে ছোট ফেড
-            val env = min(1.0, t / 0.006) * min(1.0, ((sec - t) / 0.04).coerceAtLeast(0.0))
-            val v = (sin(2.0 * PI * BEEP_HZ * t) * 0.6 * env * 32767.0).roundToInt().toShort()
+            val t = offSec + f / SR.toDouble()
+            val v = (BeepSound.sample(t) * 32767.0).roundToInt().toShort()
             sink.put(v, v)
             f++
         }

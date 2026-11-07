@@ -7,6 +7,12 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -136,6 +142,9 @@ fun LayerOverlay(tl: Timeline) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val w = maxWidth
         val h = maxHeight
+        // HTML-এর tH / (h − bH − kH): ওপর-নিচের বিজ্ঞাপন/টিকার এড়িয়ে ট্যাগ ও নাম-বার বসে (০..১ নয়, h-এর একক)
+        val hPx = with(density) { h.toPx() }
+        val brandInsets = HtmlBrand.insets(active, hPx)
         for (l in active) key(l.id) {
             val selMod = if (l.id == tl.selectedLayerId) Modifier.border(1.dp, ED.Amber) else Modifier
             when (l) {
@@ -150,17 +159,13 @@ fun LayerOverlay(tl: Timeline) {
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     )
                 }
-                is TagLayer -> if (l.text.isNotEmpty()) {
-                    Box(Modifier.fillMaxSize().padding(8.dp), contentAlignment = cornerAlignment(l.corner)) {
-                        Text(
-                            l.text,
-                            color = Color(l.color),
-                            fontSize = with(density) { (h * l.sizeFrac).toSp() },
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.then(selMod)
-                                .then(if (l.bgColor != 0) Modifier.background(Color(l.bgColor)) else Modifier)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
+                // ট্যাগ ও নাম/পদবি: রেন্ডারের সাথে একই কোডে (HtmlBrand) আঁকা — HTML-এর হুবহু স্টাইল
+                is TagLayer -> if (l.text.isNotBlank()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawIntoCanvas { c ->
+                            val r = HtmlBrand.drawTag(c.nativeCanvas, size.width, size.height, l, brandInsets.first * size.height / hPx, brandInsets.second * size.height / hPx)
+                            if (r != null && l.id == tl.selectedLayerId) drawRect(ED.Amber, Offset(r.left, r.top), Size(r.width(), r.height()), style = Stroke(2f))
+                        }
                     }
                 }
                 is ImageLayer -> {
@@ -180,7 +185,10 @@ fun LayerOverlay(tl: Timeline) {
                             Modifier.fillMaxSize().then(selMod),
                             contentAlignment = if (l.isTop) Alignment.TopCenter else Alignment.BottomCenter,
                         ) {
-                            Image(b, null, Modifier.height(h * l.heightFrac).aspectRatio(b.width / b.height.toFloat()))
+                            // HTML strip()-এর মতো: পুরো প্রস্থের সাদা পট্টি, ছবি ভেতরে অনুপাত ঠিক রেখে মাঝে (দুই পাশ ফাঁকা থাকে না)
+                            Box(Modifier.fillMaxWidth().height(h * l.heightFrac).background(Color.White), contentAlignment = Alignment.Center) {
+                                Image(b, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                            }
                         }
                     }
                 }
@@ -209,20 +217,11 @@ fun LayerOverlay(tl: Timeline) {
                         }
                     }
                 }
-                is NameBarLayer -> if (l.name.isNotBlank() || l.title.isNotBlank()) {
-                    Box(Modifier.fillMaxSize().padding(bottom = h * l.bottomFrac), contentAlignment = Alignment.BottomStart) {
-                        Row(Modifier.then(selMod).background(Color(l.bgColor)).height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                            Box(Modifier.width(5.dp).fillMaxHeight().background(Color(l.accent)))
-                            Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                if (l.name.isNotBlank()) Text(
-                                    l.name, color = Color(l.textColor), fontWeight = FontWeight.Bold,
-                                    fontSize = with(density) { (h * 0.05f).toSp() }, maxLines = 1,
-                                )
-                                if (l.title.isNotBlank()) Text(
-                                    l.title, color = Color(l.textColor),
-                                    fontSize = with(density) { (h * 0.035f).toSp() }, maxLines = 1,
-                                )
-                            }
+                is NameBarLayer -> if (l.name.isNotBlank()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawIntoCanvas { c ->
+                            val r = HtmlBrand.drawNameBar(c.nativeCanvas, size.width, size.height, l, ms, brandInsets.second * size.height / hPx)
+                            if (r != null && l.id == tl.selectedLayerId) drawRect(ED.Amber, Offset(r.left, r.top), Size(r.width(), r.height()), style = Stroke(2f))
                         }
                     }
                 }
@@ -256,10 +255,10 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
         Modifier.edPanel(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("✏️ ${l.kind.label} লেয়ার", fontWeight = FontWeight.Bold)
+        Text(if (l.isLogoLayer()) "✏️ ${l.kind.label} (ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে)" else "✏️ ${l.kind.label} লেয়ার", fontWeight = FontWeight.Bold)
 
         // সময়
-        if (total > LayerDefaults.MIN_LAYER_MS) {
+        if (total > LayerDefaults.MIN_LAYER_MS && !l.isLogoLayer()) {
             var r by remember(l.id, l.startMs, l.endMs, total) {
                 val s = l.startMs.toFloat().coerceIn(0f, total.toFloat())
                 mutableStateOf(s..l.endMs.toFloat().coerceIn(s, total.toFloat()))
@@ -339,7 +338,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 }
                 ColorRow("লেখার রং", l.color, false) { c -> tl.edit<TagLayer>(l.id) { it.copy(color = c) } }
                 ColorRow("ব্যাকগ্রাউন্ড", l.bgColor, true) { c -> tl.edit<TagLayer>(l.id) { it.copy(bgColor = c) } }
-                LSlider("মাপ", l.sizeFrac, 0.03f..0.1f) { v -> tl.edit<TagLayer>(l.id) { it.copy(sizeFrac = v) } }
+                LSlider("মাপ (প্রস্থের %)", l.sizeFrac, 0.03f..0.1f) { v -> tl.edit<TagLayer>(l.id) { it.copy(sizeFrac = v) } }
             }
 
             is TickerLayer -> {
@@ -373,9 +372,17 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 ColorRow("পাশের দাগের রং", l.accent, false) { c -> tl.edit<NameBarLayer>(l.id) { it.copy(accent = c) } }
-                ColorRow("ব্যাকগ্রাউন্ড", l.bgColor, false) { c -> tl.edit<NameBarLayer>(l.id) { it.copy(bgColor = c) } }
-                ColorRow("লেখার রং", l.textColor, false) { c -> tl.edit<NameBarLayer>(l.id) { it.copy(textColor = c) } }
-                LSlider("নিচ থেকে দূরত্ব", l.bottomFrac, 0f..0.6f) { v -> tl.edit<NameBarLayer>(l.id) { it.copy(bottomFrac = v) } }
+                // HTML-এর মতো: পট্টি সবসময় কালো, লেখা সাদা; বদলানো যায় দাগের রং, মাপ, উচ্চতা, পাশ, ফেড
+                LSlider("মাপ (বারের উচ্চতা, ফ্রেমের %)", l.sizeFrac, 0.06f..0.2f) { v -> tl.edit<NameBarLayer>(l.id) { it.copy(sizeFrac = v) } }
+                LSlider("ওপরে তোলা", l.liftFrac, 0f..0.3f) { v -> tl.edit<NameBarLayer>(l.id) { it.copy(liftFrac = v) } }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = !l.right, onClick = { tl.edit<NameBarLayer>(l.id) { it.copy(right = false) } }, label = { Text("বাম পাশে") })
+                    FilterChip(selected = l.right, onClick = { tl.edit<NameBarLayer>(l.id) { it.copy(right = true) } }, label = { Text("ডান পাশে") })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = l.fade, onCheckedChange = { v -> tl.edit<NameBarLayer>(l.id) { it.copy(fade = v) } })
+                    Text("স্লাইড/ফেড ইন-আউট")
+                }
                 // HTML: "আবার দেখান (প্রতি … সেকেন্ডে; ০ = একবার)"
                 OutlinedTextField(
                     value = if (l.repeatSec == 0) "" else l.repeatSec.toString(),
