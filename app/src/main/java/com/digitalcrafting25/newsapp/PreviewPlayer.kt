@@ -5,7 +5,9 @@ package com.digitalcrafting25.newsapp
 import android.content.Context
 import android.media.AudioManager
 import android.media.ToneGenerator
-import androidx.media3.common.C
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -24,7 +26,7 @@ class PreviewPlayer(private val ctx: Context) {
     val player: ExoPlayer = ExoPlayer.Builder(ctx).build().apply {
     }
     /** এখনকার ভিডিওর আসল প্রস্থ÷উচ্চতা (ছবি চ্যাপ্টা না করতে প্রিভিউ এটা দিয়ে মাপ ঠিক করে) */
-    var videoAspect by androidx.compose.runtime.mutableFloatStateOf(16f / 9f)
+    var videoAspect by mutableFloatStateOf(16f / 9f)
         private set
 
     init {

@@ -27,6 +27,40 @@ import kotlinx.coroutines.withContext
 class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     val tl = Timeline()
     val clips: List<Clip> get() = tl.clips
+
+    /** অসমাপ্ত এডিট (HTML-এর "📝 অসমাপ্ত ভিডিও এডিট"): ব্যাক করলে এখানে জমা থাকে। অ্যাপ বন্ধ করলে যায় */
+    class Draft(val id: Long, val clips: List<Clip>, val layers: List<Layer>, val savedAt: Long)
+    val drafts = mutableStateListOf<Draft>()
+    private var currentDraftId: Long? = null
+
+    /** চলতি এডিট ড্রাফট তালিকায় (নতুন আগে) রাখে; আগে থেকে থাকলে নতুন করে বসায় */
+    fun saveDraft() {
+        if (tl.clips.isEmpty()) return
+        val id = currentDraftId ?: tl.newId().also { currentDraftId = it }
+        drafts.removeAll { it.id == id }
+        drafts.add(0, Draft(id, tl.clips, tl.layers, System.currentTimeMillis()))
+    }
+
+    /** "ভিডিও বাছুন": আগেরটা ড্রাফট হিসেবে রেখে একদম নতুন এডিট */
+    fun startNew() {
+        saveDraft()
+        tl.resetAll()
+        currentDraftId = null
+    }
+
+    /** ড্রাফটে "চালিয়ে যান"; চলতিটা আগে সেভ হয়ে থাকে */
+    fun openDraft(id: Long): Boolean {
+        val d = drafts.firstOrNull { it.id == id } ?: return false
+        if (currentDraftId != id) saveDraft()
+        tl.loadSnapshot(d.clips, d.layers)
+        currentDraftId = id
+        return true
+    }
+
+    fun removeDraft(id: Long) {
+        drafts.removeAll { it.id == id }
+        if (currentDraftId == id) { tl.resetAll(); currentDraftId = null }
+    }
     var aspect by mutableStateOf(Aspect.LANDSCAPE)
     var caption by mutableStateOf("")
     var logo by mutableStateOf<Uri?>(null)

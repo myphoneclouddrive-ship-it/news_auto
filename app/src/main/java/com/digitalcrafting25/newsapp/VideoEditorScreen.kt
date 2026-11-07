@@ -344,10 +344,10 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
             // আসল ভিডিও (ExoPlayer) — শুধু ভিডিও ক্লিপে; ছবি-ক্লিপে ওপরের ছবিটাই দেখায়
             // ভিডিও নিজের আসল অনুপাতে বসে ফ্রেম ভরে (বাড়তিটা ক্রপ) — কখনো চ্যাপ্টা হয় না
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-                val vr = pp.videoAspect
-                val br = maxWidth / maxHeight
-                val vw = if (vr > br) maxHeight * vr else maxWidth
-                val vh = if (vr > br) maxHeight else maxWidth / vr
+                val vr: Float = pp.videoAspect
+                val br: Float = maxWidth / maxHeight
+                val vw: androidx.compose.ui.unit.Dp = if (vr > br) maxHeight * vr else maxWidth
+                val vh: androidx.compose.ui.unit.Dp = if (vr > br) maxHeight else maxWidth / vr
                 androidx.compose.ui.viewinterop.AndroidView(
                     factory = { c -> android.view.TextureView(c).also { pp.player.setVideoTextureView(it) } },
                     modifier = Modifier.align(Alignment.Center)

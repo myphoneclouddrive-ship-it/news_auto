@@ -67,6 +67,24 @@ class Timeline {
 
     fun newId(): Long = nextId++
 
+    /** সব খালি করে নতুন এডিট (আইডির গণনা চলতেই থাকে, তাই ড্রাফটের আইডির সাথে মিলে যাবে না) */
+    fun resetAll() {
+        undoStack.clear(); redoStack.clear(); lastKey = null
+        clips = emptyList(); layers = emptyList()
+        selectedId = null; selectedLayerId = null
+        playheadMs = 0L; timelineZoom = 1f
+        refresh()
+    }
+
+    /** সেভ করা ড্রাফট ফেরানো (আনডু ইতিহাস খালি, HTML-এর মতো) */
+    fun loadSnapshot(c: List<Clip>, l: List<Layer>) {
+        undoStack.clear(); redoStack.clear(); lastKey = null
+        clips = c; layers = l
+        selectedId = null; selectedLayerId = null
+        playheadMs = 0L; timelineZoom = 1f
+        refresh()
+    }
+
     val totalMs: Long get() = clips.sumOf { it.lengthMs() }
 
     private fun refresh() {

@@ -252,6 +252,7 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
     ) { u ->
         if (u != null) {
+            ev.startNew()   // আগের এডিট ড্রাফটে থাকে; নতুন ভিডিও নতুন করে শুরু (আগেরটার সাথে জোড়া লাগবে না)
             ev.addUris(listOf(u))
             pendingOpen = true
         }
@@ -265,9 +266,9 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
         EditorUi.fullscreen = editor
         onDispose { EditorUi.fullscreen = false }
     }
-    BackHandler(enabled = editor) { editor = false }
+    BackHandler(enabled = editor) { ev.saveDraft(); editor = false }
     if (editor) {
-        VideoEditorScreen(ev, onBack = { editor = false })
+        VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false })
     } else {
         NewPostScreen(np, ads, onOpenVideo = {
             pickVideo.launch(
@@ -275,7 +276,46 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
                     androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VideoOnly,
                 ),
             )
-        }, onScheduled = onScheduled)
+        }, onScheduled = onScheduled, header = {
+            DraftList(ev, onOpen = { id -> if (ev.openDraft(id)) editor = true })
+        })
+    }
+}
+
+/** HTML `#vcResume`: 📝 অসমাপ্ত ভিডিও এডিট — নাম, দৈর্ঘ্য, লেয়ার, সেভের সময়, ▶️ চালিয়ে যান / 🗑️ মুছুন */
+@Composable
+fun DraftList(ev: EditorViewModel, onOpen: (Long) -> Unit) {
+    val list = ev.drafts
+    var delId by remember { mutableStateOf<Long?>(null) }
+    if (list.isEmpty()) return
+    InfoCard(Modifier.padding(bottom = 10.dp)) {
+        Text("📝 অসমাপ্ত ভিডিও এডিট" + if (list.size > 1) " (${list.size}টি)" else " আছে", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        list.toList().forEach { d ->
+            val total = d.clips.sumOf { it.lengthMs() }
+            val time = runCatching {
+                java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale("bn", "BD")).format(java.util.Date(d.savedAt))
+            }.getOrDefault("")
+            Column(Modifier.padding(top = 8.dp)) {
+                Text(
+                    "🎞️ ${d.clips.firstOrNull()?.name ?: ""}\nমোট দৈর্ঘ্য ${fmtTime(total)}" +
+                        (if (d.layers.isNotEmpty()) " · লেয়ার ${d.layers.size}টি" else "") +
+                        (if (time.isNotEmpty()) " · সেভ: $time" else ""),
+                    fontSize = 12.sp, color = C.Muted,
+                )
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppBtn("▶️ চালিয়ে যান", color = C.Green, onClick = { onOpen(d.id) })
+                    AppBtn("🗑️ মুছুন", color = C.Gray, onClick = { delId = d.id })
+                }
+            }
+        }
+    }
+    delId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { delId = null },
+            text = { Text("এই অসমাপ্ত এডিট মুছে ফেলবেন?") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { ev.removeDraft(id); delId = null }) { Text("মুছুন") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { delId = null }) { Text("না") } },
+        )
     }
 }
 

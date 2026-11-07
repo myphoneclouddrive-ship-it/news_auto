@@ -135,7 +135,7 @@ private fun FormatBar(vm: NewPostViewModel, manual: Boolean) {
 }
 
 @Composable
-fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit) {
+fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit, header: @Composable () -> Unit = {}) {
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
     LaunchedEffect(vm.cardTitle, vm.title, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId, vm.step) { if (vm.step in 3..4) vm.refresh() }
@@ -147,6 +147,7 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("✍️ নতুন পোস্ট")
         StepBar(vm.step)
+        if (vm.step == 1) header()   // অসমাপ্ত ভিডিও এডিটের তালিকা (HTML-এর মতো ওপরে)
         vm.balance?.let { Text("💰 ব্যালেন্স: ৳ " + PostUtil.bn(it.toInt()), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(bottom = 6.dp)) }
 
         if (vm.busy && !vm.rewriting) {
