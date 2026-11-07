@@ -48,16 +48,33 @@ data class RenderSpec(
     val fbBandPx: Int = 0,
 )
 
+/** একটা রেন্ডার পাস (HTML pbPass): mode "fb" = ফেইসবুক (ব্যান্ডসহ হতে পারে), "yt" = ইউটিউব ১৬:৯ */
+data class RenderPass(val mode: String, val spec: RenderSpec) {
+    val label: String get() = if (mode == "fb") "ফেইসবুক" else "ইউটিউব"
+}
+
+/** রেন্ডার হয়ে গ্যালারিতে সেভ হওয়া একটা ভিডিও */
+data class RenderOutput(val mode: String, val uri: Uri, val w: Int, val h: Int) {
+    val label: String get() = if (mode == "fb") "ফেইসবুক" else "ইউটিউব"
+}
+
 sealed interface RenderStatus {
     data object Idle : RenderStatus
-    data class Running(val progress: Int) : RenderStatus
-    data class Done(val uri: Uri) : RenderStatus
+    /** progress = সব পাস মিলিয়ে ০..১০০; pass/passCount = কত নম্বর ভিডিও (HTML: "ফেইসবুক ভিডিও রেন্ডার হচ্ছে (১/২)") */
+    data class Running(val progress: Int, val pass: Int = 1, val passCount: Int = 1, val label: String = "") : RenderStatus
+    /** outputs: ফেইসবুক আগে, তারপর ইউটিউব (HTML-এর মতো) */
+    data class Done(val outputs: List<RenderOutput>) : RenderStatus {
+        /** মূল ভিডিও: ফেইসবুক থাকলে সেটা, না হলে প্রথমটা (HTML vcAfterRender-এর `main`) */
+        val main: RenderOutput get() = outputs.firstOrNull { it.mode == "fb" } ?: outputs.first()
+        val uri: Uri get() = main.uri
+    }
     data class Failed(val message: String) : RenderStatus
 }
 
 /** এডিটর UI আর RenderService-এর মধ্যে যোগাযোগ (একই প্রসেস) */
 object RenderBus {
-    @Volatile var spec: RenderSpec? = null
+    /** পরপর যে ভিডিওগুলো রেন্ডার হবে (ফেইসবুক + ইউটিউব দুটো টিক দিলে দুটো) */
+    @Volatile var passes: List<RenderPass> = emptyList()
     val status = MutableStateFlow<RenderStatus>(RenderStatus.Idle)
 }
 

@@ -212,8 +212,14 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে রেন্ডার সার্ভিস চালু করে ও null দেয় */
-    /** fbBand = true হলে (শুধু ফেইসবুক টিক) ওপরে-নিচে সাদা ব্যান্ড বসে; লেখা শুধু সেই দিকে যেদিকে বিজ্ঞাপন লেয়ার নেই (HTML-এর মতো) */
-    fun startRender(fbBand: Boolean = false): String? {
+    /**
+     * HTML-এর পাবলিশ ডায়ালগের মতো পাস: ফেইসবুক টিক থাকলে আগে ফেইসবুক ভিডিও, ইউটিউব (বা ওয়ার্ডপ্রেস) টিক থাকলে তারপর ইউটিউব ভিডিও —
+     * দুটো টিক দিলে দুটো আলাদা ভিডিও (একটার পর একটা)।
+     * - ফেইসবুক: লেখা থাকলে ওপরে-নিচে সাদা ব্যান্ড (লেখা শুধু সেই দিকে যেদিকে বিজ্ঞাপন লেয়ার নেই)
+     * - ইউটিউব: ১২৮০×৭২০, শুধু নিচের ব্যানার ভিতরে (ওপরের ব্যানার বসে না)
+     */
+    fun startRender(fb: Boolean = false, yt: Boolean = false): String? {
+        if (!fb && !yt) return "কোথায় পাবলিশ হবে সেটা বাছুন"
         if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন"
         for ((i, c) in clips.withIndex()) {
             if (c.isImage) {
@@ -229,10 +235,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM }
         val top = if (hasTopAd) "" else fbTop.trim()
         val bottom = if (hasBottomAd) "" else fbBottom.trim()
-        // ব্যান্ডের উচ্চতা = ৭২০ × ০.১৮ (বিজ্ঞাপন লেয়ারের ডিফল্ট উচ্চতা, HTML-এর ah-এর মতো); জোড় সংখ্যা, এনকোডারের জন্য
-        val band = if (fbBand && aspect == Aspect.LANDSCAPE && (top.isNotEmpty() || bottom.isNotEmpty())) {
-            (Math.round(aspect.h * 0.18f) / 2) * 2
-        } else 0
+        // ব্যান্ডের উচ্চতা = ব্যানারের উচ্চতা ১০৮ (HTML-এর pbSize: ৭২০ + ২×sh, sh = ৭২০-এর ১৫%); জোড় সংখ্যা, এনকোডারের জন্য
+        val band = if (fb && aspect == Aspect.LANDSCAPE && (top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
         val asp = aspect
         val snapClips = clips.toList()
         val snapLayers = tl.layers.toList()
@@ -242,28 +246,42 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val mv = musicVolume
         val ka = keepAudio
         val fc = fbColor
-        RenderBus.status.value = RenderStatus.Running(0)
+        // পাসের তালিকা: ফেইসবুক আগে, ইউটিউব পরে (HTML-এর মতো)
+        class Plan(val mode: String, val band: Int, val layers: List<Layer>, val fbTop: String, val fbBottom: String)
+        val plans = ArrayList<Plan>()
+        if (fb) plans += Plan("fb", band, snapLayers, top, bottom)
+        if (yt) plans += Plan("yt", 0, snapLayers.filterNot { it is AdLayer && it.isTop }, "", "")   // ইউটিউবে ওপরের ব্যানার বসে না
+        RenderBus.status.value = RenderStatus.Running(0, 1, plans.size, if (plans.first().mode == "fb") "ফেইসবুক" else "ইউটিউব")
         viewModelScope.launch {
-            // কার্ড (ইন্ট্রো/আউট্রো) যে মাপে বানানো সেটা এখনকার ভিডিওর মাপের সাথে না মিললে ওই মাপে আবার বানানো
+            // কার্ড (ইন্ট্রো/আউট্রো) যে মাপে বানানো সেটা পাসের ক্যানভাসের মাপের সাথে না মিললে ওই মাপে আবার বানানো
             // (দৈর্ঘ্য একই থাকে, তাই টাইমলাইন/লেয়ারের সময় বদলায় না; ব্যর্থ হলে আগের ফাইলই চলে)
-            val renderClips = withContext(Dispatchers.IO) {
-                snapClips.map { c ->
-                    val s = c.card
+            val built = withContext(Dispatchers.IO) {
+                val cache = HashMap<Int, List<Clip>>()   // ক্যানভাসের উচ্চতা → ক্লিপ (দুই পাসে একই মাপ হলে একবারই বানানো)
+                plans.map { p ->
                     // ব্যান্ড চালু থাকলে কার্ড পুরো ক্যানভাসের মাপে (১২৮০×(৭২০+২×ব্যান্ড)) — ইন্ট্রো/আউট্রোতে ব্যান্ড থাকে না
-                    val th = asp.h + 2 * band
-                    if (s != null && !c.isImage && (s.w != asp.w || s.h != th)) {
-                        runCatching {
-                            val s2 = s.copy(w = asp.w, h = th)
-                            val (u, d) = CardVideoMaker.make(app, s2, asp.w, th)
-                            c.copy(uri = u, card = s2, durationMs = d)
-                        }.getOrDefault(c)
-                    } else c
+                    val th = asp.h + 2 * p.band
+                    val clipsForPass = cache.getOrPut(th) {
+                        snapClips.map { c ->
+                            val s = c.card
+                            if (s != null && !c.isImage && (s.w != asp.w || s.h != th)) {
+                                runCatching {
+                                    val s2 = s.copy(w = asp.w, h = th)
+                                    val (u, d) = CardVideoMaker.make(app, s2, asp.w, th)
+                                    c.copy(uri = u, card = s2, durationMs = d)
+                                }.getOrDefault(c)
+                            } else c
+                        }
+                    }
+                    RenderPass(
+                        p.mode,
+                        RenderSpec(
+                            clipsForPass, asp, cap, lg, mu, mv, ka, p.layers,
+                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBandPx = p.band,
+                        ),
+                    )
                 }
             }
-            RenderBus.spec = RenderSpec(
-                renderClips, asp, cap, lg, mu, mv, ka, snapLayers,
-                fbTop = top, fbBottom = bottom, fbColor = fc, fbBandPx = band,
-            )
+            RenderBus.passes = built
             ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
         }
         return null

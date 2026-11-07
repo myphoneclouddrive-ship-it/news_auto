@@ -54,8 +54,8 @@ class RenderService : Service() {
             cancel()
             return START_NOT_STICKY
         }
-        val spec = RenderBus.spec
-        if (spec == null || running) {
+        val list = RenderBus.passes
+        if (list.isEmpty() || running) {
             if (!running) stopSelf()
             return START_NOT_STICKY
         }
@@ -63,21 +63,37 @@ class RenderService : Service() {
             this, NOTIF_ID, buildNotification(0, "শুরু হচ্ছে…"),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
-        begin(spec)
+        begin(list)
         return START_NOT_STICKY
     }
 
     @Volatile private var renderToken = 0
     private var mixFile: File? = null
+    // একাধিক পাস (ফেইসবুক + ইউটিউব): একটার পর একটা রেন্ডার, শেষে সবগুলো একসাথে Done
+    private var passes: List<RenderPass> = emptyList()
+    private var passIdx = 0
+    private val outputs = ArrayList<RenderOutput>()
+    private var passStamp = ""
 
-    private fun begin(spec: RenderSpec) {
+    private fun begin(list: List<RenderPass>) {
+        passes = list
+        passIdx = 0
+        outputs.clear()
+        passStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         running = true
-        RenderBus.status.value = RenderStatus.Running(0)
+        RenderBus.status.value = RenderStatus.Running(0, 1, list.size, list.first().label)
         wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "newsapp:render")
             .apply { acquire(3 * 60 * 60 * 1000L) }
+        beginPass()
+    }
 
-        val out = File(cacheDir, "render_${System.currentTimeMillis()}.mp4")
+    /** এখনকার পাসের রেন্ডার শুরু (অডিও মেশানো লাগলে আগে সেটা) */
+    private fun beginPass() {
+        val pass = passes[passIdx]
+        val spec = pass.spec
+        publishProgress(0)
+        val out = File(cacheDir, "render_${System.currentTimeMillis()}_${pass.mode}.mp4")
         outFile = out
 
         if (!AudioMixer.needsMix(spec)) {
@@ -88,7 +104,7 @@ class RenderService : Service() {
         // ধাপ ৫: আগে ব্যাকগ্রাউন্ড থ্রেডে সব শব্দ মেশানো, তারপর Transformer
         if (Notif.canPost(this)) {
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIF_ID, buildNotification(0, "অডিও মেশানো হচ্ছে…"))
+                .notify(NOTIF_ID, buildNotification(0, passText("অডিও মেশানো হচ্ছে…")))
         }
         val token = ++renderToken
         val wav = File(cacheDir, "mix_${System.currentTimeMillis()}.wav")
@@ -139,16 +155,28 @@ class RenderService : Service() {
         }
     }
 
+    /** পাসের নাম/নম্বর সহ নোটিফিকেশন-লেখা (একটাই পাস হলে আগের মতো সাদামাটা) */
+    private fun passText(base: String): String =
+        if (passes.size > 1) "${passes[passIdx].label} ভিডিও (${passIdx + 1}/${passes.size}) — $base" else base
+
+    /** এই পাসের % (০..১০০) থেকে সব পাস মিলিয়ে % বের করে পাঠায়; রিটার্ন = মোট % */
+    private fun publishProgress(passPercent: Int): Int {
+        val n = passes.size.coerceAtLeast(1)
+        val total = ((passIdx * 100 + passPercent.coerceIn(0, 100)) / n).coerceIn(0, 100)
+        RenderBus.status.value = RenderStatus.Running(total, passIdx + 1, n, passes.getOrNull(passIdx)?.label.orEmpty())
+        return total
+    }
+
     private val poll = object : Runnable {
         override fun run() {
             val t = transformer ?: return
             if (!running) return
             if (t.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
                 val p = holder.progress.coerceIn(0, 100)
-                RenderBus.status.value = RenderStatus.Running(p)
+                val all = publishProgress(p)
                 if (Notif.canPost(this@RenderService)) {
                     getSystemService(NotificationManager::class.java)
-                        .notify(NOTIF_ID, buildNotification(p, "ভিডিও রেন্ডার হচ্ছে — $p%"))
+                        .notify(NOTIF_ID, buildNotification(all, passText("রেন্ডার হচ্ছে — $all%")))
                 }
             }
             handler.postDelayed(this, 500)
@@ -158,15 +186,40 @@ class RenderService : Service() {
     private fun onExported() {
         handler.removeCallbacks(poll)
         val file = outFile ?: return fail("আউটপুট ফাইল পাওয়া যায়নি")
+        val pass = passes[passIdx]
+        val multi = passes.size > 1
+        // পরের পাসের স্পেক হুবহু একই হলে (যেমন ব্যান্ড/ওপরের ব্যানার নেই) আবার রেন্ডার না করে এই ফাইলটাই কাজে লাগে
+        val reuse = passIdx + 1 < passes.size && passes[passIdx + 1].spec == pass.spec
         Thread {
             try {
-                val name = "news_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".mp4"
+                // দুই ভিডিও হলে ফাইলের নামে প্ল্যাটফর্ম থাকে (HTML: facebook.mp4 / youtube.mp4)
+                val name = "news_" + passStamp + (if (multi) (if (pass.mode == "fb") "_facebook" else "_youtube") else "") + ".mp4"
                 val uri = saveToGallery(file, name)
-                file.delete()
+                if (!reuse) file.delete()
                 handler.post {
-                    RenderBus.status.value = RenderStatus.Done(uri)
-                    finishUp()
-                    Notif.post(this, DONE_ID, Notif.CH_RENDER, "✅ ভিডিও তৈরি হয়েছে", "গ্যালারি → Movies/NewsPublisher")
+                    if (!running) { file.delete(); return@post }
+                    val sp = pass.spec
+                    outputs += RenderOutput(pass.mode, uri, sp.aspect.w, sp.aspect.h + 2 * sp.fbBandPx.coerceAtLeast(0))
+                    passIdx++
+                    runCatching { mixFile?.delete() }
+                    mixFile = null
+                    if (passIdx < passes.size) {
+                        if (reuse) {
+                            publishProgress(100)
+                            outFile = file
+                            onExported()
+                        } else {
+                            beginPass()
+                        }
+                    } else {
+                        RenderBus.status.value = RenderStatus.Done(outputs.toList())
+                        finishUp()
+                        Notif.post(
+                            this, DONE_ID, Notif.CH_RENDER,
+                            if (multi) "✅ ${outputs.size}টি ভিডিও তৈরি হয়েছে" else "✅ ভিডিও তৈরি হয়েছে",
+                            "গ্যালারি → Movies/NewsPublisher",
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 handler.post { fail("সেভ করা যায়নি: ${e.message}") }

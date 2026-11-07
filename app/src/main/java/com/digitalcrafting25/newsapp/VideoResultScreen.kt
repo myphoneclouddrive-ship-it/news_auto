@@ -40,7 +40,7 @@ import androidx.compose.ui.viewinterop.AndroidView
  * সরাসরি Facebook/YouTube/WordPress আপলোড এখনো যোগ হয়নি — বাটন সেটা সততার সাথে জানায়।
  */
 @Composable
-fun VideoResultScreen(vm: EditorViewModel, uri: Uri, onBack: () -> Unit, onNewPost: () -> Unit) {
+fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: () -> Unit, onNewPost: () -> Unit) {
     var msg by remember { mutableStateOf("") }
     var msgOk by remember { mutableStateOf(false) }
     BackHandler { onBack() }
@@ -54,32 +54,39 @@ fun VideoResultScreen(vm: EditorViewModel, uri: Uri, onBack: () -> Unit, onNewPo
             StepCell("২ ভিডিও", C.Red, true, Modifier.weight(1f))
         }
 
-        // রেন্ডার করা ভিডিও (শুধু দেখা যাবে)
-        Column(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp)).background(Color(0xFFFAFAFA))
-                .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(10.dp))
-                .padding(10.dp),
-        ) {
-            Text("🎬 রেন্ডার করা ভিডিও (শুধু দেখা যাবে)", fontWeight = FontWeight.Bold)
-            Box(
-                Modifier.padding(top = 8.dp).fillMaxWidth().height(230.dp)
-                    .clip(RoundedCornerShape(8.dp)).background(Color.Black),
-                contentAlignment = Alignment.Center,
+        // রেন্ডার করা ভিডিও (শুধু দেখা যাবে); ফেইসবুক + ইউটিউব দুটো হলে দুটোই, ফেইসবুক আগে (HTML-এর মতো)
+        val ordered = outputs.sortedBy { if (it.mode == "fb") 0 else 1 }
+        ordered.forEachIndexed { i, o ->
+            Column(
+                Modifier.padding(top = if (i == 0) 0.dp else 10.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp)).background(Color(0xFFFAFAFA))
+                    .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(10.dp))
+                    .padding(10.dp),
             ) {
-                AndroidView(
-                    factory = { c ->
-                        VideoView(c).also { v ->
-                            val mc = MediaController(c)
-                            mc.setAnchorView(v)
-                            v.setMediaController(mc)
-                            v.setVideoURI(uri)
-                            v.setOnPreparedListener { it.seekTo(1) }   // প্রথম ফ্রেম দেখায়, নিজে চলে না
-                        }
-                    },
-                    update = { v -> if (v.tag != uri) { v.tag = uri; v.setVideoURI(uri) } },
-                    modifier = Modifier.fillMaxWidth().height(230.dp),
+                Text(
+                    if (ordered.size > 1) "🎬 ${o.label} ভিডিও · ${o.w}×${o.h} (শুধু দেখা যাবে)" else "🎬 রেন্ডার করা ভিডিও (শুধু দেখা যাবে)",
+                    fontWeight = FontWeight.Bold,
                 )
+                val uri = o.uri
+                Box(
+                    Modifier.padding(top = 8.dp).fillMaxWidth().height(230.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AndroidView(
+                        factory = { c ->
+                            VideoView(c).also { v ->
+                                val mc = MediaController(c)
+                                mc.setAnchorView(v)
+                                v.setMediaController(mc)
+                                v.setVideoURI(uri)
+                                v.setOnPreparedListener { it.seekTo(1) }   // প্রথম ফ্রেম দেখায়, নিজে চলে না
+                            }
+                        },
+                        update = { v -> if (v.tag != uri) { v.tag = uri; v.setVideoURI(uri) } },
+                        modifier = Modifier.fillMaxWidth().height(230.dp),
+                    )
+                }
             }
         }
 
@@ -102,11 +109,11 @@ fun VideoResultScreen(vm: EditorViewModel, uri: Uri, onBack: () -> Unit, onNewPo
 
         AppBtn("🚀 পাবলিশ করুন (Facebook+Youtube+WordPress)", Modifier.padding(top = 12.dp), color = C.Green) {
             msgOk = false
-            msg = "সরাসরি আপলোড এখনো অ্যাপে যোগ হয়নি। ভিডিওটা ফোনে (Movies/NewsPublisher) সেভ আছে।"
+            msg = "সরাসরি আপলোড এখনো অ্যাপে যোগ হয়নি। ভিডিও ফোনে (Movies/NewsPublisher) সেভ আছে।"
         }
         AppBtn("💾 সেভ করুন", Modifier.padding(top = 8.dp), color = C.Blue) {
             msgOk = true
-            msg = "✅ ভিডিও ফোনে সেভ করা আছে: Movies/NewsPublisher"
+            msg = if (outputs.size > 1) "✅ ${outputs.size}টি ভিডিও (ফেইসবুক, ইউটিউব) ফোনে সেভ করা আছে: Movies/NewsPublisher" else "✅ ভিডিও ফোনে সেভ করা আছে: Movies/NewsPublisher"
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray) { onBack() }

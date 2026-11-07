@@ -80,7 +80,7 @@ import kotlinx.coroutines.withContext
 private const val SHOW_EXTRA_CONTROLS = false
 
 @Composable
-fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: (android.net.Uri) -> Unit = {}) {
+fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: (List<RenderOutput>) -> Unit = {}) {
     val ctx = LocalContext.current
     val tl = vm.tl
     val status by RenderBus.status.collectAsStateWithLifecycle()
@@ -186,7 +186,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
             when (val s = status) {
                 is RenderStatus.Running -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("রেন্ডার হচ্ছে… ${s.progress}%")
+                        Text(renderLabel(s))
                         LinearProgressIndicator(progress = { s.progress / 100f }, modifier = Modifier.fillMaxWidth())
                         Text("অ্যাপ ব্যাকগ্রাউন্ডে গেলেও চলবে। নোটিফিকেশনে % দেখা যাবে।")
                         OutlinedButton(onClick = { vm.cancelRender() }) { Text("বাতিল") }
@@ -194,22 +194,25 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
                 }
                 is RenderStatus.Done -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("✅ ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = {
-                                runCatching {
-                                    ctx.startActivity(
-                                        Intent(Intent.ACTION_VIEW).setDataAndType(s.uri, "video/mp4")
-                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                                    )
-                                }
-                            }) { Text("▶️ দেখুন") }
-                            OutlinedButton(onClick = {
-                                val send = Intent(Intent.ACTION_SEND).setType("video/mp4")
-                                    .putExtra(Intent.EXTRA_STREAM, s.uri)
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                runCatching { ctx.startActivity(Intent.createChooser(send, "শেয়ার করুন")) }
-                            }) { Text("📤 শেয়ার") }
+                        Text(if (s.outputs.size > 1) "✅ ${s.outputs.size}টি ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)" else "✅ ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)")
+                        s.outputs.forEach { o ->
+                            if (s.outputs.size > 1) Text("${o.label} · ${o.w}×${o.h}", fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = {
+                                    runCatching {
+                                        ctx.startActivity(
+                                            Intent(Intent.ACTION_VIEW).setDataAndType(o.uri, "video/mp4")
+                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                        )
+                                    }
+                                }) { Text("▶️ দেখুন") }
+                                OutlinedButton(onClick = {
+                                    val send = Intent(Intent.ACTION_SEND).setType("video/mp4")
+                                        .putExtra(Intent.EXTRA_STREAM, o.uri)
+                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    runCatching { ctx.startActivity(Intent.createChooser(send, "শেয়ার করুন")) }
+                                }) { Text("📤 শেয়ার") }
+                            }
                         }
                     }
                 }
@@ -225,6 +228,10 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     }
 }
 
+/** রেন্ডারের অগ্রগতির লেখা; দুই ভিডিও হলে HTML-এর মতো "ফেইসবুক ভিডিও রেন্ডার হচ্ছে (১/২)" */
+private fun renderLabel(s: RenderStatus.Running): String =
+    if (s.passCount > 1) "${s.label} ভিডিও রেন্ডার হচ্ছে (${s.pass}/${s.passCount})… ${s.progress}%" else "রেন্ডার হচ্ছে… ${s.progress}%"
+
 /** ডার্ক কার্ড: স্টেজ + কন্ট্রোল বার + নাজ বার + টাইমলাইন + বার্তা */
 @Composable
 private fun StageCard(
@@ -237,7 +244,7 @@ private fun StageCard(
     setInfo: (String?) -> Unit,
     onAddMedia: () -> Unit,
     onAddAudio: () -> Unit,
-    onRendered: (android.net.Uri) -> Unit,
+    onRendered: (List<RenderOutput>) -> Unit,
     onBack: () -> Unit,
     compact: Boolean = false,   // এডিট প্যানেল খোলা: শুধু প্রিভিউ + প্লে বার (টপ বার, জুম, টাইমলাইন নেই)
 ) {
@@ -254,7 +261,7 @@ private fun StageCard(
         if (!awaiting) return@LaunchedEffect
         when (status) {
             is RenderStatus.Running -> sawRunning = true
-            is RenderStatus.Done -> if (sawRunning) { awaiting = false; sawRunning = false; onRendered(status.uri) }
+            is RenderStatus.Done -> if (sawRunning) { awaiting = false; sawRunning = false; onRendered(status.outputs) }
             is RenderStatus.Failed -> if (sawRunning) { awaiting = false; sawRunning = false }
             else -> {}
         }
@@ -294,10 +301,10 @@ private fun StageCard(
         hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP },
         hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM },
         onDismiss = { showPublish = false },
-        onRender = { yt, fbOnly ->
+        onRender = { fb, yt ->
             vm.aspect = Aspect.LANDSCAPE
             showPublish = false
-            val err = vm.startRender(fbBand = fbOnly)
+            val err = vm.startRender(fb = fb, yt = yt)
             setError(err)
             if (err == null) { awaiting = true; sawRunning = false }
         },
@@ -346,7 +353,7 @@ private fun StageCard(
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
         info?.let { Text(it, color = ED.Ok, fontSize = 13.sp) }
         if (status is RenderStatus.Running) {
-            Text("রেন্ডার হচ্ছে… ${status.progress}%", color = ED.Sub, fontSize = 13.sp)
+            Text(renderLabel(status), color = ED.Sub, fontSize = 13.sp)
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
         }
     }
@@ -527,7 +534,7 @@ private fun PublishDialog(
     hasTopAd: Boolean,
     hasBottomAd: Boolean,
     onDismiss: () -> Unit,
-    onRender: (yt: Boolean, fbOnly: Boolean) -> Unit,
+    onRender: (fb: Boolean, yt: Boolean) -> Unit,   // yt = ইউটিউব বা ওয়ার্ডপ্রেস টিক (ওয়ার্ডপ্রেসে ইউটিউব ভিডিও)
 ) {
     var fb by remember { mutableStateOf(false) }
     var yt by remember { mutableStateOf(false) }
@@ -622,18 +629,21 @@ private fun PublishDialog(
                 }
             }
 
+            // HTML pbInfo: দুটোর মাপ আলাদা দেখায়; ফেইসবুকে লেখা (ব্যান্ড) থাকলে উচ্চতা ৭২০ + ২×১০৮ = ৯৩৬
+            val fbHasBand = (vm.fbTop.isNotBlank() && !hasTopAd) || (vm.fbBottom.isNotBlank() && !hasBottomAd)
             Text(
-                "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×720",
+                "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + 2 * EDITOR_AD_H) else 720) +
+                    (if (fb && fbHasBand) " (ওপরে-নিচে সাদা ব্যান্ডে লেখা)" else ""),
                 color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
             if (fb && (yt || wp)) {
-                Text("ফেইসবুকের সাথে ইউটিউব/ওয়ার্ডপ্রেস টিক দিলে এখন একটাই ১৬:৯ ভিডিও হয় (ব্যানারের লেখা বসে না)। ব্যানারসহ ভিডিও চাইলে শুধু ফেইসবুক টিক দিন।", color = Color(0xFFFBBF24), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 4.dp))
+                Text("ফেইসবুক আর ইউটিউব দুটোর জন্য আলাদা দুটো ভিডিও রেন্ডার হবে (আগে ফেইসবুক, তারপর ইউটিউব)। সময় প্রায় দ্বিগুণ লাগবে।", color = Color(0xFFFBBF24), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 4.dp))
             }
             Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", color = dSub, fontSize = 12.sp)
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = fb || yt || wp, onClick = { onRender(yt, fb && !yt && !wp) }, modifier = Modifier.weight(1f),
+                    enabled = fb || yt || wp, onClick = { onRender(fb, yt || wp) }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = ED.Publish, contentColor = Color.White),
                 ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }
