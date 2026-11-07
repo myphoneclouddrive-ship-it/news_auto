@@ -26,6 +26,7 @@ data class Clip(
     val zoom: Float = 1f,       // ১..৪ (১ = জুম নেই); ফ্রেমের কেন্দ্র থেকে বড় করে
     val panX: Float = 0f,       // -১..১; জুম করা ছবির ভেতরে দেখার জানালা বাঁ(-১) ↔ ডান(+১)
     val panY: Float = 0f,       // -১..১; ওপর(-১) ↔ নিচ(+১)
+    val trans: String = "",   // এই ক্লিপ ও পরের ক্লিপের জোড়ার ট্রানজিশন (ClipTr.LIST-এর কী; খালি = নেই)
     val card: CardSpec? = null, // ধাপ ৭: রেডি ইন্ট্রো/আউট্রো কার্ড হলে তার লেখা/স্টাইল (ছবি-ক্লিপ হিসেবেই চলে)
 )
 
@@ -46,6 +47,8 @@ data class RenderSpec(
     val fbBottom: String = "",
     val fbColor: Int = 0xFF000000.toInt(),
     val fbBandPx: Int = 0,
+    // true হলে বিজ্ঞাপন (ব্যানার) ভিডিওর ভেতরে নয়, ওপরে-নিচের সাদা ব্যান্ডে বসে (HTML-এর ফেইসবুক পাস)
+    val fbAdsInBand: Boolean = false,
 )
 
 /** একটা রেন্ডার পাস (HTML pbPass): mode "fb" = ফেইসবুক (ব্যান্ডসহ হতে পারে), "yt" = ইউটিউব ১৬:৯ */

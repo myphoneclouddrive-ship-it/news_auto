@@ -41,8 +41,12 @@ class LayerFrameRenderer(
     private val fbTop: String = "",
     private val fbBottom: String = "",
     private val fbColor: Int = Color.BLACK,
+    // true হলে ওপর/নিচের ব্যানার ভিডিওর ভেতরে না এঁকে ব্যান্ডে (ওপরেরটা ওপরের ব্যান্ডে, নিচেরটা নিচের ব্যান্ডে) আঁকা হয়
+    private val adsInBand: Boolean = false,
     // ইন্ট্রো/আউট্রো কার্ডের সময়: ওখানে স্ক্রলিং লেখা/বিজ্ঞাপন/ট্যাগ/লোগো এবং পুরোনো লোগো-বার আঁকা হয় না (HTML-এর মতো)
     private val cardRanges: List<LongRange> = emptyList(),
+    // ক্লিপ-জোড়ার ট্রানজিশন (ClipTr): ফেড/সাদা/ওয়াইপ/গোল পর্দা/ব্লাইন্ডস/জুমের অন্ধকার এখানে আঁকা হয়; স্লাইড ও জুমের সরানো RenderComposer-এ
+    private val cuts: List<ClipTr.Cut> = emptyList(),
 ) {
     private val layers: List<Layer> = allLayers.filterNot { it.isAudio }
     private val images = HashMap<Long, Bitmap>()
@@ -55,7 +59,7 @@ class LayerFrameRenderer(
     private var lastInCard = false
     private val u = h / 220f
 
-    val isEmpty: Boolean get() = layers.isEmpty() && base == null && yOff == 0
+    val isEmpty: Boolean get() = layers.isEmpty() && base == null && yOff == 0 && cuts.isEmpty()
 
     init {
         val maxSide = max(w, h)
@@ -88,7 +92,9 @@ class LayerFrameRenderer(
         val active = layers.filter { it.isActiveAt(ms, repeatStopMs, cardRanges, totalMs) }
         val key = active.map { it.id }
         val inCard = cardRanges.any { ms in it }
-        val animated = active.any { it is TickerLayer || it is NameBarLayer }   // নাম-বারের স্লাইড ফ্রেমে ফ্রেমে বদলায়
+        val trNow = ClipTr.at(cuts, ms)
+        // নাম-বারের স্লাইড, ক্লিপ-ট্রানজিশন ও দুই ব্যানারের মাঝের ট্রানজিশন ফ্রেমে ফ্রেমে বদলায়
+        val animated = trNow != null || active.any { it is TickerLayer || it is NameBarLayer || (it is AdLayer && AdTr.at(layers, it, ms) != null) }
         if (!animated && cur >= 0 && key == lastKey && inCard == lastInCard) return bufs[cur]
 
         cur = if (cur == 0) 1 else 0
@@ -104,19 +110,38 @@ class LayerFrameRenderer(
                 cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(Color.WHITE))
                 drawBandText(cv, fbTop, 0f, yOff.toFloat())
                 drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
+                // ব্যানার: ওপরেরটা ওপরের ব্যান্ডে, নিচেরটা নিচের ব্যান্ডে (HTML-এর ফেইসবুক পাস); ছবি পুরো ব্যান্ড ভরে
+                if (adsInBand) for (l in active) if (l is AdLayer) {
+                    val top = if (l.isTop) 0f else (yOff + h).toFloat()
+                    drawAdAt(cv, l, RectF(0f, top, w.toFloat(), top + yOff), ms)
+                }
             }
             cv.save()
-            cv.translate(0f, yOff.toFloat())
+            if (inCard) {
+                // (ধাপ ৩-এর ৮) HTML-এর মতো: ইন্ট্রো/আউট্রোতে ১২৮০×৭২০ ফ্রেমের হিসাবে লেয়ার এঁকে মাঝখান থেকে ক্রপ করে
+                // পুরো ক্যানভাসে (১২৮০×outH) বড় করা হয় (blit-এর drawImage((1280−sw)/2, 0, sw, 720 → 0, 0, w, outH)); বিকৃত হয় না
+                val sc = canvasH / h.toFloat()
+                val sw = h * w / canvasH.toFloat()
+                cv.scale(sc, sc)
+                cv.translate(-(w - sw) / 2f, 0f)
+            } else {
+                cv.translate(0f, yOff.toFloat())
+            }
         }
+        // ক্লিপ-ট্রানজিশনের ওভারলে: ভিডিওর ওপরে, বাকি সব লেয়ারের নিচে (HTML: transFx ভিডিওর পরই, লেখা/বিজ্ঞাপনের আগে)
+        trNow?.let { (mode, u) -> ClipTr.drawOverlay(cv, w.toFloat(), h.toFloat(), mode, u) }
         if (!inCard) base?.let { cv.drawBitmap(it, 0f, 0f, null) }
-        val (topInset, bottomBase) = HtmlBrand.insets(active, h.toFloat())
-        for (l in active) {
+        // ব্যানার ব্যান্ডে গেলে ভিডিওর ভেতরের ফ্রেমে ওদের জায়গা ছাড়তে হয় না: ট্যাগ/লোগো/নাম-বার ফ্রেমের একদম ওপর-নিচ পর্যন্ত,
+        // স্ক্রলিং লেখা ফ্রেমের একদম নিচে (HTML: ব্যানার ছাড়া ফ্রেমের হিসাব)
+        val inFrame = if (adsInBand) active.filterNot { it is AdLayer } else active
+        val (topInset, bottomBase) = HtmlBrand.insets(inFrame, h.toFloat())
+        for (l in inFrame) {
             when (l) {
                 is TextLayer -> drawText(cv, l)
                 is TagLayer -> HtmlBrand.drawTag(cv, w.toFloat(), h.toFloat(), l, topInset, bottomBase)
                 is ImageLayer -> drawImage(cv, l, topInset, bottomBase)
-                is AdLayer -> drawAd(cv, l)
-                is TickerLayer -> HtmlBrand.drawTicker(cv, w.toFloat(), h.toFloat(), l, ms, active)
+                is AdLayer -> drawAdAt(cv, l, adRect(l), ms)
+                is TickerLayer -> HtmlBrand.drawTicker(cv, w.toFloat(), h.toFloat(), l, ms, inFrame)
                 is NameBarLayer -> HtmlBrand.drawNameBar(cv, w.toFloat(), h.toFloat(), l, ms, bottomBase, totalMs)
                 is OverlayLayer -> cv.drawRect(0f, 0f, w.toFloat(), h.toFloat(), fill(l.color, l.alpha))
                 // ব্রাইটনেস: সাদা/কালোর স্বচ্ছ আস্তরণ দিয়ে আনুমানিক (ধাপ ৭-এ আরও ভালো করা যাবে)
@@ -194,13 +219,30 @@ class LayerFrameRenderer(
     }
 
     /** ব্যানার: পুরো প্রস্থ × ফ্রেমের ১৫% (১২৮০×৭২০-তে ১২৮০×১০৮); ছবি পুরো পট্টি ভরে বসে */
-    private fun drawAd(cv: Canvas, l: AdLayer) {
-        val b = images[l.id] ?: return
+    private fun adRect(l: AdLayer): RectF {
         val sh = h * l.heightFrac
         val top = if (l.isTop) 0f else h - sh
-        cv.drawRect(0f, top, w.toFloat(), top + sh, Paint().apply { color = android.graphics.Color.WHITE })
+        return RectF(0f, top, w.toFloat(), top + sh)
+    }
+
+    /** আগের ব্যানারের শেষে নতুনটা এলে HTML-এর `downup` ট্রানজিশনসহ আঁকে; না হলে সোজা drawAd */
+    private fun drawAdAt(cv: Canvas, l: AdLayer, r: RectF, ms: Long) {
+        val st = AdTr.at(layers, l, ms)
+        if (st == null || images[st.prev.id] == null) { drawAd(cv, l, r); return }
+        val (showPrev, f) = AdTr.shift(st.k)
+        cv.save()
+        cv.clipRect(r)
+        cv.translate(0f, f * r.height())
+        drawAd(cv, if (showPrev) st.prev else l, r)
+        cv.restore()
+    }
+
+    /** ব্যানার r জায়গায় (ভিডিওর ভেতরে নিচে/ওপরে, বা ফেইসবুক ব্যান্ডে): সাদা পট্টি + ছবি পুরো পট্টি ভরে */
+    private fun drawAd(cv: Canvas, l: AdLayer, r: RectF) {
+        val b = images[l.id] ?: return
+        cv.drawRect(r, Paint().apply { color = android.graphics.Color.WHITE })
         // ব্যানার সবসময় পুরো পট্টি (১২৮০×১০৮) জুড়ে বসে; ছবি ছোট/বড় যা-ই হোক এই মাপে আসে (HTML-এর render(ad, 1280, 108)-এর মতো)
-        cv.drawBitmap(b, null, RectF(0f, top, w.toFloat(), top + sh), Paint(Paint.FILTER_BITMAP_FLAG))
+        cv.drawBitmap(b, null, r, Paint(Paint.FILTER_BITMAP_FLAG))
     }
 }
 

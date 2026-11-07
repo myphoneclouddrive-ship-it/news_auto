@@ -20,7 +20,7 @@ import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
-import androidx.media3.effect.Contrast
+import androidx.media3.effect.RgbMatrix
 import androidx.media3.effect.TimestampWrapper
 import androidx.media3.effect.MatrixTransformation
 import androidx.media3.effect.OverlayEffect
@@ -31,6 +31,25 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import com.google.common.collect.ImmutableList
+
+/**
+ * কন্ট্রাস্ট: প্রতিটা রঙ-চ্যানেল মাঝ (০.৫) ঘিরে (১ + c) গুণ — প্রিভিউয়ের ColorMatrix (`FramePreview`) ও CSS contrast(1 + c)-এর একই সূত্র।
+ * Media3-এর নিজের `Contrast`-এর গুণক (1+c)/(1.0001−c) অনেক কড়া (c=০.৫-এ ৩.০ বনাম ১.৫; c=১-এ ২০০০০ বনাম ২), তাই প্রিভিউয়ের সাথে মিলত না।
+ * Media3 1.4.1-এর ডিফল্ট SDR কাজের রঙ-জায়গা SMPTE 170M (গামা-এনকোডেড, লিনিয়ার নয়), তাই প্রিভিউয়ের মতোই গামা-মানে কাজ করে।
+ * ম্যাট্রিক্স 4×4 column-major (GL): শেষ কলামে অফসেট (১−f)/২।
+ */
+@UnstableApi
+private class ContrastMatrix(contrast: Float) : RgbMatrix {
+    private val f = (1f + contrast.coerceIn(-1f, 1f)).coerceAtLeast(0f)
+    private val matrix = floatArrayOf(
+        f, 0f, 0f, 0f,
+        0f, f, 0f, 0f,
+        0f, 0f, f, 0f,
+        (1f - f) * 0.5f, (1f - f) * 0.5f, (1f - f) * 0.5f, 1f,
+    )
+    override fun getMatrix(presentationTimeUs: Long, useHdr: Boolean): FloatArray = matrix
+    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = f == 1f
+}
 
 @UnstableApi
 object RenderComposer {
@@ -105,13 +124,29 @@ object RenderComposer {
         val renderer = LayerFrameRenderer(
             ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
             canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
+            adsInBand = spec.fbAdsInBand && band > 0,
             cardRanges = cardRangesMs(spec.clips),
+            cuts = ClipTr.cuts(spec.clips),
         )
         // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
         val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()
             .filter { it.contrast != 0f && it.endMs > it.startMs }
-            .map { TimestampWrapper(Contrast(it.contrast.coerceIn(-1f, 1f)), it.startMs * 1000L, it.endMs * 1000L) }
-        val videoFx: List<Effect> = contrastFx + if (renderer.isEmpty) emptyList() else {
+            .map { TimestampWrapper(ContrastMatrix(it.contrast.coerceIn(-1f, 1f)), it.startMs * 1000L, it.endMs * 1000L) }
+        // ক্লিপ-ট্রানজিশনের স্লাইড ও জুম পাঞ্চ: কাটের ±০.২৮ সে. ভিডিও-ফ্রেম সরে/বড় হয় (ওভারলের নিচে, তাই লেখা/ব্যানার নড়ে না)
+        val moveFx: List<Effect> = ClipTr.cuts(spec.clips).filter { it.mode == "slide" || it.mode == "zoom" }.map { cut ->
+            val st = (cut.ms - ClipTr.HALF_MS).coerceAtLeast(0L)
+            val en = (cut.ms + ClipTr.HALF_MS).coerceAtLeast(st + 1L)
+            TimestampWrapper(
+                object : MatrixTransformation {
+                    override fun getMatrix(presentationTimeUs: Long): Matrix {
+                        val u = ((presentationTimeUs / 1000.0 - cut.ms) / ClipTr.HALF_MS).toFloat().coerceIn(-0.999f, 0.999f)
+                        return ClipTr.matrixFor(cut.mode, u) ?: Matrix()
+                    }
+                },
+                st * 1000L, en * 1000L,
+            )
+        }
+        val videoFx: List<Effect> = contrastFx + moveFx + if (renderer.isEmpty) emptyList() else {
             listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(LayerFrameOverlay(renderer))))
         }
 

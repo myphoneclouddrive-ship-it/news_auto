@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -110,7 +111,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
 // ───────────────────────── ছোট সাহায্যকারী ─────────────────────────
 
 @Composable
-private fun StatusLine(ok: Boolean, text: String) {
+internal fun StatusLine(ok: Boolean, text: String) {
     Text(
         text,
         color = if (ok) C.Green else C.Red,
@@ -122,12 +123,12 @@ private fun StatusLine(ok: Boolean, text: String) {
 }
 
 @Composable
-private fun Small(text: String, modifier: Modifier = Modifier, color: Color = C.Muted) =
+internal fun Small(text: String, modifier: Modifier = Modifier, color: Color = C.Muted) =
     Text(text, color = color, fontSize = 12.sp, lineHeight = 17.sp, modifier = modifier)
 
 /** ওয়েবের <details class="guide"> */
 @Composable
-private fun Guide(title: String, lines: List<String>) {
+internal fun Guide(title: String, lines: List<String>) {
     var open by rememberSaveable(title) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
         Text(
@@ -155,7 +156,7 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         InfoCard {
-            Text("🔑 WordPress ও Facebook সংযোগ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("🔑 WordPress, Facebook ও YouTube সংযোগ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Small("এখানে নিজের সাইট ও পেইজের তথ্য দিন। তথ্যগুলো Worker-এ এনক্রিপ্ট করে থাকে, অ্যাপে আর ফেরত আসে না। এই সংযোগ শুধু আপনার লগইন অ্যাকাউন্টের।", Modifier.padding(top = 4.dp))
             vm.credsErr?.let { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ $it") }
             if (!vm.kvOk) { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ Worker-এ KV (SCHEDULE) বাইন্ডিং নেই, তাই এখান থেকে সেভ হবে না") }
@@ -246,6 +247,73 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             vm.fbMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
         }
 
+        // ── YouTube (HTML সেটিংসের "▶️ YouTube (ভিডিও পাবলিশের জন্য)") ──
+        YtCard(ask)
+    }
+}
+
+/** ইউটিউব: কোনো সিক্রেট/টোকেন সেভ হয় না। Google লগইন টেস্টে অনুমতি দিলেই চলে; ভিডিও অ্যাপ থেকে সরাসরি চ্যানেলে যায়। */
+@Composable
+private fun YtCard(ask: (Ask) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val login = rememberYtLogin()
+    var ok by remember { mutableStateOf(YouTube.isConnected(ctx)) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    val sha = remember { YouTube.sha1(ctx) }
+    InfoCard {
+        Text("▶️ YouTube (ভিডিও পাবলিশের জন্য)", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        StatusLine(ok, if (ok) "✅ লগইন ঠিক আছে" else "❌ লগইন টেস্ট করা হয়নি")
+        Small("পাসওয়ার্ড বা সিক্রেট লাগে না। ভিডিও অ্যাপ থেকে সরাসরি আপনার YouTube চ্যানেলে যায়।", Modifier.padding(top = 8.dp))
+        FieldLabel("Google Cloud-এ Android OAuth client বানাতে যা লাগবে")
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Column(
+                Modifier.fillMaxWidth().background(Color(0xFFF7F8FA), RoundedCornerShape(8.dp)).padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("প্যাকেজ নাম:", fontSize = 12.sp, color = C.Muted)
+                Text(ctx.packageName, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                Text("SHA-1 (সাইনিং সার্টিফিকেট):", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
+                Text(sha.ifBlank { "পাওয়া যায়নি" }, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+            }
+        }
+        Guide(
+            "📖 YouTube কীভাবে যোগ করবেন (ধাপে ধাপে)",
+            listOf(
+                "১. console.cloud.google.com-এ সেই Google অ্যাকাউন্টে লগইন করুন, যে অ্যাকাউন্টে আপনার YouTube চ্যানেল আছে। HTML-এর জন্য আগে প্রজেক্ট বানানো থাকলে সেটাই ব্যবহার করুন (নইলে New Project)।",
+                "২. APIs & Services → Library থেকে YouTube Data API v3 খুঁজে Enable করুন (আগে করা থাকলে লাগবে না)।",
+                "৩. OAuth consent screen (নতুন ডিজাইনে Google Auth Platform): External, অ্যাপের নাম ও ইমেইল দিন। Scopes-এ .../auth/youtube.upload যোগ করুন। Test users-এ নিজের Google ইমেইল দিন। অ্যাপ Testing অবস্থায় রাখলেই চলবে। (HTML-এর জন্য করা থাকলে এই ধাপ আবার লাগবে না।)",
+                "৪. Credentials → Create Credentials → OAuth client ID। Application type: Android। Package name ও SHA-1 ঘরে ওপরের দুটো মান হুবহু বসান। Create চাপুন। কোথাও কিছু কপি করে অ্যাপে দিতে হবে না।",
+                "৫. নিচে \"লগইন টেস্ট\" চাপুন। Google পপআপে চ্যানেলের অ্যাকাউন্ট বাছুন। \"Google hasn’t verified this app\" দেখালে Advanced → Go to ... চেপে অনুমতি দিন। এটা নিজের অ্যাপ, তাই নিরাপদ।",
+                "জেনে রাখুন: ফোনে Google Play services থাকতে হবে। নতুন API প্রজেক্ট থেকে আপলোড করা ভিডিও Google অডিট না করা পর্যন্ত প্রাইভেট থেকে যেতে পারে; তখন YouTube Studio থেকে হাতে Public করতে হবে, অথবা Google-এর YouTube API Services Audit ফর্ম জমা দিন। ডিফল্ট কোটায় দিনে প্রায় ৬টা ভিডিও আপলোড করা যায়। পাবলিশের সময় লগইন লাগতে পারে; পপআপ এলে অনুমতি দিন। অ্যাপ নতুন কী (keystore) দিয়ে বিল্ড হলে SHA-1 বদলে যায়, তখন ধাপ ৪ আবার করতে হবে।",
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppBtn("🔌 লগইন টেস্ট", color = C.Gray, small = true, enabled = !busy, onClick = {
+                busy = true; msg = null
+                scope.launch {
+                    try {
+                        login.token()
+                        YouTube.setConnected(ctx, true); ok = true
+                        msg = true to "✅ YouTube লগইন ঠিক আছে। পাবলিশে ভিডিও এই চ্যানেলে যাবে।"
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        YouTube.setConnected(ctx, false); ok = false
+                        msg = false to "⚠️ " + (e.message ?: "লগইন হয়নি")
+                    } finally { busy = false }
+                }
+            })
+            AppBtn("🗑️ মুছুন", color = C.Gray, small = true, enabled = !busy, onClick = {
+                ask(Ask("YouTube সংযোগের চিহ্ন মুছে ফেলবেন? (Google অ্যাকাউন্টের অনুমতি তুলতে myaccount.google.com → Security → Third-party access)") {
+                    YouTube.setConnected(ctx, false); ok = false; msg = true to "মুছে ফেলা হয়েছে"
+                })
+            })
+        }
+        msg?.let { (g, t) -> Text(t, color = if (g) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
     }
 }
 

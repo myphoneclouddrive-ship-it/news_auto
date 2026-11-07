@@ -116,6 +116,7 @@ object DraftStore {
         put("imageSec", c.imageSec.toDouble()); put("volume", c.volume.toDouble()); put("muted", c.muted)
         put("flipH", c.flipH); put("flipV", c.flipV)
         put("zoom", c.zoom.toDouble()); put("panX", c.panX.toDouble()); put("panY", c.panY.toDouble())
+        if (c.trans.isNotEmpty()) put("tr", c.trans)
         c.card?.let {
             put("card", JSONObject().apply {
                 put("outro", it.outro); put("style", it.style.name)
@@ -146,6 +147,7 @@ object DraftStore {
             volume = o.f("volume", 1f), muted = o.optBoolean("muted"),
             flipH = o.optBoolean("flipH"), flipV = o.optBoolean("flipV"),
             zoom = o.f("zoom", 1f), panX = o.f("panX", 0f), panY = o.f("panY", 0f),
+            trans = o.optString("tr").takeIf { ClipTr.valid(it) } ?: "",
             card = card,
         )
     }

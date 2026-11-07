@@ -142,9 +142,9 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
             onDismissRequest = { if (!upd.busy) uv.dismissPopup() },
             title = { Text("🎉 নতুন আপডেট এসেছে") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    UpdateNotes(info.notes, 260.dp)
+                    UpdateNotes(info.notes)
                     upd.progress?.let { p ->
                         LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                         Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
@@ -375,22 +375,20 @@ fun NumField(label: String, value: Float, modifier: Modifier = Modifier, onChang
  * `#` দিয়ে শুরু লাইন = মোটা শিরোনাম (একাধিক ভার্সনের নোট একসাথে থাকলে ভার্সনের নাম)। নোট না থাকলে কিছু দেখায় না।
  */
 @Composable
-fun UpdateNotes(notes: String, maxHeight: androidx.compose.ui.unit.Dp) {
+fun UpdateNotes(notes: String) {
     if (notes.isBlank()) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("✨ নতুন যা যা এসেছে", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        Column(
-            Modifier.fillMaxWidth().heightIn(max = maxHeight).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            notes.lines().forEach { raw ->
-                val t = raw.trim()
-                when {
-                    t.isEmpty() -> androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
-                    t.startsWith("#") -> Text(t.trimStart('#').trim(), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                    t.startsWith("- ") || t.startsWith("* ") -> Text("•  " + t.drop(2).trim(), fontSize = 14.sp)
-                    else -> Text(t, fontSize = 14.sp)
-                }
+    val heading = "নতুন যা যা এসেছে"
+    // নোটের ফাইলে নিজেই একই শিরোনাম থাকলে বাদ (ওপরে একবার দেখানো হয়)
+    val lines = notes.lines().filterNot { it.trim().trimStart('#').trim() == heading }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("✨ $heading", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        lines.forEach { raw ->
+            val t = raw.trim()
+            when {
+                t.isEmpty() -> androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+                t.startsWith("#") -> Text(t.trimStart('#').trim(), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                t.startsWith("- ") || t.startsWith("* ") -> Text("•  " + t.drop(2).trim(), fontSize = 14.sp)
+                else -> Text(t, fontSize = 14.sp)
             }
         }
     }
@@ -416,7 +414,7 @@ fun UpdateScreen(vm: UpdateViewModel) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    UpdateNotes(info.notes, 360.dp)
+                    UpdateNotes(info.notes)
                     if (st.downloaded) {
                         Text("নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
                     } else {

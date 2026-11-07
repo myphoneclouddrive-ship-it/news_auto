@@ -156,7 +156,7 @@ object AudioMixer {
         private val fadeOutFrames: Long = 0L,
         private val denoise: Boolean = false,
     ) {
-        private val nr = if (denoise) NoiseReducer() else null
+        private val nr = if (denoise) NoiseReducer(SR, CH) else null
         private val buf = ShortArray(CHUNK_FRAMES * CH)
         private var n = 0            // buf-এ জমা শর্ট সংখ্যা
         private var written = 0L     // এ পর্যন্ত ফাইলে যাওয়া ফ্রেম
@@ -204,68 +204,6 @@ object AudioMixer {
             raf.write(bytes)
             written += frames
             n = 0
-        }
-    }
-
-    /**
-     * হালকা নয়েজ কমানো (HTML denoise()-এর স্ট্রিমিং রূপ): ৯০Hz হাই-পাস ফিল্টার + ২০ মি.সে. ফ্রেমে নয়েজ গেট।
-     * HTML-এ পুরো ফাইলের ১০% পার্সেন্টাইল দিয়ে "ফ্লোর" ধরা হয়; এখানে স্ট্রিমে চলমান সর্বনিম্ন এনার্জি ধরে ফ্লোর ঠিক হয়।
-     * কথার নিচের নয়েজ পুরো যায় না, শুধু চুপ জায়গার হিস/গুঞ্জন কমে।
-     */
-    private class NoiseReducer {
-        // বাইকুয়াড হাই-পাস, fc = 90Hz, Q = 0.707
-        private val b0: Double; private val b1: Double; private val b2: Double
-        private val a1: Double; private val a2: Double
-        private val x1 = DoubleArray(CH); private val x2 = DoubleArray(CH)
-        private val y1 = DoubleArray(CH); private val y2 = DoubleArray(CH)
-        private val frameLen = max(64, (SR * 0.02).roundToInt())
-        private var cnt = 0
-        private var energy = 0.0
-        private var floor = -1.0
-        private var gain = 1.0
-        private var target = 1.0
-        private val out = ShortArray(CH)
-
-        init {
-            val w0 = 2.0 * Math.PI * 90.0 / SR
-            val alpha = Math.sin(w0) / (2.0 * 0.707)
-            val cw = Math.cos(w0)
-            val a0 = 1.0 + alpha
-            b0 = ((1.0 + cw) / 2.0) / a0
-            b1 = (-(1.0 + cw)) / a0
-            b2 = b0
-            a1 = (-2.0 * cw) / a0
-            a2 = (1.0 - alpha) / a0
-        }
-
-        private fun hp(c: Int, x: Double): Double {
-            val y = b0 * x + b1 * x1[c] + b2 * x2[c] - a1 * y1[c] - a2 * y2[c]
-            x2[c] = x1[c]; x1[c] = x
-            y2[c] = y1[c]; y1[c] = y
-            return y
-        }
-
-        fun process(l: Short, r: Short): ShortArray {
-            val yl = hp(0, l / 32768.0)
-            val yr = hp(1, r / 32768.0)
-            energy += (yl * yl + yr * yr) / 2.0
-            if (++cnt >= frameLen) {
-                val e = Math.sqrt(energy / cnt)
-                floor = if (floor < 0.0) e else if (e < floor) e else floor + (e - floor) * 0.002
-                val thr = max(floor * 2.5, 0.004)
-                val lo = thr * 0.6
-                target = when {
-                    e >= thr -> 1.0
-                    e <= lo -> 0.08
-                    else -> 0.08 + 0.92 * (e - lo) / (thr - lo)
-                }
-                cnt = 0; energy = 0.0
-            }
-            // খোলার সময় দ্রুত (০.০২৫), বন্ধের সময় ধীরে (০.০০০৮) প্রতি স্যাম্পলে
-            gain += (target - gain) * (if (target > gain) 0.025 else 0.0008)
-            out[0] = (yl * gain * 32768.0).roundToInt().coerceIn(-32768, 32767).toShort()
-            out[1] = (yr * gain * 32768.0).roundToInt().coerceIn(-32768, 32767).toShort()
-            return out
         }
     }
 

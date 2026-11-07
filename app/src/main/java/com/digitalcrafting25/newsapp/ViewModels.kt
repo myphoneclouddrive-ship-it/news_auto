@@ -215,7 +215,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     /**
      * HTML-এর পাবলিশ ডায়ালগের মতো পাস: ফেইসবুক টিক থাকলে আগে ফেইসবুক ভিডিও, ইউটিউব (বা ওয়ার্ডপ্রেস) টিক থাকলে তারপর ইউটিউব ভিডিও —
      * দুটো টিক দিলে দুটো আলাদা ভিডিও (একটার পর একটা)।
-     * - ফেইসবুক: লেখা থাকলে ওপরে-নিচে সাদা ব্যান্ড (লেখা শুধু সেই দিকে যেদিকে বিজ্ঞাপন লেয়ার নেই)
+     * - ফেইসবুক: ব্যানার বা লেখা থাকলে ওপরে-নিচে সাদা ব্যান্ড; ব্যানার ওই ব্যান্ডে বসে (ভিডিওর ভেতরে নয়), লেখা শুধু সেই দিকে যেদিকে ব্যানার নেই
      * - ইউটিউব: ১২৮০×৭২০, শুধু নিচের ব্যানার ভিতরে (ওপরের ব্যানার বসে না)
      */
     fun startRender(fb: Boolean = false, yt: Boolean = false): String? {
@@ -236,7 +236,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val top = if (hasTopAd) "" else fbTop.trim()
         val bottom = if (hasBottomAd) "" else fbBottom.trim()
         // ব্যান্ডের উচ্চতা = ব্যানারের উচ্চতা ১০৮ (HTML-এর pbSize: ৭২০ + ২×sh, sh = ৭২০-এর ১৫%); জোড় সংখ্যা, এনকোডারের জন্য
-        val band = if (fb && aspect == Aspect.LANDSCAPE && (top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
+        // ফেইসবুকে ব্যানারও ভিডিওর বাইরে এই ব্যান্ডে বসে (HTML-এর মতো), তাই ব্যানার বা লেখা — যেকোনো একটা থাকলেই ব্যান্ড চালু
+        val band = if (fb && aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
         val asp = aspect
         val snapClips = clips.toList()
         val snapLayers = tl.layers.toList()
@@ -276,7 +277,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                         p.mode,
                         RenderSpec(
                             clipsForPass, asp, cap, lg, mu, mv, ka, p.layers,
-                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBandPx = p.band,
+                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBandPx = p.band, fbAdsInBand = p.band > 0,
                         ),
                     )
                 }

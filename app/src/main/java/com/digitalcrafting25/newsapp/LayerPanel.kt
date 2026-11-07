@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -194,14 +195,23 @@ fun LayerOverlay(tl: Timeline) {
                 }
                 is AdLayer -> {
                     val b = rememberUriBitmap(l.uri, 768)
-                    if (b != null) {
+                    // আগের ব্যানারের শেষে এলে HTML-এর `downup` ট্রানজিশন (আগেরটা নিচে নামে, নতুনটা নিচ থেকে ওঠে)
+                    val adTr = AdTr.at(tl.layers, l, ms)
+                    val pb = rememberUriBitmap(adTr?.prev?.uri, 768)
+                    val (showPrev, shiftF) = if (adTr != null) AdTr.shift(adTr.k) else (false to 0f)
+                    val shown = if (adTr != null && showPrev) pb else b
+                    if (shown != null) {
                         Box(
                             Modifier.fillMaxSize().then(selMod),
                             contentAlignment = if (l.isTop) Alignment.TopCenter else Alignment.BottomCenter,
                         ) {
                             // ব্যানার: পুরো প্রস্থ × ফ্রেমের ১৫% (১২৮০×১০৮), ছবি যে মাপেরই হোক এই মাপে বসে (রেন্ডারের মতো)
-                            Box(Modifier.fillMaxWidth().height(h * l.heightFrac).background(Color.White)) {
-                                Image(b, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+                            Box(Modifier.fillMaxWidth().height(h * l.heightFrac).clipToBounds()) {
+                                Box(
+                                    Modifier.fillMaxSize().graphicsLayer { translationY = shiftF * size.height }.background(Color.White),
+                                ) {
+                                    Image(shown, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+                                }
                             }
                         }
                     }
@@ -428,6 +438,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 OutlinedButton(onClick = onReplaceImage) {
                     Text(if (l.uri == null) "🖼️ বিজ্ঞাপনের ছবি বাছুন" else "🖼️ অন্য ছবি বাছুন")
                 }
+                DefaultAdButton { u -> tl.edit<AdLayer>(l.id) { it.copy(uri = u, adId = "") } }
                 SettingsAdPicker(l.adId) { u, id -> tl.edit<AdLayer>(l.id) { it.copy(uri = u, adId = id) } }
                 Text("ব্যানারের মাপ স্থির: ${EDITOR_AD_W}×${EDITOR_AD_H} (ফ্রেমের ১৫%)। ছবি ছোট বা বড় হলেও এই মাপে বসবে।", color = ED.Muted, fontSize = 12.sp)
             }
@@ -511,6 +522,16 @@ private fun ColorRow(label: String, current: Int, allowNone: Boolean, onPick: (I
 }
 
 
+/** HTML adLyList-এর "🏷️ ডিফল্ট ব্যানার দেখান": "বিজ্ঞাপন এরিয়া ১২৮০×১০৮ px" লেখা ব্যানার বসে */
+@Composable
+private fun DefaultAdButton(onPick: (Uri) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    OutlinedButton(onClick = { scope.launch { onPick(SettingsMedia.placeholderAdUri(ctx)) } }) {
+        Text("🏷️ ডিফল্ট ব্যানার দেখান")
+    }
+}
+
 /** সেটিংসের সেভ করা বিজ্ঞাপনের থাম্বনেইল সারি (HTML adLyList); চাপলে এই লেয়ারের ছবি বদলায় */
 @Composable
 private fun SettingsAdPicker(currentId: String, onPick: (Uri, String) -> Unit) {
@@ -537,7 +558,7 @@ private fun SettingsAdPicker(currentId: String, onPick: (Uri, String) -> Unit) {
     }
 }
 
-/** সেটিংসের লোগো/আইকন বাছাই (HTML vcLogoList) */
+/** সেটিংসের লোগো/আইকন/সাইটের নাম বাছাই (HTML vcLogoList) */
 @Composable
 private fun SettingsLogoPicker(onPick: (Uri) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -545,10 +566,10 @@ private fun SettingsLogoPicker(onPick: (Uri) -> Unit) {
     val opts by produceState<List<SettingsMedia.LogoOpt>?>(null) { value = SettingsMedia.logos(ctx) }
     val list = opts ?: return
     if (list.isEmpty()) {
-        Text("সেটিংসে এখনো লোগো বা আইকন দেওয়া নেই; \"ছবি বদলান\" দিয়ে আপলোড করুন।", color = ED.Muted, fontSize = 12.sp)
+        Text("সেটিংসে এখনো লোগো, আইকন বা সাইটের নাম দেওয়া নেই; \"ছবি বদলান\" দিয়ে আপলোড করুন।", color = ED.Muted, fontSize = 12.sp)
         return
     }
-    Text("🏷️ সেটিংসের লোগো/আইকন থেকে বাছুন", color = ED.Muted, fontSize = 12.sp)
+    Text("🏷️ সেটিংসের লোগো/আইকন/সাইটের নাম থেকে বাছুন", color = ED.Muted, fontSize = 12.sp)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         list.forEach { o ->
             Column(

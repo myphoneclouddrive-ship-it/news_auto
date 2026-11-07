@@ -170,7 +170,7 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                         if (m == null) tl.selectedId = null
                         msg(m)
                     }
-                    // লোগো: সেটিংসের লোগো (না থাকলে আইকন) নিজে বসে; না থাকলে ছবি বাছতে বলে
+                    // লোগো: সেটিংসের লোগো (না থাকলে আইকন, তাও না থাকলে সাইটের নাম) নিজে বসে; কিছুই না থাকলে ছবি বাছতে বলে
                     LayerKind.LOGO -> scope.launch {
                         // লোগো আগে থেকে থাকলে নতুন কিছু বসে না: শুধু বাছা হয় (এডিট/মুছতে/টেনে সরাতে)
                         val ex = tl.layers.firstOrNull { it.isLogoLayer() }
@@ -373,7 +373,7 @@ fun EditorDockBar(
                         }
                         DockBtn("🎙️", if (a.denoise) "নয়েজ ফেরান" else "নয়েজ কমান", active = a.denoise) {
                             tl.editAudio(a.id) { it.copy(denoise = !it.denoise) }
-                            onInfo(if (a.denoise) "🎙️ আসল অডিও ফিরেছে" else "🎙️ নয়েজ কমানো চালু (রেন্ডারে প্রযোজ্য)")
+                            onInfo(if (a.denoise) "🎙️ আসল অডিও ফিরেছে" else "🎙️ নয়েজ কমানো চালু (প্রিভিউ ও রেন্ডারে)")
                         }
                         DockBtn("✂️", "স্প্লিট") {
                             val m = tl.splitAudioLayer(a.id)
@@ -581,6 +581,24 @@ private fun ClipEditor(tl: Timeline, c: Clip, vm: EditorViewModel, onMessage: (S
                 SmallBtn("শুরু +০.১", Modifier.weight(1f)) { nudge(0, 0.1f) }
                 SmallBtn("শেষ −০.১", Modifier.weight(1f)) { nudge(1, -0.1f) }
                 SmallBtn("শেষ +০.১", Modifier.weight(1f)) { nudge(1, 0.1f) }
+            }
+        }
+
+        // ---- ট্রানজিশন (HTML-এর মতো সাতটা): এই ক্লিপ ও পরের ক্লিপের জোড়ায়, কাটের ±০.২৮ সেকেন্ড ----
+        val ci = tl.clips.indexOfFirst { it.id == c.id }
+        if (ci in 0 until tl.clips.lastIndex) {
+            Text("🎞️ ট্রানজিশন (পরের ক্লিপের সাথে জোড়ায়): ${ClipTr.label(c.trans)}", fontSize = 13.sp, color = ED.Sub)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OptionTile(label = "কোনোটি নয়", selected = c.trans.isEmpty()) {
+                    tl.setClipTransition(c.id, "")
+                    onInfo("🎞️ ট্রানজিশন বন্ধ")
+                }
+                ClipTr.LIST.forEach { (k, ic, nm) ->
+                    OptionTile(label = nm, selected = c.trans == k, icon = ic) {
+                        tl.setClipTransition(c.id, k)
+                        onInfo("🎞️ ট্রানজিশন: $nm")
+                    }
+                }
             }
         }
 

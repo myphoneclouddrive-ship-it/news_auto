@@ -262,12 +262,12 @@ class Timeline {
             val a: Clip
             val b: Clip
             if (c.isImage) {
-                a = c.copy(id = newId(), imageSec = off / 1000f)
+                a = c.copy(id = newId(), imageSec = off / 1000f, trans = "")   // HTML: কাটার বাঁ টুকরো ট্রানজিশন হারায়, ডান টুকরো রাখে
                 b = c.copy(id = newId(), imageSec = (len - off) / 1000f)
             } else {
                 val cut = c.startSec + off / 1000f
                 val end = c.effEndSec()
-                a = c.copy(id = newId(), endSec = cut)
+                a = c.copy(id = newId(), endSec = cut, trans = "")
                 b = c.copy(id = newId(), startSec = cut, endSec = end)
             }
             val m = clips.toMutableList()
@@ -348,6 +348,12 @@ class Timeline {
         val m = clips.toMutableList()
         m[i] = upd
         commitAll(m, layers, key)
+    }
+
+    /** এই ক্লিপ ও পরের ক্লিপের জোড়ার ট্রানজিশন ("" = নেই) */
+    fun setClipTransition(id: Long, mode: String) {
+        val m = if (ClipTr.valid(mode)) mode else ""
+        updateClipTx(id, null) { it.copy(trans = m) }
     }
 
     /** ডান-বাম (horizontal=true) বা ওপর-নিচ ফ্লিপ চালু/বন্ধ। নতুন অবস্থা ফেরত দেয় */
@@ -582,6 +588,21 @@ class Timeline {
             if (it is AudioLayer) it.copy(startMs = s, endMs = e, sourceOffsetMs = (it.sourceOffsetMs + (s - it.startMs)).coerceAtLeast(0L))
             else it.withTime(s, e)
         }
+    }
+
+    /**
+     * স্টেজে ব্যানার ওপর/নিচে টেনে অন্য সারিতে নেওয়া: আগের সারির ফাঁকা জায়গা বাকিরা নেয় (adFill),
+     * নতুন সারিতে নতুন বিজ্ঞাপনের মতো শেষে বসে ও সারির সব বার সমান ভাগ হয় (adSplit)। এক আনডু ধাপ।
+     */
+    fun moveAdSide(id: Long, toTop: Boolean) {
+        val ad = layerById(id) as? AdLayer ?: return
+        if (ad.isTop == toTop) return
+        val total = totalMs
+        val moved = ad.copy(isTop = toTop)
+        var next: List<Layer> = layers.map { if (it.id == id) moved else it }
+        next = fillAds(next, ad.isTop, total)
+        next = splitAds(next, adBars(layers, toTop) + moved, total)
+        commitAll(clips, next)
     }
 
     fun removeLayer(id: Long) {

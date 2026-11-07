@@ -406,11 +406,20 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
             val px = (c?.panX ?: 0f).coerceIn(-1f, 1f)
             val py = (c?.panY ?: 0f).coerceIn(-1f, 1f)
             // কন্ট্রাস্ট (এডজাস্ট লেয়ার): ভিডিও/ছবির ওপর রঙের ম্যাট্রিক্স; লেখা-বার-বিজ্ঞাপন (LayerOverlay) এর বাইরে
-            val ct = tl.layersAt(tl.playheadMs).filterIsInstance<AdjustLayer>().sumOf { it.contrast.toDouble() }.toFloat().coerceIn(-1f, 1f)
+            // একাধিক এডজাস্ট লেয়ার একসাথে থাকলে রেন্ডারের মতোই গুণ হয় (প্রতিটার গুণক ১ + c)
+            // ক্লিপ-জোড়ার ট্রানজিশন (ClipTr): স্লাইড/জুম ভিডিওটাকে সরায়, বাকিগুলো ওপরে ওভারলে (রেন্ডারের একই হিসাব)
+            val trNow = ClipTr.at(ClipTr.cuts(tl.clips), tl.playheadMs)
+            val trMode = trNow?.first
+            val trU = trNow?.second ?: 0f
+            val csc = tl.layersAt(tl.playheadMs).filterIsInstance<AdjustLayer>()
+                .fold(1f) { a, l -> a * (1f + l.contrast.coerceIn(-1f, 1f)) }.coerceAtLeast(0f)
             Box(
-                Modifier.fillMaxSize().then(
-                    if (ct == 0f) Modifier else Modifier.drawWithContent {
-                        val sc = 1f + ct
+                Modifier.fillMaxSize().graphicsLayer {
+                    if (trMode == "slide") { translationX = ClipTr.slideFrac(trU) * size.width }
+                    if (trMode == "zoom") { val s = ClipTr.zoomScale(trU); scaleX = s; scaleY = s }
+                }.then(
+                    if (csc == 1f) Modifier else Modifier.drawWithContent {
+                        val sc = csc
                         val off = 127.5f * (1f - sc)
                         val paint = androidx.compose.ui.graphics.Paint().apply {
                             colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(
@@ -465,6 +474,11 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                 )
             }
             }
+            if (trMode != null && trMode != "slide") {
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    drawIntoCanvas { c -> ClipTr.drawOverlay(c.nativeCanvas, size.width, size.height, trMode, trU) }
+                }
+            }
             LayerOverlay(tl)
             StageDragLayer(tl, playing)
         }
@@ -480,8 +494,12 @@ private fun wrapDeg(d: Float): Float {
 }
 
 /**
- * স্টেজে টেনে সরানো ও দুই আঙুলে বড়-ছোট করা (HTML-এর স্টেজ ড্র্যাগ): বাছা লেখা বা ছবি/লোগো লেয়ারের জন্য।
- * এক আঙুলে টানলে অবস্থান (x, y) বদলায়; দুই আঙুলে চিমটি দিলে লেখার মাপ / ছবির প্রস্থ বদলায়, দুই আঙুল ঘোরালে লেয়ার ঘোরে।
+ * স্টেজে টেনে সরানো ও দুই আঙুলে বড়-ছোট করা (HTML-এর স্টেজ ড্র্যাগ): বাছা যেকোনো ভিজ্যুয়াল লেয়ারের জন্য।
+ * - লেখা, ছবি/লোগো: এক আঙুলে অবস্থান (x, y), চিমটিতে মাপ, দুই আঙুল ঘোরালে ঘোরে।
+ * - ট্যাগ: টানলে যে কোণার দিকে নিয়ে যাবেন সেই কোণায় বসে (৪ কোণা); চিমটিতে মাপ (প্রস্থের ৩–১০%)।
+ * - স্ক্রলিং লেখা: ওপর-নিচে টানলে নিচ থেকে দূরত্ব বদলায়; চিমটিতে বারের উচ্চতা।
+ * - নাম/পদবি: বাঁ-ডানে টানলে পাশ বদলায় (বাম/ডান), ওপর-নিচে টানলে "ওপরে তোলা"; চিমটিতে বারের মাপ।
+ * - ব্যানার: ওপর-নিচে অনেকটা টানলে ওপরের/নিচের সারিতে চলে যায় (মাপ স্থির, তাই চিমটি নেই)।
  * প্লে চলার সময় বা লেয়ার এই মুহূর্তে না থাকলে বন্ধ। প্যানেলের স্লাইডারও আগের মতো কাজ করে।
  */
 @Composable
@@ -489,18 +507,48 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
     val id = tl.selectedLayerId ?: return
     if (playing) return
     val l = tl.layers.firstOrNull { it.id == id } ?: return
-    if (l !is TextLayer && l !is ImageLayer) return
+    if (l.isAudio || l is OverlayLayer || l is AdjustLayer) return
     if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips), cardRangesMs(tl.clips), tl.totalMs)) return
     Box(
         Modifier.fillMaxSize().pointerInput(id) {
+            // কোণা/পাশ/সারি বদলানো টানার জমা-দূরত্ব (প্রস্থ/উচ্চতার ভগ্নাংশ); কিছুক্ষণ থেমে নতুন করে ধরলে আবার শূন্য থেকে
+            var accX = 0f
+            var accY = 0f
+            var lastNs = 0L
+            var startX = 0.5f   // টানা শুরুর সময়ের আনুমানিক জায়গা (ট্যাগের কোণা / নাম-বারের পাশ), পরে কোণা বদলালেও এটা স্থির
+            var startY = 0.5f
             detectTransformGestures { _, pan, zoom, rotDeg ->
                 val w = size.width.toFloat().coerceAtLeast(1f)
                 val h = size.height.toFloat().coerceAtLeast(1f)
+                val now = System.nanoTime()
+                val live = tl.layerById(id) ?: return@detectTransformGestures
+                if (now - lastNs > 250_000_000L) {
+                    accX = 0f; accY = 0f
+                    when (live) {
+                        is TagLayer -> {
+                            startX = if (live.corner == Corner.TOP_RIGHT || live.corner == Corner.BOTTOM_RIGHT) 0.85f else 0.15f
+                            startY = if (live.corner == Corner.TOP_LEFT || live.corner == Corner.TOP_RIGHT) 0.1f else 0.9f
+                        }
+                        is NameBarLayer -> startX = if (live.right) 0.75f else 0.25f
+                        else -> {}
+                    }
+                }
+                lastNs = now
+                accX += pan.x / w
+                accY += pan.y / h
+                val dx = pan.x / w
+                val dy = pan.y / h
+                if (live is AdLayer) {
+                    // ওপরের সারি → নিচে (নিচের দিকে ২৫%+ টানলে), নিচের সারি → ওপরে (ওপরের দিকে ২৫%+)
+                    if (live.isTop && accY > 0.25f) { tl.moveAdSide(id, false); accX = 0f; accY = 0f }
+                    else if (!live.isTop && accY < -0.25f) { tl.moveAdSide(id, true); accX = 0f; accY = 0f }
+                    return@detectTransformGestures
+                }
                 tl.updateLayer(id) { cur ->
                     when (cur) {
                         is TextLayer -> cur.copy(
-                            x = (cur.x + pan.x / w).coerceIn(0f, 1f),
-                            y = (cur.y + pan.y / h).coerceIn(0f, 1f),
+                            x = (cur.x + dx).coerceIn(0f, 1f),
+                            y = (cur.y + dy).coerceIn(0f, 1f),
                             sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.2f),
                             rotation = wrapDeg(cur.rotation + rotDeg),
                         )
@@ -511,11 +559,35 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
                             val by = if (c == null) cur.y else if (c == Corner.TOP_LEFT || c == Corner.TOP_RIGHT) 0.1f else 0.9f
                             val minW = if (cur.isLogo) 0.02f else 0.05f
                             cur.copy(
-                                x = (bx + pan.x / w).coerceIn(0f, 1f),
-                                y = (by + pan.y / h).coerceIn(0f, 1f),
+                                x = (bx + dx).coerceIn(0f, 1f),
+                                y = (by + dy).coerceIn(0f, 1f),
                                 widthFrac = (cur.widthFrac * zoom).coerceIn(minW, if (cur.isLogo) 0.3f else 1f),
                                 rotation = wrapDeg(cur.rotation + rotDeg),
                                 corner = null,
+                            )
+                        }
+                        is TagLayer -> {
+                            // টানা শুরুর কোণার আনুমানিক কেন্দ্র + জমা-দূরত্ব = আঙুল এখন কোন চার ভাগে
+                            val px = startX + accX
+                            val py = startY + accY
+                            val corner = when {
+                                py < 0.5f && px < 0.5f -> Corner.TOP_LEFT
+                                py < 0.5f -> Corner.TOP_RIGHT
+                                px < 0.5f -> Corner.BOTTOM_LEFT
+                                else -> Corner.BOTTOM_RIGHT
+                            }
+                            cur.copy(corner = corner, sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.1f))
+                        }
+                        is TickerLayer -> cur.copy(
+                            bottomFrac = (cur.bottomFrac - dy).coerceIn(0f, 0.3f),
+                            barHeightFrac = (cur.barHeightFrac * zoom).coerceIn(0.034f, 0.102f),
+                        )
+                        is NameBarLayer -> {
+                            val px = startX + accX
+                            cur.copy(
+                                right = px > 0.5f,
+                                liftFrac = (cur.liftFrac - dy).coerceIn(0f, 0.3f),
+                                sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.06f, 0.2f),
                             )
                         }
                         else -> cur
@@ -630,16 +702,16 @@ private fun PublishDialog(
             }
 
             // HTML pbInfo: দুটোর মাপ আলাদা দেখায়; ফেইসবুকে লেখা (ব্যান্ড) থাকলে উচ্চতা ৭২০ + ২×১০৮ = ৯৩৬
-            val fbHasBand = (vm.fbTop.isNotBlank() && !hasTopAd) || (vm.fbBottom.isNotBlank() && !hasBottomAd)
+            val fbHasBand = hasTopAd || hasBottomAd || vm.fbTop.isNotBlank() || vm.fbBottom.isNotBlank()
             Text(
                 "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + 2 * EDITOR_AD_H) else 720) +
-                    (if (fb && fbHasBand) " (ওপরে-নিচে সাদা ব্যান্ডে লেখা)" else ""),
+                    (if (fb && fbHasBand) " (ব্যানার ও লেখা ভিডিওর বাইরে ওপরে-নিচের সাদা ব্যান্ডে)" else ""),
                 color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
             if (fb && (yt || wp)) {
                 Text("ফেইসবুক আর ইউটিউব দুটোর জন্য আলাদা দুটো ভিডিও রেন্ডার হবে (আগে ফেইসবুক, তারপর ইউটিউব)। সময় প্রায় দ্বিগুণ লাগবে।", color = Color(0xFFFBBF24), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 4.dp))
             }
-            Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", color = dSub, fontSize = 12.sp)
+            Text("এখন রেন্ডার হয়ে ফোনে সেভ হবে। সরাসরি আপলোড এখনো নেই; রেন্ডারের পর পেইজ থেকে ভিডিও Facebook/YouTube অ্যাপে পাঠানো যাবে।", color = dSub, fontSize = 12.sp)
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
