@@ -302,7 +302,7 @@ private fun StageCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ওপরের বার: পেছনে · 720P · পাবলিশ
-        EditorTopBar(onBack = onBack, publishEnabled = !running) { playing = false; showPublish = true }
+        EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true })
 
         FramePreview(tl, vm.aspect, pp, playing, Modifier.weight(1f))
 
