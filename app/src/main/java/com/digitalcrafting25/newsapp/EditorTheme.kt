@@ -23,8 +23,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -128,39 +131,46 @@ fun DockBtn(
 
 /** গোল ৪০dp বাটন (আনডু/রিডু) */
 @Composable
-fun CircleBtn(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+fun CircleBtn(text: String, enabled: Boolean = true, size: Dp = 40.dp, onClick: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(ED.Btn)
+        Modifier.size(size).clip(CircleShape).background(ED.Btn)
             .border(1.dp, ED.Border2, CircleShape)
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.4f),
         contentAlignment = Alignment.Center,
-    ) { Text(text, fontSize = 22.sp, color = ED.Text) }
+    ) { Text(text, fontSize = 20.sp, color = ED.Text) }
 }
 
 /** ছোট ধূসর বাটন (জুম-বারের ◀ ০.১ ধরনের) */
 @Composable
-fun SmallBtn(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+fun SmallBtn(
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    fontSize: TextUnit = 12.sp,
+    hPad: Dp = 8.dp,
+    onClick: () -> Unit,
+) {
     val shape = RoundedCornerShape(7.dp)
     Box(
         modifier.clip(shape).background(ED.Btn).border(1.dp, ED.Border2, shape)
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.4f)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = hPad, vertical = 6.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(text, fontSize = 12.sp, color = ED.Text, maxLines = 1, softWrap = false) }
+    ) { Text(text, fontSize = fontSize, color = ED.Text, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) }
 }
 
 /** সময়ের মনোস্পেস পিল: `0:03.4 / 0:12.0` */
 @Composable
-fun TimePill(text: String, modifier: Modifier = Modifier) {
+fun TimePill(text: String, modifier: Modifier = Modifier, fontSize: TextUnit = 12.sp, hPad: Dp = 6.dp) {
     val shape = RoundedCornerShape(8.dp)
     Text(
         text,
         modifier = modifier.clip(shape).background(ED.Deep).border(1.dp, ED.Border, shape)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
+            .padding(horizontal = hPad, vertical = 8.dp),
         fontFamily = FontFamily.Monospace,
-        fontSize = 12.sp,
+        fontSize = fontSize,
         color = Color(0xFFF3F4F6),
         textAlign = TextAlign.Center,
         maxLines = 1,
@@ -172,4 +182,15 @@ fun TimePill(text: String, modifier: Modifier = Modifier) {
 fun Modifier.edPanel(): Modifier {
     val shape = RoundedCornerShape(12.dp)
     return this.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(12.dp)
+}
+
+/** সাদা গোল "▶ প্লে" বাটন (HTML `#vc_play`) — এখনো কোনো ফাংশন বসানো নেই, শুধু চেহারা */
+@Composable
+fun PlayBtn(modifier: Modifier = Modifier, label: String = "▶ প্লে", onClick: () -> Unit = {}) {
+    Box(
+        modifier.clip(RoundedCornerShape(999.dp)).background(Color.White)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = ED.Panel, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
 }

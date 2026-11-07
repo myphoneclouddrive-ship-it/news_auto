@@ -2,6 +2,7 @@ package com.digitalcrafting25.newsapp
 
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -37,6 +38,8 @@ class Timeline {
     var selectedId by mutableStateOf<Long?>(null)
     var selectedLayerId by mutableStateOf<Long?>(null)
     var playheadMs by mutableLongStateOf(0L)
+    /** টাইমলাইনের জুম (শুধু দেখার মাপ; আনডু/রেন্ডারে প্রভাব নেই) */
+    var timelineZoom by mutableFloatStateOf(1f)
     var canUndo by mutableStateOf(false)
         private set
     var canRedo by mutableStateOf(false)
@@ -56,6 +59,10 @@ class Timeline {
         const val MIN_PIECE_MS = 300L
         const val MIN_LAYER_MS = LayerDefaults.MIN_LAYER_MS
         private const val MERGE_WINDOW_MS = 1000L
+        const val ZOOM_MIN = 1f
+        const val ZOOM_MAX = 4f
+        const val TL_ZOOM_MIN = 0.1f
+        const val TL_ZOOM_MAX = 6f
     }
 
     fun newId(): Long = nextId++
@@ -145,8 +152,11 @@ class Timeline {
     }
 
     fun remove(id: Long) {
-        if (clips.none { it.id == id }) return
-        commit(clips.filterNot { it.id == id })
+        val c = clips.firstOrNull { it.id == id } ?: return
+        val next = clips.filterNot { it.id == id }
+        // ইন্ট্রো কার্ড মুছলে বাকি সব লেয়ার/অডিও তার দৈর্ঘ্যের সমান এগিয়ে আসে
+        if (c.card != null && !c.card.outro) commitAll(next, shiftLayers(layers, -c.lengthMs()))
+        else commit(next)
     }
 
     fun move(id: Long, delta: Int) {
@@ -194,7 +204,10 @@ class Timeline {
         if (v == c.imageSec) return
         val m = clips.toMutableList()
         m[i] = c.copy(imageSec = v)
-        commit(m)
+        // ইন্ট্রো কার্ডের সময় বদলালে ওপরের সব লেয়ার/অডিও সেই পরিমাণ সরে যায়, যাতে ভিডিওর সাথে মিলে থাকে
+        if (c.card != null && !c.card.outro) {
+            commitAll(m, shiftLayers(layers, Math.round((v - c.imageSec) * 1000f).toLong()))
+        } else commit(m)
     }
 
     /**
@@ -233,6 +246,122 @@ class Timeline {
             return null
         }
         return "প্লেহেড কোনো ক্লিপের ওপর নেই। স্লাইডার টেনে ক্লিপের ভেতরে আনুন"
+    }
+
+    // ================= রেডি ইন্ট্রো / আউট্রো (ধাপ ৭) =================
+
+    /** সব লেয়ারের সময় deltaMs সরায় (ইন্ট্রো যোগ/মোছা/সময় বদলে)। শুরু ০-র নিচে নামে না, কমপক্ষে ০.৩ সে. থাকে */
+    private fun shiftLayers(ls: List<Layer>, deltaMs: Long): List<Layer> {
+        if (deltaMs == 0L || ls.isEmpty()) return ls
+        return ls.map { l ->
+            val s = (l.startMs + deltaMs).coerceAtLeast(0L)
+            val e = maxOf(l.endMs + deltaMs, s + MIN_LAYER_MS)
+            l.withTime(s, e)
+        }
+    }
+
+    fun cardClip(outro: Boolean): Clip? = clips.firstOrNull { it.card?.outro == outro }
+
+    /** ইন্ট্রো হলে সবার আগে, আউট্রো হলে সবার শেষে কার্ড-ক্লিপ বসায়; ইন্ট্রোর দৈর্ঘ্যে বাকি লেয়ার এগিয়ে যায় */
+    fun addCard(spec: CardSpec, uri: Uri, sec: Float = CardDefaults.SEC): String? {
+        if (cardClip(spec.outro) != null) return "এই ${if (spec.outro) "আউট্রো" else "ইন্ট্রো"} আগে থেকেই আছে"
+        val clip = Clip(
+            id = newId(), uri = uri, isImage = true, durationMs = 0L,
+            name = if (spec.outro) "🏁 আউট্রো" else "🎬 ইন্ট্রো",
+            imageSec = sec, card = spec,
+        )
+        val m = clips.toMutableList()
+        if (spec.outro) {
+            m.add(clip)
+            commitAll(m, layers)
+        } else {
+            m.add(0, clip)
+            commitAll(m, shiftLayers(layers, clip.lengthMs()))
+        }
+        selectedId = clip.id
+        selectedLayerId = null
+        return null
+    }
+
+    /** কার্ডের লেখা/স্টাইল বদলের পর নতুন ছবির Uri বসায় (এক আনডু ধাপ) */
+    fun setCard(id: Long, spec: CardSpec, uri: Uri) {
+        updateClipTx(id, null) { it.copy(card = spec, uri = uri) }
+    }
+
+    // ================= ক্লিপ টুল (ধাপ ৬) =================
+
+    private fun updateClipTx(id: Long, key: String?, f: (Clip) -> Clip) {
+        val i = clips.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val old = clips[i]
+        val upd = f(old)
+        if (upd == old) return
+        val m = clips.toMutableList()
+        m[i] = upd
+        commitAll(m, layers, key)
+    }
+
+    /** ডান-বাম (horizontal=true) বা ওপর-নিচ ফ্লিপ চালু/বন্ধ। নতুন অবস্থা ফেরত দেয় */
+    fun toggleFlip(id: Long, horizontal: Boolean): Boolean? {
+        val c = clipById(id) ?: return null
+        val now = if (horizontal) !c.flipH else !c.flipV
+        updateClipTx(id, null) { if (horizontal) it.copy(flipH = now) else it.copy(flipV = now) }
+        return now
+    }
+
+    /** জুম (১..৪) ও অবস্থান (-১..১)। স্লাইডারের পরপর বদল এক আনডু ধাপে মেশে */
+    fun setClipZoomPan(id: Long, zoom: Float? = null, panX: Float? = null, panY: Float? = null) {
+        updateClipTx(id, "cliptx:$id") {
+            it.copy(
+                zoom = (zoom ?: it.zoom).coerceIn(ZOOM_MIN, ZOOM_MAX),
+                panX = (panX ?: it.panX).coerceIn(-1f, 1f),
+                panY = (panY ?: it.panY).coerceIn(-1f, 1f),
+            )
+        }
+    }
+
+    /** জুম/অবস্থান/ফ্লিপ সব আগের অবস্থায় ফেরায় */
+    fun resetClipTransform(id: Long) {
+        updateClipTx(id, null) { it.copy(flipH = false, flipV = false, zoom = 1f, panX = 0f, panY = 0f) }
+    }
+
+    /**
+     * ০.১ সেকেন্ডের নাজ: ভিডিওর ট্রিম-শুরু/শেষ, ছবির সময়। deltaSec ধনাত্মক = বাড়ায়।
+     * which: 0 = শুরু (ভিডিও), 1 = শেষ (ভিডিও) / সময় (ছবি)।
+     * সীমায় আটকে গেলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun nudgeClip(id: Long, which: Int, deltaSec: Float): String? {
+        val c = clipById(id) ?: return "ক্লিপ পাওয়া যায়নি"
+        fun tenth(v: Float) = Math.round(v * 10f) / 10f
+        if (c.isImage) {
+            val v = tenth(c.imageSec + deltaSec)
+            if (v < 0.5f) return "ছবি কমপক্ষে ০.৫ সেকেন্ড থাকতে হবে"
+            if (v > 600f) return "ছবির সময় আর বাড়ানো যাবে না"
+            setImageSec(id, v)
+            return null
+        }
+        if (c.durationMs <= 0L) return "এই ভিডিওর দৈর্ঘ্য জানা যায়নি, তাই নাজ চলবে না"
+        val dur = c.durationMs / 1000f
+        val minLen = MIN_PIECE_MS / 1000f
+        val s = c.startSec
+        val e = c.effEndSec()
+        val ns = if (which == 0) tenth(s + deltaSec) else s
+        val ne = if (which == 1) tenth(e + deltaSec) else e
+        if (ns < 0f) return "ক্লিপের শুরু আর পিছানো যাবে না"
+        if (ne > dur + 0.001f) return "ক্লিপের শেষ আর বাড়ানো যাবে না (ভিডিও এখানেই শেষ)"
+        if (ne - ns < minLen) return "ক্লিপ আর ছোট করা যাবে না"
+        trim(id, ns, minOf(ne, dur))
+        return null
+    }
+
+    // ================= টাইমলাইন জুম (ধাপ ৬) =================
+
+    fun zoomTimeline(factor: Float) {
+        timelineZoom = (timelineZoom * factor).coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
+    }
+
+    fun setTimelineZoom(z: Float) {
+        timelineZoom = z.coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
     }
 
     // ================= লেয়ার =================

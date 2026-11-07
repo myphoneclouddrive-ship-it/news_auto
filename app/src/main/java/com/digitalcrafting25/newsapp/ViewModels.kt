@@ -65,6 +65,31 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** রেডি ইন্ট্রো/আউট্রো: ডিফল্ট লেখায় কার্ড বানিয়ে বসায়; আগে থেকে থাকলে সেটাই বাছে। সমস্যা থাকলে বার্তা ফেরত দেয় */
+    fun addCard(outro: Boolean): String? {
+        if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর ইন্ট্রো/আউট্রো দিন"
+        tl.cardClip(outro)?.let {
+            tl.selectedId = it.id
+            tl.selectedLayerId = null
+            return null
+        }
+        val spec = if (outro) CardDefaults.outro(logo) else CardDefaults.intro(caption, logo)
+        val (w, h) = aspect.w to aspect.h
+        viewModelScope.launch {
+            val uri = withContext(Dispatchers.IO) { runCatching { CardMaker.make(app, spec, w, h) }.getOrNull() }
+            if (uri != null) tl.addCard(spec, uri)
+        }
+        return null
+    }
+
+    fun updateCard(id: Long, spec: CardSpec) {
+        val (w, h) = aspect.w to aspect.h
+        viewModelScope.launch {
+            val uri = withContext(Dispatchers.IO) { runCatching { CardMaker.make(app, spec, w, h) }.getOrNull() }
+            if (uri != null) tl.setCard(id, spec, uri)
+        }
+    }
+
     fun chooseMusic(u: Uri) {
         music = u
         musicName = displayName(u)
@@ -83,7 +108,14 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         for (l in tl.layers) LayerDefaults.validate(l)?.let { return it }
-        RenderBus.spec = RenderSpec(clips.toList(), aspect, caption, logo, music, musicVolume, keepAudio, tl.layers.toList())
+        // কার্ড (ইন্ট্রো/আউট্রো) এখনকার ভিডিওর মাপে আবার বানানো (মাপ না বদলালে আগের ফাইলই মেলে)
+        val renderClips = clips.map { c ->
+            val s = c.card
+            if (s != null && c.isImage) {
+                runCatching { c.copy(uri = CardMaker.make(app, s, aspect.w, aspect.h)) }.getOrDefault(c)
+            } else c
+        }
+        RenderBus.spec = RenderSpec(renderClips, aspect, caption, logo, music, musicVolume, keepAudio, tl.layers.toList())
         RenderBus.status.value = RenderStatus.Running(0)
         ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
         return null

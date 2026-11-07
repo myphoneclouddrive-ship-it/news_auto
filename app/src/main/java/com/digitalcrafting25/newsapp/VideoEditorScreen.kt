@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -97,7 +98,7 @@ fun VideoEditorScreen(vm: EditorViewModel) {
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (tl.clips.isNotEmpty()) EditorDock(tl, act, setError, setInfo)
+            if (tl.clips.isNotEmpty()) EditorDock(tl, act, setError, setInfo, vm)
 
             Text("ভিডিওর মাপ")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -218,28 +219,24 @@ private fun StageCard(
     ) {
         FramePreview(tl, vm.aspect)
 
-        // কন্ট্রোল বার: আনডু · রিডু · সময় · রেন্ডার
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircleBtn("↶", tl.canUndo) { tl.undo(); setError(null); setInfo(null) }
-            CircleBtn("↷", tl.canRedo) { tl.redo(); setError(null); setInfo(null) }
-            TimePill("${fmtTime(tl.playheadMs)} / ${fmtTime(total)}", Modifier.weight(1f))
+        // কন্ট্রোল বার (HTML `#vc_ctl`): প্লে · সময় · আনডু · রিডু ······ পাবলিশ
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            PlayBtn()   // ফাংশন পরে বসবে
+            TimePill("${fmtTime(tl.playheadMs)} / ${fmtTime(total)}", fontSize = 11.sp, hPad = 5.dp)
+            CircleBtn("↶", tl.canUndo, size = 34.dp) { tl.undo(); setError(null); setInfo(null) }
+            CircleBtn("↷", tl.canRedo, size = 34.dp) { tl.redo(); setError(null); setInfo(null) }
+            Spacer(Modifier.weight(1f))
             Box(
                 Modifier.clip(RoundedCornerShape(8.dp)).background(ED.Publish)
-                    .clickable(enabled = !running) { setError(vm.startRender()) }
+                    .clickable(enabled = !running) { setError(vm.startRender()) }   // এখনো আগের রেন্ডার ফাংশনই
                     .alpha(if (running) 0.5f else 1f)
                     .padding(horizontal = 10.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text("🎬 রেন্ডার", color = Color.White, fontSize = 13.sp, maxLines = 1, softWrap = false) }
+            ) { Text("পাবলিশ", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
         }
 
-        // লাল দাগ সরানোর বার (HTML-এর ◀ ০.১ / ০.১ ▶)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallBtn("◀ ১সে", Modifier.weight(1f)) { tl.playheadMs = (tl.playheadMs - 1000).coerceAtLeast(0) }
-            SmallBtn("◀ ০.১", Modifier.weight(1f)) { tl.playheadMs = (tl.playheadMs - 100).coerceAtLeast(0) }
-            SmallBtn("০.১ ▶", Modifier.weight(1f)) { tl.playheadMs = (tl.playheadMs + 100).coerceAtMost(total) }
-            SmallBtn("১সে ▶", Modifier.weight(1f)) { tl.playheadMs = (tl.playheadMs + 1000).coerceAtMost(total) }
-        }
-
+        // ০.১ নাজ + জুম (HTML `#vc_zbar`) — এক সারিতে
+        NudgeZoomBar(tl)
         EditorTimeline(tl, onAddMedia, onAddAudio)
 
         // বার্তা / রেন্ডারের অগ্রগতি
@@ -249,10 +246,6 @@ private fun StageCard(
             Text("রেন্ডার হচ্ছে… ${status.progress}%", color = ED.Sub, fontSize = 13.sp)
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
         }
-        Text(
-            "রুলারে ট্যাপ করে বা টেনে লাল দাগ সরান। ক্লিপ বা লেয়ারে ট্যাপ করে বাছুন — নিচের ডকে তার টুল আসবে।",
-            color = ED.Muted, fontSize = 11.sp,
-        )
     }
 }
 
@@ -268,7 +261,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect) {
         value = if (uri == null) null else withContext(Dispatchers.IO) {
             runCatching {
                 val b: Bitmap? = if (isImg) {
-                    ctx.contentResolver.loadThumbnail(uri, Size(640, 640), null)
+                    loadImageThumb(ctx, uri, 640)
                 } else {
                     val r = MediaMetadataRetriever()
                     try {
@@ -289,7 +282,25 @@ private fun FramePreview(tl: Timeline, aspect: Aspect) {
                 .border(1.dp, ED.Border, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            bmp?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            // ধাপ ৬: ফ্লিপ/জুম/পজিশন — রেন্ডারের ম্যাট্রিক্সের (RenderComposer.clipTransform) সাথে একই নিয়ম
+            val c = loc?.first
+            val z = (c?.zoom ?: 1f).coerceIn(1f, 4f)
+            val fh = c?.flipH == true
+            val fv = c?.flipV == true
+            val px = (c?.panX ?: 0f).coerceIn(-1f, 1f)
+            val py = (c?.panY ?: 0f).coerceIn(-1f, 1f)
+            bmp?.let {
+                Image(
+                    it, null,
+                    Modifier.fillMaxSize().graphicsLayer {
+                        scaleX = if (fh) -z else z
+                        scaleY = if (fv) -z else z
+                        translationX = -px * (z - 1f) * size.width / 2f
+                        translationY = -py * (z - 1f) * size.height / 2f
+                    },
+                    contentScale = ContentScale.Crop,
+                )
+            }
             LayerOverlay(tl)
         }
     }

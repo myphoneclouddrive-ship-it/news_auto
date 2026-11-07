@@ -6,6 +6,7 @@ import android.net.Uri
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -19,6 +20,7 @@ import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.MatrixTransformation
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.TextureOverlay
@@ -36,14 +38,18 @@ object RenderComposer {
         val h = spec.aspect.h
 
         val items = spec.clips.map { c ->
-            // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়
-            val fit = Effects(
-                emptyList(),
-                listOf<Effect>(Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)),
+            // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়; তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন থাকলে ওই ফ্রেমের ওপর
+            val fxList = mutableListOf<Effect>(
+                Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
             )
+            if (c.hasTransform()) fxList += clipTransform(c)
+            val fit = Effects(emptyList(), fxList)
             if (c.isImage) {
                 val ms = (c.imageSec * 1000).toLong().coerceAtLeast(500L)
-                val mi = MediaItem.Builder().setUri(c.uri).setImageDurationMs(ms).build()
+                val mb = MediaItem.Builder().setUri(c.uri).setImageDurationMs(ms)
+                // কার্ডের ফাইল-Uri-তে MIME জানা থাকে না, তাই ছবি হিসেবে চেনাতে বলে দেওয়া
+                if (c.uri.scheme == "file") mb.setMimeType("image/png")
+                val mi = mb.build()
                 EditedMediaItem.Builder(mi)
                     .setDurationUs(ms * 1000)
                     .setFrameRate(30)
@@ -95,6 +101,24 @@ object RenderComposer {
             .setEffects(Effects(emptyList(), videoFx))
             .experimentalSetForceAudioTrack(true)
             .build()
+    }
+
+    /**
+     * ক্লিপের ফ্লিপ + জুম + পজিশন, একটাই ম্যাট্রিক্স (NDC: x ডানে, y ওপরে, -১..১)।
+     * ফ্রেমের কেন্দ্র ধরে স্কেল (ফ্লিপ = ঋণাত্মক স্কেল), তারপর সরানো। জুম z হলে ছবির প্রান্ত ফ্রেমের প্রান্তে
+     * পৌঁছাতে সর্বোচ্চ (z−1) সরানো যায় — পজিশন -১..১ তাই (z−1) দিয়ে গুণ।
+     * প্রিভিউ (`FramePreview`-এর graphicsLayer) ঠিক একই নিয়ম মানে।
+     */
+    private fun clipTransform(c: Clip): MatrixTransformation {
+        val z = c.zoom.coerceIn(1f, 4f)
+        val m = Matrix().apply {
+            setScale(if (c.flipH) -z else z, if (c.flipV) -z else z)
+            // জানালা ডানে (panX>0) = ছবি বাঁয়ে; জানালা নিচে (panY>0) = ছবি ওপরে (NDC-তে +y)
+            postTranslate(-c.panX.coerceIn(-1f, 1f) * (z - 1f), c.panY.coerceIn(-1f, 1f) * (z - 1f))
+        }
+        return object : MatrixTransformation {
+            override fun getMatrix(presentationTimeUs: Long): Matrix = m
+        }
     }
 
     /** পুরো ফ্রেমের মাপের স্বচ্ছ ছবি: ডানে-উপরে লোগো, নিচে লাল শিরোনাম-বার */

@@ -192,6 +192,7 @@ fun EditorDock(
     act: DockActions,
     onMessage: (String?) -> Unit,
     onInfo: (String?) -> Unit,
+    vm: EditorViewModel,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -247,6 +248,12 @@ fun EditorDock(
                                 tl.adjustClipVolume(c.id, -10)?.let { onInfo("🔉 ভলিউম $it%") }
                             }
                         }
+                        DockBtn("↔️", "ফ্লিপ ডান-বাম", active = c.flipH) {
+                            tl.toggleFlip(c.id, true)?.let { onInfo(if (it) "↔️ ডান-বাম ফ্লিপ চালু" else "↔️ ডান-বাম ফ্লিপ বন্ধ") }
+                        }
+                        DockBtn("↕️", "ফ্লিপ ওপর-নিচ", active = c.flipV) {
+                            tl.toggleFlip(c.id, false)?.let { onInfo(if (it) "↕️ ওপর-নিচ ফ্লিপ চালু" else "↕️ ওপর-নিচ ফ্লিপ বন্ধ") }
+                        }
                         DockBtn("📋", "ডুপ্লিকেট") { tl.duplicate(c.id) }
                         DockBtn("🗑️", "মুছুন") { tl.remove(c.id) }
                         DockBtn("⏪", "সরান", enabled = idx > 0) { tl.move(c.id, -1) }
@@ -289,6 +296,15 @@ fun EditorDock(
                         val gi = group.indexOfFirst { it.id == l.id }
                         DockBtn("🔙", "মেনু") { toMenu() }
                         DockBtn("✏️", "এডিট", active = editOpen) { editOpen = !editOpen }
+                        if (l is AdjustLayer) {
+                            fun step(d: Float) {
+                                val nv = ((Math.round(l.brightness * 10f) / 10f) + d).coerceIn(-0.8f, 0.8f)
+                                tl.updateLayer(l.id) { (it as? AdjustLayer)?.copy(brightness = nv) ?: it }
+                                onInfo("☀️ ব্রাইটনেস ${if (nv > 0f) "+" else ""}${Math.round(nv * 100)}%")
+                            }
+                            DockBtn("🔆", "উজ্জ্বল +") { step(0.1f) }
+                            DockBtn("🔅", "উজ্জ্বল −") { step(-0.1f) }
+                        }
                         DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
                         DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
                         DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
@@ -303,6 +319,18 @@ fun EditorDock(
                         DockBtn("🏷️", "লোগো") { act.add(LayerKind.LOGO) }
                         DockBtn("📍", "ট্যাগ") { act.add(LayerKind.TAG) }
                         DockBtn("👤", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
+                        DockBtn("🎨", "ওভারলে") { act.add(LayerKind.OVERLAY) }
+                        DockBtn("☀️", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
+                        DockBtn("🎬", "ইন্ট্রো", active = tl.cardClip(false) != null) {
+                            val m = vm.addCard(false)
+                            onMessage(m)
+                            if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — নিচে লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
+                        }
+                        DockBtn("🏁", "আউট্রো", active = tl.cardClip(true) != null) {
+                            val m = vm.addCard(true)
+                            onMessage(m)
+                            if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — নিচে লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
+                        }
                         DockBtn("🔤", "লেখা") { act.add(LayerKind.TEXT) }
                         DockBtn("🖼️", "ছবি") { act.add(LayerKind.IMAGE) }
                         DockBtn("🎵", "অডিও") { act.addAudioFile() }
@@ -319,7 +347,7 @@ fun EditorDock(
 
             // ---- নিচের এডিট প্যানেল ----
             when {
-                selClip != null -> ClipEditor(tl, selClip)
+                selClip != null -> ClipEditor(tl, selClip, vm, onMessage, onInfo)
                 selLayer != null && editOpen -> {
                     if (selLayer is AudioLayer) AudioEditor(tl, selLayer)
                     else LayerEditor(tl, selLayer) { act.replaceImage(selLayer.id) }
@@ -335,7 +363,7 @@ fun EditorDock(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ClipEditor(tl: Timeline, c: Clip) {
+private fun ClipEditor(tl: Timeline, c: Clip, vm: EditorViewModel, onMessage: (String?) -> Unit, onInfo: (String?) -> Unit) {
     val idx = tl.clips.indexOfFirst { it.id == c.id }
     Column(Modifier.edPanel(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("✂️ ক্লিপ ${idx + 1}: ${c.name}", fontWeight = FontWeight.Bold, maxLines = 1)
@@ -344,6 +372,7 @@ private fun ClipEditor(tl: Timeline, c: Clip) {
                 if (c.isImage) "" else if (c.muted) " · শব্দ মিউট 🔇" else " · শব্দ ${Math.round(c.volume * 100)}%",
             color = ED.Muted, fontSize = 13.sp,
         )
+        c.card?.let { CardEditor(vm, c, it, onInfo) }
         if (c.isImage) {
             Text("ছবি দেখানোর সময়: ${"%.1f".format(c.imageSec)} সে.", fontSize = 13.sp, color = ED.Sub)
             var v by remember(c.id, c.imageSec) { mutableStateOf(c.imageSec) }
@@ -370,6 +399,101 @@ private fun ClipEditor(tl: Timeline, c: Clip) {
             )
         } else {
             Text("এই ভিডিওর দৈর্ঘ্য জানা যায়নি, তাই ট্রিম/কাটা বন্ধ।", color = ED.Muted, fontSize = 13.sp)
+        }
+
+        // ---- ০.১ সেকেন্ড নাজ ----
+        val nudge = { which: Int, d: Float -> onMessage(tl.nudgeClip(c.id, which, d)) }
+        if (c.isImage) {
+            Text("ছবির সময় ০.১ সে. করে", fontSize = 13.sp, color = ED.Sub)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SmallBtn("সময় −০.১", Modifier.weight(1f)) { nudge(1, -0.1f) }
+                SmallBtn("সময় +০.১", Modifier.weight(1f)) { nudge(1, 0.1f) }
+            }
+        } else if (c.durationMs > 0L) {
+            Text("ট্রিম নাজ (০.১ সে. করে)", fontSize = 13.sp, color = ED.Sub)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SmallBtn("শুরু −০.১", Modifier.weight(1f)) { nudge(0, -0.1f) }
+                SmallBtn("শুরু +০.১", Modifier.weight(1f)) { nudge(0, 0.1f) }
+                SmallBtn("শেষ −০.১", Modifier.weight(1f)) { nudge(1, -0.1f) }
+                SmallBtn("শেষ +০.১", Modifier.weight(1f)) { nudge(1, 0.1f) }
+            }
+        }
+
+        // ---- জুম / পজিশন ----
+        Text(
+            "🔍 জুম: ${Math.round(c.zoom * 100)}%" +
+                (if (c.flipH) " · ↔️ ফ্লিপ" else "") + (if (c.flipV) " · ↕️ ফ্লিপ" else ""),
+            fontSize = 13.sp, color = ED.Sub,
+        )
+        Slider(
+            value = c.zoom.coerceIn(Timeline.ZOOM_MIN, Timeline.ZOOM_MAX),
+            onValueChange = { tl.setClipZoomPan(c.id, zoom = it) },
+            valueRange = Timeline.ZOOM_MIN..Timeline.ZOOM_MAX,
+        )
+        val canPan = c.zoom > 1.001f
+        Text(
+            if (canPan) "অবস্থান ← →  (জুম করা ছবির কোন অংশ দেখাবে)" else "অবস্থান: আগে জুম বাড়ান",
+            fontSize = 13.sp, color = if (canPan) ED.Sub else ED.Muted,
+        )
+        Slider(
+            value = c.panX.coerceIn(-1f, 1f),
+            onValueChange = { tl.setClipZoomPan(c.id, panX = it) },
+            valueRange = -1f..1f,
+            enabled = canPan,
+        )
+        Text("অবস্থান ↑ ↓", fontSize = 13.sp, color = if (canPan) ED.Sub else ED.Muted)
+        Slider(
+            value = c.panY.coerceIn(-1f, 1f),
+            onValueChange = { tl.setClipZoomPan(c.id, panY = it) },
+            valueRange = -1f..1f,
+            enabled = canPan,
+        )
+        if (c.hasTransform() || c.panX != 0f || c.panY != 0f) {
+            SmallBtn("↺ জুম/অবস্থান/ফ্লিপ রিসেট", Modifier.fillMaxWidth()) {
+                tl.resetClipTransform(c.id)
+                onInfo("↺ ক্লিপ আগের অবস্থায় ফিরেছে")
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ইন্ট্রো/আউট্রো কার্ডের এডিটর: স্টাইল, শিরোনাম, উপশিরোনাম (সময় নিচের ছবির-সময় স্লাইডারে)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun CardEditor(vm: EditorViewModel, c: Clip, spec: CardSpec, onInfo: (String?) -> Unit) {
+    var style by remember(c.id, spec) { mutableStateOf(spec.style) }
+    var title by remember(c.id, spec) { mutableStateOf(spec.title) }
+    var sub by remember(c.id, spec) { mutableStateOf(spec.subtitle) }
+    val changed = style != spec.style || title != spec.title || sub != spec.subtitle ||
+        (vm.logo != spec.logo)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(if (spec.outro) "🏁 আউট্রো কার্ড" else "🎬 ইন্ট্রো কার্ড", fontWeight = FontWeight.Bold, color = ED.Amber, fontSize = 13.sp)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            CardStyle.values().forEach { st ->
+                androidx.compose.material3.FilterChip(
+                    selected = style == st,
+                    onClick = { style = st },
+                    label = { Text(st.label) },
+                )
+            }
+        }
+        androidx.compose.material3.OutlinedTextField(
+            value = title, onValueChange = { title = it },
+            label = { Text("শিরোনাম") }, maxLines = 3, modifier = Modifier.fillMaxWidth(),
+        )
+        androidx.compose.material3.OutlinedTextField(
+            value = sub, onValueChange = { sub = it },
+            label = { Text("উপশিরোনাম (ঐচ্ছিক)") }, maxLines = 2, modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            if (vm.logo != null) "নিচের \"লোগো\" বাছা আছে, তাই কার্ডে লোগোও বসবে।" else "লোগো বাছা থাকলে কার্ডের মাঝে তা-ও বসবে।",
+            color = ED.Muted, fontSize = 11.sp,
+        )
+        SmallBtn(if (changed) "🔄 কার্ডে প্রয়োগ করুন" else "✔ কার্ড হালনাগাদ", Modifier.fillMaxWidth(), enabled = changed) {
+            vm.updateCard(c.id, spec.copy(style = style, title = title, subtitle = sub, logo = vm.logo))
+            onInfo("🔄 কার্ড বদলানো হচ্ছে…")
         }
     }
 }

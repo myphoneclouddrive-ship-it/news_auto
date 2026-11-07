@@ -20,7 +20,17 @@ data class Clip(
     val imageSec: Float = 3f,   // ছবি কত সেকেন্ড দেখাবে
     val volume: Float = 1f,     // ক্লিপের আসল শব্দের ভলিউম ০..২ (২ = ২০০%)
     val muted: Boolean = false, // এই ক্লিপের আসল শব্দ বন্ধ
+    // ধাপ ৬: ক্লিপের ছবি-রূপান্তর (প্রিভিউ ও রেন্ডার দুই জায়গায় একই নিয়মে)
+    val flipH: Boolean = false, // ডান-বাম উল্টানো
+    val flipV: Boolean = false, // ওপর-নিচ উল্টানো
+    val zoom: Float = 1f,       // ১..৪ (১ = জুম নেই); ফ্রেমের কেন্দ্র থেকে বড় করে
+    val panX: Float = 0f,       // -১..১; জুম করা ছবির ভেতরে দেখার জানালা বাঁ(-১) ↔ ডান(+১)
+    val panY: Float = 0f,       // -১..১; ওপর(-১) ↔ নিচ(+১)
+    val card: CardSpec? = null, // ধাপ ৭: রেডি ইন্ট্রো/আউট্রো কার্ড হলে তার লেখা/স্টাইল (ছবি-ক্লিপ হিসেবেই চলে)
 )
+
+/** ফ্লিপ বা জুম আছে কিনা (না থাকলে রেন্ডারে কোনো বাড়তি ইফেক্ট বসে না) */
+fun Clip.hasTransform(): Boolean = flipH || flipV || zoom > 1.001f
 
 data class RenderSpec(
     val clips: List<Clip>,

@@ -87,6 +87,8 @@ internal fun layerSummary(l: Layer): String = when (l) {
     is AdLayer -> if (l.uri == null) "ছবি নেই" else ""
     is TickerLayer -> l.text.replace('\n', ' ').take(20)
     is NameBarLayer -> (l.name + if (l.title.isNotBlank()) " · " + l.title else "").take(24)
+    is OverlayLayer -> "${Math.round(l.alpha * 100)}%"
+    is AdjustLayer -> (if (l.brightness > 0f) "+" else "") + "${Math.round(l.brightness * 100)}%"
     else -> ""
 }
 
@@ -103,7 +105,7 @@ private fun rememberUriBitmap(uri: Uri?, px: Int): ImageBitmap? {
     val ctx = LocalContext.current
     val bmp by produceState<ImageBitmap?>(null, uri, px) {
         value = if (uri == null) null else withContext(Dispatchers.IO) {
-            runCatching { ctx.contentResolver.loadThumbnail(uri, Size(px, px), null).asImageBitmap() }.getOrNull()
+            loadImageThumb(ctx, uri, px)?.asImageBitmap()
         }
     }
     return bmp
@@ -220,6 +222,16 @@ fun LayerOverlay(tl: Timeline) {
                         }
                     }
                 }
+                // ধাপ ৭: পুরো ফ্রেমের রঙের আস্তরণ (রেন্ডারের `OverlayLayer` আঁকার মতোই)
+                is OverlayLayer -> Box(
+                    Modifier.fillMaxSize().background(Color(l.color).copy(alpha = l.alpha.coerceIn(0f, 1f))).then(selMod),
+                )
+                // ব্রাইটনেস: বাড়ালে সাদা, কমালে কালো স্বচ্ছ আস্তরণ (রেন্ডারেও একই)
+                is AdjustLayer -> if (l.brightness != 0f) Box(
+                    Modifier.fillMaxSize()
+                        .background((if (l.brightness > 0f) Color.White else Color.Black).copy(alpha = kotlin.math.abs(l.brightness).coerceIn(0f, 1f)))
+                        .then(selMod),
+                )
                 else -> {}
             }
             Unit
@@ -366,7 +378,25 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 LSlider("উচ্চতা (ফ্রেমের তুলনায়)", l.heightFrac, 0.05f..0.5f) { v -> tl.edit<AdLayer>(l.id) { it.copy(heightFrac = v) } }
             }
 
-            else -> Text("এই লেয়ারের বিস্তারিত সেটিং পরের ধাপে আসবে।", color = ED.Muted, fontSize = 12.sp)
+            is OverlayLayer -> {
+                Text("পুরো ফ্রেমের ওপর রঙের পর্দা — ছায়া, রঙের আভা বা ফেড-ডাউনের জন্য।", color = ED.Muted, fontSize = 12.sp)
+                ColorRow("আস্তরণের রং", l.color, false) { c -> tl.edit<OverlayLayer>(l.id) { it.copy(color = c) } }
+                LSlider("ঘনত্ব", l.alpha, 0.05f..0.9f) { v -> tl.edit<OverlayLayer>(l.id) { it.copy(alpha = v) } }
+            }
+
+            is AdjustLayer -> {
+                Text(
+                    "ব্রাইটনেস: বাঁয়ে কমে (ছায়া), ডানে বাড়ে (আলো)। সাদা/কালো আস্তরণ দিয়ে করা, তাই বেশি বাড়ালে ছবি ফ্যাকাশে দেখাবে।",
+                    color = ED.Muted, fontSize = 12.sp,
+                )
+                LSlider("ব্রাইটনেস", l.brightness, -0.8f..0.8f) { v -> tl.edit<AdjustLayer>(l.id) { it.copy(brightness = v) } }
+                OutlinedButton(
+                    onClick = { tl.edit<AdjustLayer>(l.id) { it.copy(brightness = 0f) } },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) { Text("↺ ০ করুন", fontSize = 12.sp) }
+            }
+
+            else -> {}
         }
     }
 }
