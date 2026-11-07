@@ -270,6 +270,8 @@ fun EditorDockBar(
                         val c = selClip
                         val idx = tl.clips.indexOfFirst { it.id == c.id }
                         DockBtn("🔙", "মেনু") { toMenu() }
+                        // ইন্ট্রো/আউট্রো কার্ডের লেখা/স্টাইল প্যানেল এই বাটনে খোলে (ট্যাপে নয়)
+                        if (c.card != null) DockBtn("✏️", "এডিট", active = editOpen) { onToggleEdit() }
                         DockBtn("✂️", "স্প্লিট") {
                             val m = tl.split()
                             onMessage(m)
@@ -439,12 +441,12 @@ fun EditorDockBar(
                                     DockBtn("clapper", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
                                         val m = vm.addCard(false, onInfo)
                                         onMessage(m)
-                                        if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
+                                        if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলাতে ✏️ এডিট চাপুন" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
                                     }
                                     DockBtn("flag", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
                                         val m = vm.addCard(true, onInfo)
                                         onMessage(m)
-                                        if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
+                                        if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — স্টাইল বদলাতে ✏️ এডিট চাপুন" else "🏁 আউট্রো বানানো হচ্ছে…")
                                     }
                                     DockBtn("plus", "সামনে ভিডিও") {
                                         if (tl.clips.isEmpty()) onMessage("আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন")
@@ -496,7 +498,7 @@ fun EditorDockPanel(
             // ---- নিচের এডিট প্যানেল ----
             when {
                 // HTML-এ ক্লিপের আলাদা প্যানেল নেই (ট্রিম = টাইমলাইনের হাতল টানা); শুধু ইন্ট্রো/আউট্রো কার্ডের লেখা বদলানোর প্যানেল থাকে
-                selClip != null -> selClip.card?.let { Column(Modifier.edPanel()) { CardEditor(vm, selClip, it, onInfo) } }
+                selClip != null -> if (editOpen) selClip.card?.let { Column(Modifier.edPanel()) { CardEditor(vm, selClip, it, onInfo) } }
                 selLayer != null && editOpen -> {
                     if (selLayer is AudioLayer) AudioEditor(tl, selLayer)
                     else LayerEditor(tl, selLayer) { act.replaceImage(selLayer.id) }

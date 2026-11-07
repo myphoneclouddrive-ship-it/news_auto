@@ -98,8 +98,8 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     LaunchedEffect(tl.clips, tl.layers) {
         if (tl.clips.isNotEmpty()) { kotlinx.coroutines.delay(700); vm.saveDraft() }
     }
-    // নতুন লেয়ার বাছলেই এডিট প্যানেল খোলা; ডকের ✏️ চেপে বন্ধ/চালু
-    var editOpen by remember(tl.selectedLayerId) { mutableStateOf(true) }
+    // ক্লিপ/লেয়ারে ট্যাপ করলে শুধু বাছা হয় (প্যানেল খোলে না); ডকের ✏️ এডিট চাপলে খোলে, ✓ বা অন্য কিছু বাছলে বন্ধ
+    var editOpen by remember(tl.selectedLayerId, tl.selectedId) { mutableStateOf(false) }
     val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
 
     Column(
@@ -110,7 +110,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         // এডিট প্যানেল খোলা থাকলে ওপরে ছোট প্রিভিউ + প্লে/সময় বার থেকে যায় (প্রিভিউ ঢাকা পড়ে না), নিচে প্যানেল; টাইমলাইন/জুম লুকানো
         val selClipNow = tl.clipById(tl.selectedId)
         val selLayerNow = tl.layerById(tl.selectedLayerId)
-        val panelOpen = (selClipNow?.card != null) || (selLayerNow != null && editOpen)
+        val panelOpen = editOpen && (selLayerNow != null || selClipNow?.card != null)
         if (tl.clips.isNotEmpty()) {
             // weight অবশ্যই এখানেই (সরাসরি এই Column-এর সন্তানে) দিতে হয়; StageCard-এর ভেতরে Surface থাকায় ভেতরে দিলে কাজ করত না,
             // ফলে স্টেজ পুরো উচ্চতা খেয়ে নিচের মেনু (ডক) ০ উচ্চতা পেত
@@ -129,7 +129,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         if (panelOpen) {
             SheetHeader(
                 title = selLayerNow?.kind?.label ?: "ইন্ট্রো/আউট্রো",
-                onDone = { if (selLayerNow != null) editOpen = false else tl.selectedId = null },
+                onDone = { editOpen = false },
             )
         }
         Column(
