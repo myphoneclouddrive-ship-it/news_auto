@@ -272,3 +272,4 @@
 - `MainActivity.kt`: `UpdateNotes(notes)` থেকে ভেতরের `heightIn+verticalScroll` কলাম বাদ (নেস্টেড স্ক্রলে শুধু শিরোনাম দেখাত বলে সন্দেহ)। পপ-আপে স্ক্রল এখন ডায়ালগের টেক্সট কলামে (`heightIn(max=420.dp)`); সেটিংসের আপডেট স্ক্রিনে বাইরের স্ক্রলই কাজ করে। নোটে নিজেই "নতুন যা যা এসেছে" শিরোনাম থাকলে বাদ দেয়।
 - `RELEASE_NOTES.md`: ওপরের `# নতুন যা যা এসেছে` লাইন বাদ — অ্যাপ নিজেই শিরোনাম দেখায়।
 - কম্পাইল/ডিভাইসে চালানো হয়নি।
+- বিল্ড ত্রুটি ঠিক: `NoiseReducer.kt` KDoc-এ `[off..]` (KDoc লিংক ভেবে পার্স ত্রুটি) বাদ; `VideoEditorScreen.kt`-এ `nativeCanvas` import; `YouTube.kt`-এ `suspendCancellableCoroutine<AuthorizationResult>` ও import (ইনফারেন্সে Nothing হচ্ছিল, তাই hasResolution/pendingIntent/accessToken মিলছিল না)।

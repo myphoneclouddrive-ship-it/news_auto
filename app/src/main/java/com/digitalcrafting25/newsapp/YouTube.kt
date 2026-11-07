@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
@@ -64,7 +65,7 @@ object YouTube {
         suspend fun token(): String {
             val req = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(SCOPE))).build()
             val res = try {
-                suspendCancellableCoroutine { c ->
+                suspendCancellableCoroutine<AuthorizationResult> { c ->
                     Identity.getAuthorizationClient(ctx).authorize(req)
                         .addOnSuccessListener { c.resume(it) }
                         .addOnFailureListener { c.resumeWithException(it) }

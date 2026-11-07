@@ -52,7 +52,7 @@ internal class NoiseReducer(private val sr: Int, private val ch: Int) {
         return y
     }
 
-    /** একটা ইন্টারলিভড ফ্রেম (ch সংখ্যক স্যাম্পল) buf[off..] থেকে নিয়ে জায়গাতেই বদলে দেয় */
+    /** একটা ইন্টারলিভড ফ্রেম (ch সংখ্যক স্যাম্পল) buf-এর off অবস্থান থেকে নিয়ে জায়গাতেই বদলে দেয় */
     fun processFrame(buf: ShortArray, off: Int) {
         var e2 = 0.0
         for (c in 0 until ch) {
