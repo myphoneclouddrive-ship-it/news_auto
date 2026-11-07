@@ -15,7 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,48 +32,50 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * ভিডিও এডিটরের ডার্ক রং — index.html-এর `#vcRoot` CSS থেকে নেওয়া
- * (#14161b প্যানেল, #1b1e26 বার, #0d0f13 টাইমলাইন, #0b0d11 ডক, বাছাই = অ্যাম্বার #fbbf24, প্লেহেড = #ef4444)
+ * ভিডিও এডিটরের প্রিমিয়াম ডার্ক রং (CapCut ধাঁচ): কালো-ঘেঁষা পেছন, গাঢ় ধূসর বাটন, সাদা বাছাই-রেখা ও সাদা প্লেহেড,
+ * একটাই উজ্জ্বল অ্যাকসেন্ট (গোলাপি-লাল) — পাবলিশ বাটন ও সক্রিয় টুলে।
  */
 object ED {
-    val Panel = Color(0xFFFFFFFF)
-    val Bar = Color(0xFFFFFFFF)
-    val Deep = Color(0xFFFFFFFF)
-    val Dock = Color(0xFFFFFFFF)
-    val Border = Color(0xFFDDDDDD)
-    val Border2 = Color(0xFFCCCCCC)
-    val Btn = Color(0xFFF0F1F4)
-    val Text = Color(0xFF222222)
-    val Sub = Color(0xFF555555)
-    val Muted = Color(0xFF777777)
-    val Amber = Color(0xFF1565C0)   // বাছাই = অ্যাপের নীল
-    val Playhead = Color(0xFFEF4444)
-    val Publish = Color(0xFFC62828)
-    val Ok = Color(0xFF2E7D32)
-    val Err = Color(0xFFC62828)
-    val AudioLane = Color(0x1A0D9488)   // rgba(13,148,136,.08)
+    val Screen = Color(0xFF0A0A0D)   // পুরো এডিটরের পেছন
+    val Panel = Color(0xFF16161B)    // নিচের প্যানেল/শিট
+    val Bar = Color(0xFF1C1C22)
+    val Deep = Color(0xFF0F0F13)     // টাইমলাইনের পেছন
+    val Dock = Color(0xFF101014)     // নিচের টুলবার
+    val Border = Color(0xFF26262E)
+    val Border2 = Color(0xFF34343E)
+    val Btn = Color(0xFF212128)
+    val Text = Color(0xFFF5F5F7)
+    val Sub = Color(0xFFB4B4BE)
+    val Muted = Color(0xFF7C7C88)
+    val Amber = Color(0xFFFFFFFF)    // বাছাই = সাদা রেখা (নামটা পুরোনো; সব জায়গায় একই নামে চলে)
+    val Accent = Color(0xFFFF2D55)   // সক্রিয় টুল / প্রাইমারি
+    val Playhead = Color(0xFFFFFFFF)
+    val Publish = Color(0xFFFF2D55)
+    val Ok = Color(0xFF34D399)
+    val Err = Color(0xFFFF6B81)
+    val AudioLane = Color(0x00000000)
 
-    /** ক্লিপের রং: প্রথম ৩টা + তারপর ঘুরে ঘুরে (HTML-এর COL / XCOL) */
-    private val SEG = listOf(0xFF7C3AED, 0xFF2563EB, 0xFF059669)
-    private val XSEG = listOf(0xFFD97706, 0xFFDB2777, 0xFF0891B2, 0xFF65A30D, 0xFF9333EA, 0xFFDC2626)
+    /** ক্লিপের রং: প্রথম ৩টা + তারপর ঘুরে ঘুরে (ক্লিপের নিচের সরু দাগ ও ফ্রেম লোডের আগের পেছন) */
+    private val SEG = listOf(0xFF8B5CF6, 0xFF3B82F6, 0xFF10B981)
+    private val XSEG = listOf(0xFFF59E0B, 0xFFEC4899, 0xFF06B6D4, 0xFF84CC16, 0xFFA855F7, 0xFFEF4444)
     fun segColor(i: Int): Color = Color(if (i < 3) SEG[i] else XSEG[(i - 3) % XSEG.size])
 
-    /** লেয়ার-বারের রং (HTML-এর LCOL) */
+    /** লেয়ার-বারের রং: অডিও বেগুনি, লেখা সবুজ, স্টিকার/লোগো টিল, ইফেক্ট/ওভারলে নীল (CapCut-এর ট্র্যাকের মতো) */
     fun layerColor(k: LayerKind): Color = Color(
         when (k) {
-            LayerKind.TEXT -> 0xFFD97706
-            LayerKind.IMAGE -> 0xFFDB2777
-            LayerKind.LOGO -> 0xFF9333EA
-            LayerKind.TAG -> 0xFF65A30D
-            LayerKind.TICKER -> 0xFFDC2626
-            LayerKind.NAME_BAR -> 0xFF2563EB
-            LayerKind.AD_BOTTOM -> 0xFF16A34A
-            LayerKind.AD_TOP -> 0xFF0891B2
-            LayerKind.OVERLAY -> 0xFF4F46E5
-            LayerKind.ADJUST -> 0xFF64748B
-            LayerKind.AUDIO -> 0xFF0D9488
-            LayerKind.VOICE -> 0xFF0E7490
-            LayerKind.BEEP -> 0xFFB45309
+            LayerKind.TEXT -> 0xFF4FAE6B
+            LayerKind.IMAGE -> 0xFFE8825C
+            LayerKind.LOGO -> 0xFF36B5AC
+            LayerKind.TAG -> 0xFF2FA4C9
+            LayerKind.TICKER -> 0xFF7BB661
+            LayerKind.NAME_BAR -> 0xFF4A8FE0
+            LayerKind.AD_BOTTOM -> 0xFFD9A441
+            LayerKind.AD_TOP -> 0xFFC98B3A
+            LayerKind.OVERLAY -> 0xFF3B9AD9
+            LayerKind.ADJUST -> 0xFF6B7FD7
+            LayerKind.AUDIO -> 0xFF9B6DDB
+            LayerKind.VOICE -> 0xFFB07AE0
+            LayerKind.BEEP -> 0xFFD08A4B
         },
     )
 }
@@ -82,18 +84,18 @@ object ED {
 @Composable
 fun EditorDarkTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = lightColorScheme(
-            primary = ED.Amber,
+        colorScheme = darkColorScheme(
+            primary = ED.Accent,
             onPrimary = Color.White,
-            secondary = ED.Amber,
+            secondary = ED.Accent,
             onSecondary = Color.White,
-            background = Color(0xFFF4F5F7),
+            background = ED.Screen,
             onBackground = ED.Text,
             surface = ED.Panel,
             onSurface = ED.Text,
             surfaceVariant = ED.Btn,
             onSurfaceVariant = ED.Sub,
-            secondaryContainer = ED.Btn,
+            secondaryContainer = Color(0xFF3A1B25),
             onSecondaryContainer = ED.Text,
             outline = ED.Border2,
             outlineVariant = ED.Border,
@@ -103,7 +105,10 @@ fun EditorDarkTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** নিচের ডকের বাটন: ওপরে আইকন (ইমোজি), নিচে ছোট লেখা (HTML `#vc_dock button.vct`) */
+/**
+ * নিচের টুলবারের বাটন: ওপরে লাইন-আইকন, নিচে ছোট লেখা।
+ * [icon] আইকনের নাম (যেমন "music") বা পুরোনো ইমোজি হতে পারে; আইকন না মিললে ইমোজিই আঁকা হয়।
+ */
 @Composable
 fun DockBtn(
     icon: String,
@@ -113,23 +118,48 @@ fun DockBtn(
     active: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
-    val c = if (active) ED.Amber else ED.Text
+    val c = if (active) ED.Accent else ED.Text
+    val key = EdIcons.resolve(icon)
     Column(
         modifier
-            .widthIn(min = 54.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .widthIn(min = 62.dp)
+            .clip(RoundedCornerShape(10.dp))
             .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
             .alpha(if (enabled) 1f else 0.35f)
-            .padding(horizontal = 6.dp, vertical = 5.dp),
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(icon, fontSize = 18.sp, color = c, textAlign = TextAlign.Center)
-        Text(label, fontSize = 10.sp, color = c, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            if (key != null) LineIcon(key, c, iconSize = 24.dp)
+            else Text(icon, fontSize = 18.sp, color = c, textAlign = TextAlign.Center)
+        }
+        Text(label, fontSize = 10.sp, color = if (active) ED.Accent else ED.Sub, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
     }
 }
 
-/** গোল ৪০dp বাটন (আনডু/রিডু) */
+/** আইকনের গোল/খালি বাটন (আনডু, রিডু, প্লে, পেছনে…): [circle] true হলে ধূসর গোল পেছন */
+@Composable
+fun IconBtn(
+    icon: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    size: Dp = 40.dp,
+    iconSize: Dp = 22.dp,
+    tint: Color = ED.Text,
+    circle: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier.size(size).clip(CircleShape)
+            .then(if (circle) Modifier.background(ED.Btn) else Modifier)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.35f),
+        contentAlignment = Alignment.Center,
+    ) { LineIcon(icon, tint, iconSize = iconSize) }
+}
+
+/** গোল ৪০dp বাটন (লেখা-ভিত্তিক; আগের কোডের জন্য রাখা) */
 @Composable
 fun CircleBtn(text: String, enabled: Boolean = true, size: Dp = 40.dp, onClick: () -> Unit) {
     Box(
@@ -141,7 +171,7 @@ fun CircleBtn(text: String, enabled: Boolean = true, size: Dp = 40.dp, onClick: 
     ) { Text(text, fontSize = 20.sp, color = ED.Text) }
 }
 
-/** ছোট ধূসর বাটন (জুম-বারের ◀ ০.১ ধরনের) */
+/** ছোট ধূসর বাটন */
 @Composable
 fun SmallBtn(
     text: String,
@@ -151,7 +181,7 @@ fun SmallBtn(
     hPad: Dp = 8.dp,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(7.dp)
+    val shape = RoundedCornerShape(8.dp)
     Box(
         modifier.clip(shape).background(ED.Btn).border(1.dp, ED.Border2, shape)
             .clickable(enabled = enabled, onClick = onClick)
@@ -178,13 +208,13 @@ fun TimePill(text: String, modifier: Modifier = Modifier, fontSize: TextUnit = 1
     )
 }
 
-/** এডিটর প্যানেলের ফ্রেম (HTML `.lyed`: #14161b, বর্ডার #2a2e37, কোণা ১২) */
-fun Modifier.edPanel(): Modifier {  // হালকা কার্ড
-    val shape = RoundedCornerShape(12.dp)
-    return this.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(12.dp)
+/** এডিটর প্যানেলের কার্ড (গাঢ় ধূসর, সরু বর্ডার, কোণা ১৪) */
+fun Modifier.edPanel(): Modifier {
+    val shape = RoundedCornerShape(14.dp)
+    return this.fillMaxWidth().clip(shape).background(ED.Bar).border(1.dp, ED.Border, shape).padding(12.dp)
 }
 
-/** সাদা গোল "▶ প্লে" বাটন (HTML `#vc_play`) — এখনো কোনো ফাংশন বসানো নেই, শুধু চেহারা */
+/** "▶ প্লে" লেখার বাটন (আগের কোডের জন্য রাখা; নতুন স্ক্রিনে আইকন-বাটন ব্যবহার হয়) */
 @Composable
 fun PlayBtn(modifier: Modifier = Modifier, label: String = "▶ প্লে", onClick: () -> Unit = {}) {
     Box(

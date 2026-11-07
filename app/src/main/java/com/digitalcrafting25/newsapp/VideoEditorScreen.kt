@@ -50,6 +50,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -69,9 +71,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * ভিডিও এডিটর স্ক্রিন — index.html-এর "ভিডিও পোস্ট" এডিটরের মতো সাজানো:
- *  ওপরে (স্থির): ডার্ক কার্ড = প্রিভিউ স্টেজ → কন্ট্রোল বার (আনডু/রিডু, সময়, রেন্ডার) → ০.১ সে. নাজ বার → টাইমলাইন
- *  নিচে (স্ক্রল): আইকন ডক (মেনু / ক্লিপ / লেয়ার / অডিও টুল) → এডিট প্যানেল → ভিডিওর মাপ, শিরোনাম, লোগো, মিউজিক, রেন্ডারের অবস্থা
+ * ভিডিও এডিটর স্ক্রিন — প্রিমিয়াম ডার্ক (CapCut ধাঁচ):
+ *  ওপরে: [← পেছনে · 720P · পাবলিশ] → প্রিভিউ স্টেজ → কন্ট্রোল (সময · ◀ ▶ ▷ · আনডু/রিডু) → জুম সারি → টাইমলাইন
+ *  নিচে (আটকানো): আইকন টুলবার (অডিও / লেখা / ছবি / ওভারলে / ব্র্যান্ড / বিজ্ঞাপন / ইন্ট্রো-আউট্রো / এডজাস্ট);
+ *  কিছু বাছলে সেই ক্লিপ/লেয়ারের টুল; এডিট প্যানেল খুললে নিচে শিট (নাম + ✓)
  */
 /** HTML-এ যেসব নিয়ন্ত্রণ নেই (মাপ/শিরোনাম/লোগো/মিউজিক) সেগুলো দেখাবে কিনা */
 private const val SHOW_EXTRA_CONTROLS = false
@@ -100,7 +103,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
 
     Column(
-        Modifier.fillMaxSize().padding(top = 6.dp),
+        Modifier.fillMaxSize().background(ED.Screen).padding(top = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // ---------- ওপরের অংশ: প্রিভিউ পুরো বাকি উচ্চতা নেয় ----------
@@ -111,16 +114,22 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         if (tl.clips.isNotEmpty()) {
             StageCard(
                 if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f),
-                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered,
+                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered, onBack,
             )
         } else {
             Spacer(Modifier.weight(1f))
         }
 
-        // ---------- এডিট প্যানেল (খোলা থাকলে পুরো বাকি জায়গা; লম্বা হলে স্ক্রল) ----------
+        // ---------- এডিট প্যানেল: ওপরে শিট-হেডার (নাম + ✓), নিচে স্ক্রল হওয়া সেটিং ----------
+        if (panelOpen) {
+            SheetHeader(
+                title = selLayerNow?.kind?.label ?: "ইন্ট্রো/আউট্রো",
+                onDone = { if (selLayerNow != null) editOpen = false else tl.selectedId = null },
+            )
+        }
         Column(
             (if (panelOpen) Modifier.weight(1f) else Modifier.heightIn(max = 0.dp))
-                .fillMaxWidth().verticalScroll(rememberScrollState())
+                .fillMaxWidth().background(ED.Panel).verticalScroll(rememberScrollState())
                 .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -224,6 +233,7 @@ private fun StageCard(
     onAddMedia: () -> Unit,
     onAddAudio: () -> Unit,
     onRendered: (android.net.Uri) -> Unit,
+    onBack: () -> Unit,
 ) {
     val tl = vm.tl
     val total = tl.totalMs
@@ -291,28 +301,30 @@ private fun StageCard(
         modifier.fillMaxWidth().padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // ওপরের বার: পেছনে · 720P · পাবলিশ
+        EditorTopBar(onBack = onBack, publishEnabled = !running) { playing = false; showPublish = true }
+
         FramePreview(tl, vm.aspect, pp, playing, Modifier.weight(1f))
 
-        // কন্ট্রোল বার (HTML `#vc_ctl`): প্লে · সময় · আনডু · রিডু ······ পাবলিশ
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PlayBtn(label = if (playing) "⏸ থামান" else "▶ প্লে") {
-                if (running || tl.totalMs <= 0L) return@PlayBtn
+        // কন্ট্রোল বার: সময় (বাঁয়ে) · ◀০.১ ▶প্লে ০.১▶ (মাঝে) · আনডু/রিডু (ডানে)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(fmtTime(tl.playheadMs), color = ED.Text, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, softWrap = false)
+                Text(" / ${fmtTime(total)}", color = ED.Muted, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, softWrap = false)
+            }
+            IconBtn("chevL", size = 36.dp, iconSize = 20.dp) { tl.playheadMs = (tl.playheadMs - 100).coerceAtLeast(0) }
+            IconBtn(if (playing) "pause" else "play", circle = true, size = 46.dp, iconSize = 22.dp) {
+                if (running || tl.totalMs <= 0L) return@IconBtn
                 playing = !playing
             }
-            TimePill("${fmtTime(tl.playheadMs)} / ${fmtTime(total)}", fontSize = 11.sp, hPad = 5.dp)
-            CircleBtn("↶", tl.canUndo, size = 34.dp) { playing = false; tl.undo(); setError(null); setInfo(null) }
-            CircleBtn("↷", tl.canRedo, size = 34.dp) { playing = false; tl.redo(); setError(null); setInfo(null) }
-            Spacer(Modifier.weight(1f))
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(ED.Publish)
-                    .clickable(enabled = !running) { playing = false; showPublish = true }   // HTML-এর মতো পাবলিশ ডায়ালগ
-                    .alpha(if (running) 0.5f else 1f)
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text("পাবলিশ", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
+            IconBtn("chevR", size = 36.dp, iconSize = 20.dp) { tl.playheadMs = (tl.playheadMs + 100).coerceAtMost(tl.totalMs) }
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                IconBtn("undo", enabled = tl.canUndo, size = 36.dp, iconSize = 19.dp) { playing = false; tl.undo(); setError(null); setInfo(null) }
+                IconBtn("redo", enabled = tl.canRedo, size = 36.dp, iconSize = 19.dp) { playing = false; tl.redo(); setError(null); setInfo(null) }
+            }
         }
 
-        // ০.১ নাজ + জুম (HTML `#vc_zbar`) — এক সারিতে
+        // জুম (টাইমলাইন): 🔍− স্লাইডার ＋ ⤢ — এক সারিতে
         NudgeZoomBar(tl)
         EditorTimeline(tl, onAddMedia, onAddAudio)
 
@@ -357,8 +369,8 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
             Modifier.aspectRatio(aspect.w / aspect.h.toFloat())
-                .clip(RoundedCornerShape(8.dp)).background(Color.Black)
-                .border(1.dp, ED.Border, RoundedCornerShape(8.dp)),
+                .clip(RoundedCornerShape(10.dp)).background(Color.Black)
+                .border(1.dp, ED.Border, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
             // ধাপ ৬: ফ্লিপ/জুম/পজিশন — রেন্ডারের ম্যাট্রিক্সের (RenderComposer.clipTransform) সাথে একই নিয়ম
@@ -429,8 +441,46 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
             }
             }
             LayerOverlay(tl)
+            StageDragLayer(tl, playing)
         }
     }
+}
+
+/**
+ * স্টেজে টেনে সরানো ও দুই আঙুলে বড়-ছোট করা (HTML-এর স্টেজ ড্র্যাগ): বাছা লেখা বা ছবি/লোগো লেয়ারের জন্য।
+ * এক আঙুলে টানলে অবস্থান (x, y) বদলায়; দুই আঙুলে চিমটি দিলে লেখার মাপ / ছবির প্রস্থ বদলায়।
+ * প্লে চলার সময় বা লেয়ার এই মুহূর্তে না থাকলে বন্ধ। প্যানেলের স্লাইডারও আগের মতো কাজ করে।
+ */
+@Composable
+private fun StageDragLayer(tl: Timeline, playing: Boolean) {
+    val id = tl.selectedLayerId ?: return
+    if (playing) return
+    val l = tl.layers.firstOrNull { it.id == id } ?: return
+    if (l !is TextLayer && l !is ImageLayer) return
+    if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips))) return
+    Box(
+        Modifier.fillMaxSize().pointerInput(id) {
+            detectTransformGestures { _, pan, zoom, _ ->
+                val w = size.width.toFloat().coerceAtLeast(1f)
+                val h = size.height.toFloat().coerceAtLeast(1f)
+                tl.updateLayer(id) { cur ->
+                    when (cur) {
+                        is TextLayer -> cur.copy(
+                            x = (cur.x + pan.x / w).coerceIn(0f, 1f),
+                            y = (cur.y + pan.y / h).coerceIn(0f, 1f),
+                            sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.2f),
+                        )
+                        is ImageLayer -> cur.copy(
+                            x = (cur.x + pan.x / w).coerceIn(0f, 1f),
+                            y = (cur.y + pan.y / h).coerceIn(0f, 1f),
+                            widthFrac = (cur.widthFrac * zoom).coerceIn(0.05f, 1f),
+                        )
+                        else -> cur
+                    }
+                }
+            }
+        },
+    )
 }
 
 
@@ -451,7 +501,7 @@ private fun PublishDialog(
     val dBorder = Color(0xFF2A2E37)
     val dText = Color(0xFFE5E7EB)
     val dSub = Color(0xFF9CA3AF)
-    val cbColors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = Color(0xFFC62828), uncheckedColor = dSub)
+    val cbColors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = ED.Publish, uncheckedColor = dSub)
     // HTML pbInfo: দুই দিকেই ব্যানার থাকলে লেখার বক্স আসে না; যে দিকে ব্যানার আছে সে দিকের ঘরও থাকে না
     val showTextBox = fb && !(hasTopAd && hasBottomAd)
 
@@ -549,7 +599,7 @@ private fun PublishDialog(
                 Button(
                     enabled = fb || yt || wp, onClick = { onRender(yt, fb && !yt && !wp) }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = ED.Publish, contentColor = Color.White),
                 ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }
             }
         }

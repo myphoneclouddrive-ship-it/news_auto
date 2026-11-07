@@ -239,9 +239,13 @@ fun EditorDockBar(
     val selLayer = tl.layerById(tl.selectedLayerId)
     val rec by act.recording
 
+    // মেনুর স্তর: null = মূল টুলবার; "audio"/"brand"/"ads"/"card" = ভেতরের সারি (CapCut-এর মতো দুই ধাপ)
+    var group by remember { mutableStateOf<String?>(null) }
+
     fun toMenu() {
         tl.selectedId = null
         tl.selectedLayerId = null
+        group = null
     }
 
     EditorDarkTheme {
@@ -384,37 +388,58 @@ fun EditorDockBar(
                         DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
                     }
 
-                    // ---- কিছু বাছা নেই: লেয়ার মেনু (HTML-এর ক্রমে) ----
+                    // ---- কিছু বাছা নেই: মূল টুলবার (৮টা আইকন); কয়েকটা চাপলে ভেতরের সারি খোলে ----
                     else -> {
-                        DockBtn("⬅️", "ব্যাক") { onBack() }
-                        DockBtn("🖼️", "নিচের বিজ্ঞাপন") { act.add(LayerKind.AD_BOTTOM) }
-                        DockBtn("🏞️", "ওপরের বিজ্ঞাপন") { act.add(LayerKind.AD_TOP) }
-                        DockBtn("📜", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }
-                        DockBtn("🏷️", "লোগো") { act.add(LayerKind.LOGO) }
-                        DockBtn("📍", "ট্যাগ") { act.add(LayerKind.TAG) }
-                        DockBtn("👤", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
-                        DockBtn("🎬", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
-                            val m = vm.addCard(false)
-                            onMessage(m)
-                            if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
+                        val g = group
+                        if (g == null) {
+                            DockBtn("music", "অডিও") { group = "audio" }
+                            DockBtn("text", "লেখা") { act.add(LayerKind.TEXT) }
+                            DockBtn("image", "ছবি") { act.add(LayerKind.IMAGE) }
+                            DockBtn("overlay", "ওভারলে") { act.add(LayerKind.OVERLAY) }
+                            DockBtn("sticker", "ব্র্যান্ড") { group = "brand" }
+                            DockBtn("adBottom", "বিজ্ঞাপন") { group = "ads" }
+                            DockBtn(
+                                "clapper", "ইন্ট্রো/আউট্রো",
+                                active = tl.cardClip(false) != null || tl.cardClip(true) != null,
+                            ) { group = "card" }
+                            DockBtn("sliders", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
+                        } else {
+                            DockBtn("back", "মেনু") { group = null }
+                            when (g) {
+                                "audio" -> {
+                                    DockBtn("music", "অডিও ফাইল") { act.addAudioFile() }
+                                    DockBtn("bell", "বিপ") { act.beep() }
+                                    DockBtn(
+                                        "mic",
+                                        if (rec) "রেকর্ড হচ্ছে…" else "ভয়েস (চেপে ধরুন)",
+                                        modifier = act.voiceModifier,
+                                        active = rec,
+                                    )
+                                }
+                                "brand" -> {
+                                    DockBtn("logo", "লোগো") { act.add(LayerKind.LOGO) }
+                                    DockBtn("pin", "ট্যাগ") { act.add(LayerKind.TAG) }
+                                    DockBtn("user", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
+                                    DockBtn("ticker", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }
+                                }
+                                "ads" -> {
+                                    DockBtn("adBottom", "নিচের বিজ্ঞাপন") { act.add(LayerKind.AD_BOTTOM) }
+                                    DockBtn("adTop", "ওপরের বিজ্ঞাপন") { act.add(LayerKind.AD_TOP) }
+                                }
+                                "card" -> {
+                                    DockBtn("clapper", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
+                                        val m = vm.addCard(false)
+                                        onMessage(m)
+                                        if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
+                                    }
+                                    DockBtn("flag", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
+                                        val m = vm.addCard(true)
+                                        onMessage(m)
+                                        if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
+                                    }
+                                }
+                            }
                         }
-                        DockBtn("✨", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
-                            val m = vm.addCard(true)
-                            onMessage(m)
-                            if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
-                        }
-                        DockBtn("🔤", "লেখা") { act.add(LayerKind.TEXT) }
-                        DockBtn("🖼️", "ছবি") { act.add(LayerKind.IMAGE) }
-                        DockBtn("🎵", "অডিও") { act.addAudioFile() }
-                        DockBtn("🔔", "বিপ") { act.beep() }
-                        DockBtn("🎨", "ওভারলে") { act.add(LayerKind.OVERLAY) }
-                        DockBtn(
-                            "🎙️",
-                            if (rec) "রেকর্ড হচ্ছে…" else "ভয়েস",
-                            modifier = act.voiceModifier,
-                            active = rec,
-                        )
-                        DockBtn("☀️", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
                     }
                 }
             }
@@ -564,11 +589,7 @@ private fun CardEditor(vm: EditorViewModel, c: Clip, spec: CardSpec, onInfo: (St
         Text(if (spec.outro) "🏁 আউট্রো কার্ড" else "🎬 ইন্ট্রো কার্ড", fontWeight = FontWeight.Bold, color = ED.Amber, fontSize = 13.sp)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             CardStyle.values().forEach { st ->
-                androidx.compose.material3.FilterChip(
-                    selected = style == st,
-                    onClick = { style = st },
-                    label = { Text(st.label) },
-                )
+                OptionTile(label = st.label, selected = style == st) { style = st }
             }
         }
         androidx.compose.material3.OutlinedTextField(

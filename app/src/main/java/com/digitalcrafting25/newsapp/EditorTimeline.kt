@@ -171,7 +171,7 @@ fun EditorTimeline(tl: Timeline, onAddMedia: () -> Unit, onAddAudio: () -> Unit)
         }
     }
 
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(14.dp)
     Box(Modifier.fillMaxWidth().clip(shape).background(ED.Deep).border(1.dp, ED.Border, shape)) {
         Box(Modifier.horizontalScroll(scroll)) {
             Column(Modifier.width(contentW.dp)) {
@@ -187,8 +187,8 @@ fun EditorTimeline(tl: Timeline, onAddMedia: () -> Unit, onAddAudio: () -> Unit)
                         .background(ED.Playhead),
                 )
                 Box(
-                    Modifier.offset(x = (x - 6f).dp).width(12.dp).height(10.dp)
-                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp, bottomEnd = 6.dp, bottomStart = 6.dp))
+                    Modifier.offset(x = (x - 5f).dp).width(10.dp).height(9.dp)
+                        .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp, bottomEnd = 5.dp, bottomStart = 5.dp))
                         .background(ED.Playhead),
                 )
             }
@@ -252,7 +252,7 @@ private fun Ruler(tl: Timeline, scrubbing: MutableState<Boolean>) {
                 val major = t % labelMs == 0L
                 val h = (if (major) 11f else 6f) * d
                 drawLine(
-                    color = if (major) Color(0xFF888888) else Color(0xFFBBBBBB),
+                    color = if (major) Color(0xFF8A8A96) else Color(0xFF4A4A55),
                     start = Offset(xp, size.height),
                     end = Offset(xp, size.height - h),
                     strokeWidth = 1f,
@@ -265,7 +265,7 @@ private fun Ruler(tl: Timeline, scrubbing: MutableState<Boolean>) {
             Text(
                 text,
                 modifier = Modifier.offset(x = (xp + 3f).dp, y = 2.dp),
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 color = ED.Muted,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
@@ -301,10 +301,10 @@ private fun LayerBar(tl: Timeline, l: Layer) {
     val x1 = xOfMs(clips, l.endMs, zoom)
     val w = maxOf(10f, x1 - x0)
     val selected = l.id == tl.selectedLayerId
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(7.dp)
     Box(
         Modifier.offset(x = x0.dp).width(w.dp).height(LANE_H.dp).clip(shape)
-            .background(ED.layerColor(l.kind).copy(alpha = 0.92f))
+            .background(ED.layerColor(l.kind).copy(alpha = 0.95f))
             .then(if (selected) Modifier.border(2.dp, ED.Amber, shape) else Modifier)
             .clickable { selectLayer(tl, l) },
         contentAlignment = Alignment.CenterStart,
@@ -334,7 +334,7 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
             .drawBehind {
                 var gx = 59f * d
                 while (gx < size.width) {
-                    drawLine(Color(0x12000000), Offset(gx, 0f), Offset(gx, size.height), 1f)
+                    drawLine(Color(0x0FFFFFFF), Offset(gx, 0f), Offset(gx, size.height), 1f)
                     gx += 60f * d
                 }
             }
@@ -343,10 +343,10 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp)) {
             tl.clips.forEachIndexed { i, c -> ClipBlock(tl, c, i) }
             Box(
-                Modifier.size(ADD_W.dp).dashedBorder(Color(0xFFAAAAAA)).clip(RoundedCornerShape(10.dp))
+                Modifier.size(ADD_W.dp, CLIP_H.dp).clip(RoundedCornerShape(9.dp)).background(Color.White)
                     .clickable(onClick = onAddMedia),
                 contentAlignment = Alignment.Center,
-            ) { Text("+", fontSize = 26.sp, color = ED.Muted, fontWeight = FontWeight.SemiBold) }
+            ) { LineIcon("plus", Color(0xFF111114), iconSize = 22.dp, stroke = 2.2f) }
         }
     }
 }
@@ -362,7 +362,7 @@ private fun segRole(tl: Timeline, c: Clip): Pair<Int, String> {
 @Composable
 private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
     val selected = c.id == tl.selectedId
-    val shape = RoundedCornerShape(7.dp)
+    val shape = RoundedCornerShape(9.dp)
     val (colIdx, roleName) = segRole(tl, c)
     val col = ED.segColor(colIdx)
     val w = clipWidthDp(c, tl.timelineZoom)
@@ -386,7 +386,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
                 Brush.verticalGradient(0f to Color(0x99000000), 0.55f to Color.Transparent),
             ),
         )
-        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(col))
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(col))
         Text(
             roleName + "  " + fmtTime(c.lengthMs()) +
                 if (c.isImage) "" else if (c.muted) " 🔇" else if (c.volume != 1f) " 🔊${Math.round(c.volume * 100)}%" else "",
@@ -402,7 +402,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
         // ট্রিম হাতল (HTML-এর মতো): টেনে ক্লিপের শুরু/শেষ ছাঁটা
         val cur by rememberUpdatedState(c)
         val dpPerSec = DP_PER_SEC * tl.timelineZoom
-        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage,
+        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage, selected = selected,
             onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
             val k = cur
             if (!k.isImage && k.durationMs > 0L) {
@@ -410,7 +410,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
                 tl.trim(k.id, (k.startSec + dSec).coerceIn(0f, (e - 0.2f).coerceAtLeast(0f)), e)
             }
         }
-        TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true,
+        TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true, selected = selected,
             onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
             val k = cur
             if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
@@ -425,7 +425,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
 
 /** টেনে ছাঁটার হাতল: টানা শেষ হলে সেকেন্ডে মোট সরানো (dSec) পাঠায়; ডান দিকে টানলে +  */
 @Composable
-private fun TrimHandle(glyph: String, modifier: Modifier, dpPerSec: Float, enabled: Boolean, onStart: () -> Unit, onCommit: (Float) -> Unit) {
+private fun TrimHandle(glyph: String, modifier: Modifier, dpPerSec: Float, enabled: Boolean, selected: Boolean, onStart: () -> Unit, onCommit: (Float) -> Unit) {
     val dps by rememberUpdatedState(dpPerSec)
     val commit by rememberUpdatedState(onCommit)
     Box(
@@ -442,9 +442,10 @@ private fun TrimHandle(glyph: String, modifier: Modifier, dpPerSec: Float, enabl
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.width(12.dp).height(22.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x88000000)),
+            Modifier.width(12.dp).height(24.dp).clip(RoundedCornerShape(4.dp))
+                .background(if (selected) Color(0xF2FFFFFF) else Color(0x88000000)),
             contentAlignment = Alignment.Center,
-        ) { Text(glyph, fontSize = 8.sp, color = Color.White, maxLines = 1, softWrap = false) }
+        ) { Text(glyph, fontSize = 8.sp, color = if (selected) Color(0xFF111114) else Color.White, maxLines = 1, softWrap = false) }
     }
 }
 
@@ -499,17 +500,19 @@ private fun loadStripFrames(ctx: android.content.Context, c: Clip, n: Int): List
 @Composable
 private fun AudioLanes(tl: Timeline, onAddAudio: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(ED.AudioLane).padding(top = 1.dp, bottom = 2.dp)) {
-        Text(
-            "🎵 অডিও লেয়ার",
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-            fontSize = 10.sp,
-            color = ED.Muted,
-        )
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            LineIcon("music", ED.Muted, iconSize = 12.dp, stroke = 2f)
+            Text("অডিও", fontSize = 10.sp, color = ED.Muted)
+        }
         val audio = tl.audioLayers
         if (audio.isEmpty()) {
             Box(
                 Modifier.padding(horizontal = 6.dp, vertical = 3.dp).height(LANE_H.dp)
-                    .dashedBorder(Color(0xFFAAAAAA), radius = 6.dp, width = 1.dp)
+                    .dashedBorder(Color(0xFF55555F), radius = 7.dp, width = 1.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .clickable(onClick = onAddAudio)
                     .padding(horizontal = 10.dp),
@@ -544,16 +547,14 @@ fun NudgeZoomBar(tl: Timeline, modifier: Modifier = Modifier) {
     val availDp = (screenDp - 24f - ADD_W - GAP_DP - 16f).coerceAtLeast(120f)
     val z = tl.timelineZoom
     val zLabel = if (kotlin.math.abs(z - Math.round(z)) < 0.05f) "${Math.round(z)}x" else "%.1fx".format(z)
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        SmallBtn("◀ ০.১", fontSize = 11.sp, hPad = 6.dp) { tl.playheadMs = (tl.playheadMs - 100).coerceAtLeast(0) }
-        SmallBtn("০.১ ▶", fontSize = 11.sp, hPad = 6.dp) { tl.playheadMs = (tl.playheadMs + 100).coerceAtMost(tl.totalMs) }
-        SmallBtn("🔍−", fontSize = 11.sp, hPad = 6.dp, enabled = z > Timeline.TL_ZOOM_MIN + 0.001f) { tl.zoomTimeline(1f / 1.5f) }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconBtn("zoom", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = z > Timeline.TL_ZOOM_MIN + 0.001f) { tl.zoomTimeline(1f / 1.5f) }
         ZoomSlider(tl, Modifier.weight(1f))
-        SmallBtn("🔍+", fontSize = 11.sp, hPad = 6.dp, enabled = z < Timeline.TL_ZOOM_MAX - 0.001f) { tl.zoomTimeline(1.5f) }
-        SmallBtn("⤢ ফিট", fontSize = 11.sp, hPad = 6.dp, enabled = tl.totalMs > 0L) { tl.changeTimelineZoom(fitZoom(tl.clips, availDp)) }
+        IconBtn("plus", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = z < Timeline.TL_ZOOM_MAX - 0.001f) { tl.zoomTimeline(1.5f) }
+        IconBtn("full", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = tl.totalMs > 0L) { tl.changeTimelineZoom(fitZoom(tl.clips, availDp)) }
         Text(
             zLabel,
-            modifier = Modifier.widthIn(min = 22.dp),
+            modifier = Modifier.widthIn(min = 26.dp).padding(end = 4.dp),
             fontSize = 11.sp,
             color = ED.Muted,
             fontFamily = FontFamily.Monospace,
@@ -596,10 +597,10 @@ private fun ZoomSlider(tl: Timeline, modifier: Modifier = Modifier) {
                 val r = thumbR * density
                 val cy = size.height / 2f
                 drawRoundRect(
-                    Color(0xFFCFD2D8), Offset(r, cy - 2f * density),
-                    androidx.compose.ui.geometry.Size(size.width - 2 * r, 4f * density), CornerRadius(2f * density),
+                    Color(0xFF33333D), Offset(r, cy - 1.5f * density),
+                    androidx.compose.ui.geometry.Size(size.width - 2 * r, 3f * density), CornerRadius(1.5f * density),
                 )
-                drawCircle(Color(0xFF3B82F6), r, Offset(r + frac * (size.width - 2 * r), cy))
+                drawCircle(Color.White, r, Offset(r + frac * (size.width - 2 * r), cy))
             },
     )
 }
