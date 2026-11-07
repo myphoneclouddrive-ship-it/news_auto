@@ -84,17 +84,40 @@ object Updater {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
-    /** GitHub Releases থেকে সর্বশেষ রিলিজ আনে। রিলিজ না থাকলে null। ব্লকিং — IO থ্রেডে ডাকুন। */
+    private const val UA = "NewsPublisher-Updater"
+
+    /**
+     * সর্বশেষ রিলিজ আনে। রিলিজ না থাকলে null। ব্লকিং — IO থ্রেডে ডাকুন।
+     * আগে GitHub API; লিমিট (403/429 — মোবাইল নেটে এক IP বহু জন ব্যবহার করে, তাই ঘন ঘন হয়) বা অন্য ত্রুটিতে
+     * লিমিট-ছাড়া ওয়েব পেজের রিডাইরেক্ট দিয়ে (`/releases/latest` → `/releases/tag/vNNN`)।
+     */
     fun fetchLatest(): UpdateInfo? {
         val repo = BuildConfig.UPDATE_REPO
         if (repo.isBlank()) throw IOException("UPDATE_REPO সেট নেই (GitHub Actions দিয়ে বিল্ড করুন)")
+        return try {
+            fetchViaApi(repo)
+        } catch (e: ApiLimited) {
+            fetchViaWeb(repo) ?: throw IOException("GitHub API লিমিট (${e.code}); ওয়েব পেজ দিয়েও পাওয়া গেল না — একটু পরে আবার চেষ্টা করুন")
+        } catch (e: IOException) {
+            // নেটওয়ার্ক/অন্য সমস্যা: ওয়েব পথ চেষ্টা; সেটাও না হলে আসল ত্রুটি
+            runCatching { fetchViaWeb(repo) }.getOrNull() ?: throw e
+        }
+    }
+
+    private class ApiLimited(val code: Int) : IOException("GitHub থেকে সাড়া এসেছে $code")
+
+    private fun fetchViaApi(repo: String): UpdateInfo? {
         val c = URL("https://api.github.com/repos/$repo/releases/latest").openConnection() as HttpURLConnection
         c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", UA)
+        c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
         c.connectTimeout = 15000
         c.readTimeout = 20000
         try {
-            if (c.responseCode == 404) return null
-            if (c.responseCode !in 200..299) throw IOException("GitHub থেকে সাড়া এসেছে ${c.responseCode}")
+            val rc = c.responseCode
+            if (rc == 404) return null
+            if (rc == 403 || rc == 429) throw ApiLimited(rc)
+            if (rc !in 200..299) throw IOException("GitHub থেকে সাড়া এসেছে $rc")
             val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
             val tag = j.getString("tag_name")
             val code = tag.trim().removePrefix("v").toIntOrNull() ?: return null
@@ -111,6 +134,49 @@ object Updater {
         } finally {
             c.disconnect()
         }
+    }
+
+    /** API ছাড়া পথ: রিডাইরেক্টের Location থেকে ট্যাগ, expanded_assets পেজ থেকে APK লিংক ও (থাকলে) SHA-256 */
+    private fun fetchViaWeb(repo: String): UpdateInfo? {
+        val c = URL("https://github.com/$repo/releases/latest").openConnection() as HttpURLConnection
+        c.instanceFollowRedirects = false
+        c.setRequestProperty("User-Agent", UA)
+        c.connectTimeout = 15000
+        c.readTimeout = 20000
+        val tag: String = try {
+            val rc = c.responseCode
+            if (rc == 404) return null
+            if (rc !in 300..399) throw IOException("GitHub ওয়েব থেকে সাড়া এসেছে $rc")
+            val loc = c.getHeaderField("Location") ?: return null
+            loc.substringAfter("/releases/tag/", "").substringBefore('?').substringBefore('#').trim('/')
+        } finally {
+            c.disconnect()
+        }
+        if (tag.isEmpty()) return null   // রিলিজ নেই (/releases-এ রিডাইরেক্ট)
+        val code = tag.trim().removePrefix("v").toIntOrNull() ?: return null
+
+        var url = "https://github.com/$repo/releases/download/$tag/NewsPublisher.apk"   // build.yml-এর ফাইলের নাম
+        var sha: String? = null
+        runCatching {
+            val h = URL("https://github.com/$repo/releases/expanded_assets/$tag").openConnection() as HttpURLConnection
+            h.setRequestProperty("User-Agent", UA)
+            h.connectTimeout = 15000
+            h.readTimeout = 20000
+            try {
+                if (h.responseCode in 200..299) {
+                    val html = h.inputStream.bufferedReader().use { it.readText() }
+                    Regex("href=\"(/[^\"]+/releases/download/[^\"]+\\.apk)\"").find(html)?.groupValues?.get(1)
+                        ?.let { url = "https://github.com$it" }
+                    // নতুন GitHub অ্যাসেটের পাশে sha256 ডাইজেস্ট দেখায়; না থাকলে যাচাই ছাড়াই (SHA null)
+                    sha = Regex("sha256:([0-9a-fA-F]{64})").find(html)?.groupValues?.get(1)
+                }
+            } finally {
+                h.disconnect()
+            }
+        }
+        // build.yml: ভার্সন কোড = ১০০ + রান নম্বর, নাম = ২.০.রান নম্বর
+        val name = if (code > 100) "2.0.${code - 100}" else tag
+        return UpdateInfo(code, name, url, sha, "")
     }
 
     fun isNewer(info: UpdateInfo) = info.versionCode > BuildConfig.VERSION_CODE
