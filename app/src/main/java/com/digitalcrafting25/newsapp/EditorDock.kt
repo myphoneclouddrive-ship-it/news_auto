@@ -381,7 +381,8 @@ fun EditorDockPanel(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // ---- নিচের এডিট প্যানেল ----
             when {
-                selClip != null -> ClipEditor(tl, selClip, vm, onMessage, onInfo)
+                // HTML-এ ক্লিপের আলাদা প্যানেল নেই (ট্রিম = টাইমলাইনের হাতল টানা); শুধু ইন্ট্রো/আউট্রো কার্ডের লেখা বদলানোর প্যানেল থাকে
+                selClip != null -> selClip.card?.let { Column(Modifier.edPanel()) { CardEditor(vm, selClip, it, onInfo) } }
                 selLayer != null && editOpen -> {
                     if (selLayer is AudioLayer) AudioEditor(tl, selLayer)
                     else LayerEditor(tl, selLayer) { act.replaceImage(selLayer.id) }

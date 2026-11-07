@@ -8,6 +8,7 @@ import android.media.ToneGenerator
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 
 /**
@@ -21,8 +22,23 @@ import androidx.media3.exoplayer.ExoPlayer
  */
 class PreviewPlayer(private val ctx: Context) {
     val player: ExoPlayer = ExoPlayer.Builder(ctx).build().apply {
-        videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
     }
+    /** এখনকার ভিডিওর আসল প্রস্থ÷উচ্চতা (ছবি চ্যাপ্টা না করতে প্রিভিউ এটা দিয়ে মাপ ঠিক করে) */
+    var videoAspect by androidx.compose.runtime.mutableFloatStateOf(16f / 9f)
+        private set
+
+    init {
+        player.addListener(object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width <= 0 || videoSize.height <= 0) return
+                var w = videoSize.width * videoSize.pixelWidthHeightRatio
+                var h = videoSize.height.toFloat()
+                if (videoSize.unappliedRotationDegrees == 90 || videoSize.unappliedRotationDegrees == 270) { val t = w; w = h; h = t }
+                videoAspect = w / h
+            }
+        })
+    }
+
     private var clips: List<Clip> = emptyList()
     private var starts: List<Long> = emptyList()
     private var sig = ""

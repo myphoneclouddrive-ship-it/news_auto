@@ -38,6 +38,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -397,20 +399,53 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
         )
-        // ট্রিম হাতল (শুধু চেহারা; টেনে ছাঁটার ফাংশন পরে বসবে)
-        HandleChip("◀", Modifier.align(Alignment.CenterStart))
-        HandleChip("▶", Modifier.align(Alignment.CenterEnd))
+        // ট্রিম হাতল (HTML-এর মতো): টেনে ক্লিপের শুরু/শেষ ছাঁটা
+        val cur by rememberUpdatedState(c)
+        val dpPerSec = DP_PER_SEC * tl.timelineZoom
+        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage,
+            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
+            val k = cur
+            if (!k.isImage && k.durationMs > 0L) {
+                val e = k.effEndSec()
+                tl.trim(k.id, (k.startSec + dSec).coerceIn(0f, (e - 0.2f).coerceAtLeast(0f)), e)
+            }
+        }
+        TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true,
+            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
+            val k = cur
+            if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
+            else if (k.durationMs > 0L) {
+                val dur = k.durationMs / 1000f
+                tl.trim(k.id, k.startSec, (k.effEndSec() + dSec).coerceIn(k.startSec + 0.2f, dur))
+            }
+        }
         if (selected) Box(Modifier.fillMaxSize().border(2.dp, ED.Amber, shape))
     }
 }
 
+/** টেনে ছাঁটার হাতল: টানা শেষ হলে সেকেন্ডে মোট সরানো (dSec) পাঠায়; ডান দিকে টানলে +  */
 @Composable
-private fun HandleChip(glyph: String, modifier: Modifier) {
+private fun TrimHandle(glyph: String, modifier: Modifier, dpPerSec: Float, enabled: Boolean, onStart: () -> Unit, onCommit: (Float) -> Unit) {
+    val dps by rememberUpdatedState(dpPerSec)
+    val commit by rememberUpdatedState(onCommit)
     Box(
-        modifier.padding(horizontal = 1.dp).width(12.dp).height(22.dp).clip(RoundedCornerShape(4.dp))
-            .background(Color(0x88000000)),
+        modifier.width(26.dp).fillMaxHeight()
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                var acc = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { acc = 0f; onStart() },
+                    onDragEnd = { if (acc != 0f) commit(acc / density / dps); acc = 0f },
+                    onDragCancel = { acc = 0f },
+                ) { _, dx -> acc += dx }
+            },
         contentAlignment = Alignment.Center,
-    ) { Text(glyph, fontSize = 8.sp, color = Color.White, maxLines = 1, softWrap = false) }
+    ) {
+        Box(
+            Modifier.width(12.dp).height(22.dp).clip(RoundedCornerShape(4.dp)).background(Color(0x88000000)),
+            contentAlignment = Alignment.Center,
+        ) { Text(glyph, fontSize = 8.sp, color = Color.White, maxLines = 1, softWrap = false) }
+    }
 }
 
 /** ক্লিপের ফিল্মস্ট্রিপ — চওড়া অনুযায়ী n টা ফ্রেম (ভিডিওতে ট্রিমের ভেতরের সমান ব্যবধানের মুহূর্ত, ছবিতে একই ছবি) */

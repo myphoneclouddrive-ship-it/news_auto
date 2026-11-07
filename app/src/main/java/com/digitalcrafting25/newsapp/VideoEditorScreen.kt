@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -341,15 +342,25 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                 )
             }
             // আসল ভিডিও (ExoPlayer) — শুধু ভিডিও ক্লিপে; ছবি-ক্লিপে ওপরের ছবিটাই দেখায়
-            androidx.compose.ui.viewinterop.AndroidView(
-                factory = { c -> android.view.TextureView(c).also { pp.player.setVideoTextureView(it) } },
-                modifier = Modifier.fillMaxSize().alpha(if (loc != null && !isImg) 1f else 0f).graphicsLayer {
-                    scaleX = if (fh) -z else z
-                    scaleY = if (fv) -z else z
-                    translationX = -px * (z - 1f) * size.width / 2f
-                    translationY = -py * (z - 1f) * size.height / 2f
-                },
-            )
+            // ভিডিও নিজের আসল অনুপাতে বসে ফ্রেম ভরে (বাড়তিটা ক্রপ) — কখনো চ্যাপ্টা হয় না
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                val vr = pp.videoAspect
+                val br = maxWidth / maxHeight
+                val vw = if (vr > br) maxHeight * vr else maxWidth
+                val vh = if (vr > br) maxHeight else maxWidth / vr
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { c -> android.view.TextureView(c).also { pp.player.setVideoTextureView(it) } },
+                    modifier = Modifier.align(Alignment.Center)
+                        .requiredSize(vw, vh)
+                        .alpha(if (loc != null && !isImg) 1f else 0f)
+                        .graphicsLayer {
+                            scaleX = if (fh) -z else z
+                            scaleY = if (fv) -z else z
+                            translationX = -px * (z - 1f) * size.width / 2f
+                            translationY = -py * (z - 1f) * size.height / 2f
+                        },
+                )
+            }
             LayerOverlay(tl)
         }
     }

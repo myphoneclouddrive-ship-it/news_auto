@@ -102,6 +102,8 @@ class Timeline {
 
     fun undo() {
         val prev = undoStack.removeLastOrNull() ?: return
+        // কোনো আনডুই সব ক্লিপ খালি করে এডিটর থেকে বের করবে না
+        if (prev.clips.isEmpty()) { refresh(); return }
         redoStack.addLast(Snap(clips, layers))
         clips = prev.clips
         layers = prev.layers
@@ -147,6 +149,14 @@ class Timeline {
 
     fun addAll(list: List<Clip>) {
         if (list.isEmpty()) return
+        if (clips.isEmpty()) {
+            // প্রথম ভিডিও বসানো আনডুর ধাপ নয় (HTML-এর মতো ইতিহাস খালি): আনডু করে এডিটর খালি হয়ে ব্যাক হবে না
+            undoStack.clear(); redoStack.clear(); lastKey = null
+            clips = list
+            selectedId = list.last().id
+            refresh()
+            return
+        }
         commit(clips + list)
         selectedId = list.last().id
     }
