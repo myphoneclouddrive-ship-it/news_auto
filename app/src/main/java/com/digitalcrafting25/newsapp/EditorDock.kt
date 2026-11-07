@@ -154,7 +154,35 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
         DockActions(
             add = { kind ->
                 when (kind) {
-                    LayerKind.IMAGE, LayerKind.LOGO, LayerKind.AD_BOTTOM, LayerKind.AD_TOP -> {
+                    // সেটিংসে সেভ করা বিজ্ঞাপন থাকলে নতুন বার-এ আগে না-বসা বিজ্ঞাপন নিজে বসে (HTML adBtn); না থাকলে ছবি বাছতে বলে
+                    LayerKind.AD_BOTTOM, LayerKind.AD_TOP -> scope.launch {
+                        val ads = SettingsMedia.ads(ctx)
+                        if (ads.isEmpty()) {
+                            pendingKind = kind
+                            pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            return@launch
+                        }
+                        val top = kind == LayerKind.AD_TOP
+                        val used = tl.layers.filterIsInstance<AdLayer>().filter { it.isTop == top }.map { it.adId }.toSet()
+                        val ad = ads.firstOrNull { it.id !in used } ?: ads.first()
+                        val u = SettingsMedia.adUri(ctx, ad)
+                        val m = tl.addLayer(kind, uri = u, adId = ad.id)
+                        if (m == null) tl.selectedId = null
+                        msg(m)
+                    }
+                    // লোগো: সেটিংসের লোগো (না থাকলে আইকন) নিজে বসে; না থাকলে ছবি বাছতে বলে
+                    LayerKind.LOGO -> scope.launch {
+                        val opt = SettingsMedia.logos(ctx).firstOrNull()
+                        if (opt == null) {
+                            pendingKind = kind
+                            pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            return@launch
+                        }
+                        val m = tl.addLayer(kind, uri = SettingsMedia.logoUri(ctx, opt))
+                        if (m == null) tl.selectedId = null
+                        msg(m)
+                    }
+                    LayerKind.IMAGE -> {
                         pendingKind = kind
                         pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }

@@ -160,6 +160,7 @@ data class AdLayer(
     val uri: Uri?,
     val isTop: Boolean = false,
     val heightFrac: Float = 0.18f,   // ফ্রেমের উচ্চতার ভগ্নাংশ, প্রস্থ ছবির অনুপাতে
+    val adId: String = "",          // সেটিংসের কোন বিজ্ঞাপন (খালি = নিজের ছবি); নতুন বিজ্ঞাপনে আগে না-বসা গুলো বসে
 ) : Layer {
     override val kind get() = if (isTop) LayerKind.AD_TOP else LayerKind.AD_BOTTOM
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)

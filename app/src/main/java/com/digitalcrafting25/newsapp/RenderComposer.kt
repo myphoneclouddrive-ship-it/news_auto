@@ -38,6 +38,8 @@ object RenderComposer {
     fun build(ctx: Context, spec: RenderSpec, mixedAudio: Uri? = null): Composition {
         val w = spec.aspect.w
         val h = spec.aspect.h
+        val band = spec.fbBandPx.coerceAtLeast(0)
+        val outH = h + 2 * band
 
         val items = spec.clips.map { c ->
             // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়; তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন থাকলে ওই ফ্রেমের ওপর
@@ -45,6 +47,8 @@ object RenderComposer {
                 Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
             )
             if (c.hasTransform()) fxList += clipTransform(c)
+            // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
+            if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
             val fit = Effects(emptyList(), fxList)
             if (c.isImage) {
                 val ms = (c.imageSec * 1000).toLong().coerceAtLeast(500L)
@@ -94,7 +98,10 @@ object RenderComposer {
         // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
         val totalMs = spec.clips.sumOf { it.lengthMs() }
         val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs }
-        val renderer = LayerFrameRenderer(ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips))
+        val renderer = LayerFrameRenderer(
+            ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips),
+            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
+        )
         // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
         val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()
             .filter { it.contrast != 0f && it.endMs > it.startMs }

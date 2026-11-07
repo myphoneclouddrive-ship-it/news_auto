@@ -408,11 +408,12 @@ class Timeline {
     /**
      * প্লেহেডের জায়গায় নতুন লেয়ার যোগ করে ও বাছাই করে। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
      */
-    fun addLayer(kind: LayerKind, uri: Uri? = null, text: String = ""): String? {
+    fun addLayer(kind: LayerKind, uri: Uri? = null, text: String = "", adId: String = ""): String? {
         val total = totalMs
         if (total <= 0L) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর লেয়ার দিন"
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
-        val layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
+        var layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
+        if (layer is AdLayer && adId.isNotEmpty()) layer = layer.copy(adId = adId)
         commitAll(clips, layers + layer)
         selectedLayerId = layer.id
         return null

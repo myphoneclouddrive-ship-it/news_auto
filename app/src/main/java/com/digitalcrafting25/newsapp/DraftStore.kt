@@ -175,7 +175,7 @@ object DraftStore {
             }
             is AdLayer -> {
                 put("t", "ad"); l.uri?.let { put("uri", it.toString()) }
-                put("top", l.isTop); put("h", l.heightFrac.toDouble())
+                put("top", l.isTop); put("h", l.heightFrac.toDouble()); put("adid", l.adId)
             }
             is OverlayLayer -> {
                 put("t", "overlay"); put("color", l.color); put("alpha", l.alpha.toDouble())
@@ -218,7 +218,7 @@ object DraftStore {
                 o.optInt("accent", 0xFFD32F2F.toInt()), o.optInt("bg", 0xFF1B1E26.toInt()),
                 o.optInt("textColor", -1), o.f("bottom", 0.12f), o.optInt("rep", 0),
             )
-            "ad" -> AdLayer(id, s, e, o.uriOrNull("uri"), o.optBoolean("top"), o.f("h", 0.18f))
+            "ad" -> AdLayer(id, s, e, o.uriOrNull("uri"), o.optBoolean("top"), o.f("h", 0.18f), o.optString("adid"))
             "overlay" -> OverlayLayer(id, s, e, o.optInt("color", 0xFF000000.toInt()), o.f("alpha", 0.35f))
             "adjust" -> AdjustLayer(id, s, e, o.f("brightness", 0f), o.f("contrast", 0f))
             "audio" -> AudioLayer(

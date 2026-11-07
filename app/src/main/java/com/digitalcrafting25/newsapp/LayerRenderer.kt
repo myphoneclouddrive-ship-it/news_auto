@@ -34,18 +34,24 @@ class LayerFrameRenderer(
     private val base: Bitmap?,      // পুরোনো শিরোনাম-বার/লোগো (সবসময় আছে), না থাকলে null
     allLayers: List<Layer>,
     private val repeatStopMs: Long = Long.MAX_VALUE,
+    // ফেইসবুক ব্যান্ড: ক্যানভাস canvasH উচ্চতার, লেয়ারগুলো yOff নিচে সরে ১২৮০×h ফ্রেমের ভেতরে আঁকা হয়; বাকি জায়গা সাদা ব্যান্ড
+    private val canvasH: Int = h,
+    private val yOff: Int = 0,
+    private val fbTop: String = "",
+    private val fbBottom: String = "",
+    private val fbColor: Int = Color.BLACK,
 ) {
     private val layers: List<Layer> = allLayers.filterNot { it.isAudio }
     private val images = HashMap<Long, Bitmap>()
     private val bufs = arrayOf(
-        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888),
-        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888),
+        Bitmap.createBitmap(w, canvasH, Bitmap.Config.ARGB_8888),
+        Bitmap.createBitmap(w, canvasH, Bitmap.Config.ARGB_8888),
     )
     private var cur = -1
     private var lastKey: List<Long>? = null
     private val u = h / 220f
 
-    val isEmpty: Boolean get() = layers.isEmpty() && base == null
+    val isEmpty: Boolean get() = layers.isEmpty() && base == null && yOff == 0
 
     init {
         val maxSide = max(w, h)
@@ -85,6 +91,14 @@ class LayerFrameRenderer(
         val bmp = bufs[cur]
         bmp.eraseColor(Color.TRANSPARENT)
         val cv = Canvas(bmp)
+        if (yOff > 0) {
+            cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(Color.WHITE))
+            cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(Color.WHITE))
+            drawBandText(cv, fbTop, 0f, yOff.toFloat())
+            drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
+            cv.save()
+            cv.translate(0f, yOff.toFloat())
+        }
         base?.let { cv.drawBitmap(it, 0f, 0f, null) }
         for (l in active) {
             when (l) {
@@ -103,7 +117,23 @@ class LayerFrameRenderer(
                 is AudioLayer -> {}
             }
         }
+        if (yOff > 0) cv.restore()
         return bmp
+    }
+
+    /** ব্যান্ডের লেখা (HTML ftxt): সর্বোচ্চ ২ লাইন, মাঝে, বোল্ড; ১ লাইনে ব্যান্ডের ০.৪২, ২ লাইনে ০.৩ মাপ; চওড়া হলে ০.৯৪ প্রস্থে আঁটা পর্যন্ত ছোট */
+    private fun drawBandText(cv: Canvas, text: String, top: Float, bandH: Float) {
+        val ls = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.take(2)
+        if (ls.isEmpty()) return
+        val tp = textPaint(fbColor, bandH * (if (ls.size > 1) 0.3f else 0.42f), true).apply { textAlign = Paint.Align.CENTER }
+        while (tp.textSize > 10f && ls.maxOf { tp.measureText(it) } > w * 0.94f) tp.textSize -= 2f
+        val lh = tp.textSize * 1.2f
+        val fm = tp.fontMetrics
+        val first = top + bandH / 2f - lh * (ls.size - 1) / 2f
+        ls.forEachIndexed { i, line ->
+            // textBaseline 'middle'-এর কাছাকাছি: বেসলাইন = কেন্দ্র − (ascent+descent)/2
+            cv.drawText(line, w / 2f, first + i * lh - (fm.ascent + fm.descent) / 2f, tp)
+        }
     }
 
     private fun fill(color: Int, alpha: Float = 1f) = Paint(Paint.ANTI_ALIAS_FLAG).apply {

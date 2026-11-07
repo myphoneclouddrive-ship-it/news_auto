@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -305,6 +306,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 OutlinedButton(onClick = onReplaceImage) {
                     Text(if (l.uri == null) "🖼️ ছবি বাছুন" else "🖼️ ছবি বদলান")
                 }
+                if (l.isLogo) SettingsLogoPicker { u -> tl.edit<ImageLayer>(l.id) { it.copy(uri = u) } }
                 LSlider("মাপ (প্রস্থ)", l.widthFrac, 0.05f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(widthFrac = v) } }
                 LSlider("স্বচ্ছতা (ধোঁয়াশা কম = বেশি)", l.opacity, 0.1f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(opacity = v) } }
                 LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(x = v) } }
@@ -392,8 +394,9 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
 
             is AdLayer -> {
                 OutlinedButton(onClick = onReplaceImage) {
-                    Text(if (l.uri == null) "🖼️ বিজ্ঞাপনের ছবি বাছুন" else "🖼️ ছবি বদলান")
+                    Text(if (l.uri == null) "🖼️ বিজ্ঞাপনের ছবি বাছুন" else "🖼️ অন্য ছবি বাছুন")
                 }
+                SettingsAdPicker(l.adId) { u, id -> tl.edit<AdLayer>(l.id) { it.copy(uri = u, adId = id) } }
                 LSlider("উচ্চতা (ফ্রেমের তুলনায়)", l.heightFrac, 0.05f..0.5f) { v -> tl.edit<AdLayer>(l.id) { it.copy(heightFrac = v) } }
             }
 
@@ -451,6 +454,59 @@ private fun ColorRow(label: String, current: Int, allowNone: Boolean, onPick: (I
                 ) {
                     if (c == 0) Text("✕", fontSize = 12.sp, color = ED.Muted)
                 }
+            }
+        }
+    }
+}
+
+
+/** সেটিংসের সেভ করা বিজ্ঞাপনের থাম্বনেইল সারি (HTML adLyList); চাপলে এই লেয়ারের ছবি বদলায় */
+@Composable
+private fun SettingsAdPicker(currentId: String, onPick: (Uri, String) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val ads by produceState<List<Ad>?>(null) { value = SettingsMedia.ads(ctx) }
+    val list = ads ?: return
+    if (list.isEmpty()) {
+        Text("সেটিংসে সেভ করা বিজ্ঞাপন নেই; \"অন্য ছবি বাছুন\" দিয়ে আপলোড করুন।", color = ED.Muted, fontSize = 12.sp)
+        return
+    }
+    Text("📢 সেটিংসের বিজ্ঞাপন থেকে বাছুন", color = ED.Muted, fontSize = 12.sp)
+    Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        list.forEachIndexed { i, a ->
+            val thumb = remember(a) { AdRender.render(a, 540, 60).asImageBitmap() }
+            val on = a.id == currentId
+            Image(
+                bitmap = thumb, contentDescription = "বিজ্ঞাপন ${i + 1}",
+                modifier = Modifier.width(270.dp).height(30.dp)
+                    .border(if (on) 2.dp else 1.dp, if (on) ED.Amber else ED.Border, RoundedCornerShape(4.dp))
+                    .clickable { scope.launch { onPick(SettingsMedia.adUri(ctx, a), a.id) } },
+            )
+        }
+    }
+}
+
+/** সেটিংসের লোগো/আইকন বাছাই (HTML vcLogoList) */
+@Composable
+private fun SettingsLogoPicker(onPick: (Uri) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val opts by produceState<List<SettingsMedia.LogoOpt>?>(null) { value = SettingsMedia.logos(ctx) }
+    val list = opts ?: return
+    if (list.isEmpty()) {
+        Text("সেটিংসে এখনো লোগো বা আইকন দেওয়া নেই; \"ছবি বদলান\" দিয়ে আপলোড করুন।", color = ED.Muted, fontSize = 12.sp)
+        return
+    }
+    Text("🏷️ সেটিংসের লোগো/আইকন থেকে বাছুন", color = ED.Muted, fontSize = 12.sp)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        list.forEach { o ->
+            Column(
+                Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, ED.Border, RoundedCornerShape(6.dp))
+                    .clickable { scope.launch { onPick(SettingsMedia.logoUri(ctx, o)) } }.padding(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Image(remember(o) { o.bmp.asImageBitmap() }, o.label, Modifier.size(width = 96.dp, height = 48.dp))
+                Text(o.label, color = ED.Muted, fontSize = 11.sp)
             }
         }
     }

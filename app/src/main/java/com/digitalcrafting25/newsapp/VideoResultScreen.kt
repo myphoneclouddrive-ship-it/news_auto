@@ -126,5 +126,3 @@ private fun StepCell(text: String, color: Color, bold: Boolean, modifier: Modifi
         Box(Modifier.fillMaxWidth().height(3.dp).background(color))
     }
 }
-
-private fun Modifier.clip(RoundedCornerShape(10.dp)): Modifier = this.then(Modifier.clip(RoundedCornerShape(10.dp)))

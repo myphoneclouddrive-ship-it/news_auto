@@ -185,7 +185,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে রেন্ডার সার্ভিস চালু করে ও null দেয় */
-    fun startRender(): String? {
+    /** fbBand = true হলে (শুধু ফেইসবুক টিক) ওপরে-নিচে সাদা ব্যান্ড বসে; লেখা শুধু সেই দিকে যেদিকে বিজ্ঞাপন লেয়ার নেই (HTML-এর মতো) */
+    fun startRender(fbBand: Boolean = false): String? {
         if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন"
         for ((i, c) in clips.withIndex()) {
             if (c.isImage) {
@@ -204,7 +205,18 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 runCatching { c.copy(uri = CardMaker.make(app, s, aspect.w, aspect.h)) }.getOrDefault(c)
             } else c
         }
-        RenderBus.spec = RenderSpec(renderClips, aspect, caption, logo, music, musicVolume, keepAudio, tl.layers.toList())
+        val hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP }
+        val hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM }
+        val top = if (hasTopAd) "" else fbTop.trim()
+        val bottom = if (hasBottomAd) "" else fbBottom.trim()
+        // ব্যান্ডের উচ্চতা = ৭২০ × ০.১৮ (বিজ্ঞাপন লেয়ারের ডিফল্ট উচ্চতা, HTML-এর ah-এর মতো); জোড় সংখ্যা, এনকোডারের জন্য
+        val band = if (fbBand && aspect == Aspect.LANDSCAPE && (top.isNotEmpty() || bottom.isNotEmpty())) {
+            (Math.round(aspect.h * 0.18f) / 2) * 2
+        } else 0
+        RenderBus.spec = RenderSpec(
+            renderClips, aspect, caption, logo, music, musicVolume, keepAudio, tl.layers.toList(),
+            fbTop = top, fbBottom = bottom, fbColor = fbColor, fbBandPx = band,
+        )
         RenderBus.status.value = RenderStatus.Running(0)
         ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
         return null

@@ -278,10 +278,10 @@ private fun StageCard(
         hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP },
         hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM },
         onDismiss = { showPublish = false },
-        onRender = { yt ->
+        onRender = { yt, fbOnly ->
             vm.aspect = Aspect.LANDSCAPE
             showPublish = false
-            val err = vm.startRender()
+            val err = vm.startRender(fbBand = fbOnly)
             setError(err)
             if (err == null) { awaiting = true; sawRunning = false }
         },
@@ -441,7 +441,7 @@ private fun PublishDialog(
     hasTopAd: Boolean,
     hasBottomAd: Boolean,
     onDismiss: () -> Unit,
-    onRender: (yt: Boolean) -> Unit,
+    onRender: (yt: Boolean, fbOnly: Boolean) -> Unit,
 ) {
     var fb by remember { mutableStateOf(false) }
     var yt by remember { mutableStateOf(false) }
@@ -540,11 +540,14 @@ private fun PublishDialog(
                 "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×720",
                 color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
+            if (fb && (yt || wp)) {
+                Text("ফেইসবুকের সাথে ইউটিউব/ওয়ার্ডপ্রেস টিক দিলে এখন একটাই ১৬:৯ ভিডিও হয় (ব্যানারের লেখা বসে না)। ব্যানারসহ ভিডিও চাইলে শুধু ফেইসবুক টিক দিন।", color = Color(0xFFFBBF24), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 4.dp))
+            }
             Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", color = dSub, fontSize = 12.sp)
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = fb || yt || wp, onClick = { onRender(yt) }, modifier = Modifier.weight(1f),
+                    enabled = fb || yt || wp, onClick = { onRender(yt, fb && !yt && !wp) }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
                 ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }

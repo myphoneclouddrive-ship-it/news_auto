@@ -41,6 +41,11 @@ data class RenderSpec(
     val musicVolume: Float,
     val keepOriginalAudio: Boolean,
     val layers: List<Layer> = emptyList(),   // সব লেয়ার: ভিজ্যুয়াল (ধাপ ৪) + অডিও (ধাপ ৫)
+    // ফেইসবুক ব্যানার এরিয়া: fbBandPx > 0 হলে ক্যানভাস ১২৮০×(৭২০+২×fbBandPx); ভিডিও মাঝে, ওপরে-নিচে সাদা ব্যান্ডে লেখা
+    val fbTop: String = "",
+    val fbBottom: String = "",
+    val fbColor: Int = 0xFF000000.toInt(),
+    val fbBandPx: Int = 0,
 )
 
 sealed interface RenderStatus {
