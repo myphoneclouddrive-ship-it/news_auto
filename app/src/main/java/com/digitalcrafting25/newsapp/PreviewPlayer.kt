@@ -22,7 +22,6 @@ import androidx.media3.exoplayer.ExoPlayer
 class PreviewPlayer(private val ctx: Context) {
     val player: ExoPlayer = ExoPlayer.Builder(ctx).build().apply {
         videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-        runCatching { setImageOutput { _, _ -> } }   // ছবি-ক্লিপ আমরা নিজে আঁকি; ছবির আউটপুট ফেলে দেওয়া
     }
     private var clips: List<Clip> = emptyList()
     private var starts: List<Long> = emptyList()
