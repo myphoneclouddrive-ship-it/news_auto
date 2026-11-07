@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -38,6 +39,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -65,6 +69,9 @@ import kotlinx.coroutines.withContext
  *  ওপরে (স্থির): ডার্ক কার্ড = প্রিভিউ স্টেজ → কন্ট্রোল বার (আনডু/রিডু, সময়, রেন্ডার) → ০.১ সে. নাজ বার → টাইমলাইন
  *  নিচে (স্ক্রল): আইকন ডক (মেনু / ক্লিপ / লেয়ার / অডিও টুল) → এডিট প্যানেল → ভিডিওর মাপ, শিরোনাম, লোগো, মিউজিক, রেন্ডারের অবস্থা
  */
+/** HTML-এ যেসব নিয়ন্ত্রণ নেই (মাপ/শিরোনাম/লোগো/মিউজিক) সেগুলো দেখাবে কিনা */
+private const val SHOW_EXTRA_CONTROLS = false
+
 @Composable
 fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
     val ctx = LocalContext.current
@@ -100,6 +107,9 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
         ) {
             if (tl.clips.isNotEmpty()) EditorDockPanel(tl, act, vm, editOpen, setError, setInfo)
 
+            // HTML-এ নেই বলে বন্ধ: ভিডিওর মাপ, শিরোনাম, লোগো, মিউজিক, আসল সাউন্ড চেকবক্স।
+            // (মাপ এখন পাবলিশ ডায়ালগ থেকে ঠিক হয়; চালু করতে SHOW_EXTRA_CONTROLS = true)
+            if (SHOW_EXTRA_CONTROLS) {
             Text("ভিডিওর মাপ")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Aspect.values().forEach { a ->
@@ -136,6 +146,8 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Checkbox(checked = vm.keepAudio, onCheckedChange = { vm.keepAudio = it })
                 Text("ভিডিওর আসল সাউন্ড রাখুন", Modifier.padding(top = 12.dp))
+            }
+
             }
 
             when (val s = status) {
@@ -196,22 +208,65 @@ private fun StageCard(
     val total = tl.totalMs
     val running = status is RenderStatus.Running
     val shape = RoundedCornerShape(14.dp)
+    var playing by remember { mutableStateOf(false) }
+    var showPublish by remember { mutableStateOf(false) }
+    // আসল প্রিভিউ প্লেয়ার: ক্লিপ বদলালেই আগে থেকে prepare হয়ে থাকে
+    val ctx = LocalContext.current
+    val pp = remember { PreviewPlayer(ctx) }
+    DisposableEffect(Unit) { onDispose { pp.release() } }
+    val clipSig = PreviewPlayer.signature(tl.clips)
+    LaunchedEffect(clipSig) { pp.setClips(tl.clips); pp.seekTo(tl.playheadMs) }
+    // থামা অবস্থায় লাল দাগ সরালে প্লেয়ারও সেখানে যায় (ফ্রেম দেখায়)
+    LaunchedEffect(tl.playheadMs, playing, clipSig) { if (!playing) pp.seekTo(tl.playheadMs) }
+    LaunchedEffect(playing) {
+        if (!playing) { pp.pause(); return@LaunchedEffect }
+        val total = tl.totalMs
+        if (total <= 0L) { playing = false; return@LaunchedEffect }
+        pp.setClips(tl.clips)
+        if (tl.playheadMs >= total - 50) tl.playheadMs = 0L
+        pp.seekTo(tl.playheadMs)
+        pp.play()
+        var lastWritten = tl.playheadMs
+        while (playing) {
+            withFrameNanos { it }
+            // প্লের মধ্যে ব্যবহারকারী লাল দাগ সরালে সেখান থেকে চলবে
+            if (kotlin.math.abs(tl.playheadMs - lastWritten) > 150L) pp.seekTo(tl.playheadMs)
+            val pos = pp.positionMs().coerceAtMost(total)
+            tl.playheadMs = pos
+            lastWritten = pos
+            pp.syncLayers(tl.layers, pos, true)
+            if (pp.ended() || pos >= total - 30L) playing = false
+        }
+        pp.pause()
+    }
+    LaunchedEffect(running) { if (running) playing = false }
+    if (showPublish) PublishDialog(
+        onDismiss = { showPublish = false },
+        onRender = { yt ->
+            vm.aspect = Aspect.LANDSCAPE
+            showPublish = false
+            setError(vm.startRender())
+        },
+    )
     Column(
         Modifier.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FramePreview(tl, vm.aspect)
+        FramePreview(tl, vm.aspect, pp, playing)
 
         // কন্ট্রোল বার (HTML `#vc_ctl`): প্লে · সময় · আনডু · রিডু ······ পাবলিশ
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            PlayBtn()   // ফাংশন পরে বসবে
+            PlayBtn(label = if (playing) "⏸ থামান" else "▶ প্লে") {
+                if (running || tl.totalMs <= 0L) return@PlayBtn
+                playing = !playing
+            }
             TimePill("${fmtTime(tl.playheadMs)} / ${fmtTime(total)}", fontSize = 11.sp, hPad = 5.dp)
-            CircleBtn("↶", tl.canUndo, size = 34.dp) { tl.undo(); setError(null); setInfo(null) }
-            CircleBtn("↷", tl.canRedo, size = 34.dp) { tl.redo(); setError(null); setInfo(null) }
+            CircleBtn("↶", tl.canUndo, size = 34.dp) { playing = false; tl.undo(); setError(null); setInfo(null) }
+            CircleBtn("↷", tl.canRedo, size = 34.dp) { playing = false; tl.redo(); setError(null); setInfo(null) }
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier.clip(RoundedCornerShape(8.dp)).background(ED.Publish)
-                    .clickable(enabled = !running) { setError(vm.startRender()) }   // এখনো আগের রেন্ডার ফাংশনই
+                    .clickable(enabled = !running) { playing = false; showPublish = true }   // HTML-এর মতো পাবলিশ ডায়ালগ
                     .alpha(if (running) 0.5f else 1f)
                     .padding(horizontal = 10.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
@@ -234,14 +289,15 @@ private fun StageCard(
 
 /** প্লেহেডের জায়গার ফ্রেম (ভিডিওর মাপ অনুযায়ী ক্রপ করে দেখায়) */
 @Composable
-private fun FramePreview(tl: Timeline, aspect: Aspect) {
+private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playing: Boolean) {
     val ctx = LocalContext.current
     val loc = tl.locate(tl.playheadMs)
     val uri = loc?.first?.uri
     val isImg = loc?.first?.isImage == true
-    val q = if (loc == null) -1L else loc.second / 250L
-    val bmp by produceState<ImageBitmap?>(null, uri, q) {
-        value = if (uri == null) null else withContext(Dispatchers.IO) {
+    val q = if (loc == null) -1L else loc.second / 100L
+    val bmp by produceState<ImageBitmap?>(null, uri, q, playing && !isImg) {
+        // প্লের সময় ভিডিও ক্লিপে প্লেয়ারই ছবি দেখায়, তাই ফ্রেম টানা বন্ধ
+        value = if (uri == null || (playing && !isImg)) null else withContext(Dispatchers.IO) {
             runCatching {
                 val b: Bitmap? = if (isImg) {
                     loadImageThumb(ctx, uri, 640)
@@ -249,7 +305,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect) {
                     val r = MediaMetadataRetriever()
                     try {
                         r.setDataSource(ctx, uri)
-                        r.getFrameAtTime(q * 250L * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        r.getFrameAtTime(q * 100L * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                     } finally {
                         runCatching { r.release() }
                     }
@@ -284,7 +340,48 @@ private fun FramePreview(tl: Timeline, aspect: Aspect) {
                     contentScale = ContentScale.Crop,
                 )
             }
+            // আসল ভিডিও (ExoPlayer) — শুধু ভিডিও ক্লিপে; ছবি-ক্লিপে ওপরের ছবিটাই দেখায়
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { c -> android.view.TextureView(c).also { pp.player.setVideoTextureView(it) } },
+                modifier = Modifier.fillMaxSize().alpha(if (loc != null && !isImg) 1f else 0f).graphicsLayer {
+                    scaleX = if (fh) -z else z
+                    scaleY = if (fv) -z else z
+                    translationX = -px * (z - 1f) * size.width / 2f
+                    translationY = -py * (z - 1f) * size.height / 2f
+                },
+            )
             LayerOverlay(tl)
         }
     }
+}
+
+
+/** HTML `#vc_pub`: কোথায় কোথায় পাবলিশ হবে — ফেইসবুক / ইউটিউব / ওয়ার্ডপ্রেস (ওয়ার্ডপ্রেসে ইউটিউব লাগে) */
+@Composable
+private fun PublishDialog(onDismiss: () -> Unit, onRender: (yt: Boolean) -> Unit) {
+    var fb by remember { mutableStateOf(false) }
+    var yt by remember { mutableStateOf(false) }
+    var wp by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("📤 পাবলিশ") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("কোথায় কোথায় পাবলিশ হবে?", fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(fb, { fb = it }); Text("১। ফেইসবুক")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(yt, { yt = it; if (!it) wp = false }); Text("২। ইউটিউব (১৬:৯)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(wp, { wp = it; if (it) yt = true }); Text("৩। ওয়ার্ডপ্রেস")
+                }
+                Text("ইউটিউব ছাড়া ওয়ার্ডপ্রেস হবে না; টিক দিলে ইউটিউব নিজে টিক হবে।", fontSize = 12.sp)
+                Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", fontSize = 12.sp)
+            }
+        },
+        confirmButton = { Button(enabled = fb || yt || wp, onClick = { onRender(yt) }) { Text("🎬 রেন্ডার") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("বন্ধ করুন") } },
+    )
 }
