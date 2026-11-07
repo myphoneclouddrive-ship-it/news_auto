@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -170,11 +171,24 @@ fun LayerOverlay(tl: Timeline) {
                 is ImageLayer -> {
                     val b = rememberUriBitmap(l.uri, 512)
                     if (b != null) {
-                        Image(
-                            b, null,
-                            Modifier.centerAtFrac(l.x, l.y).width(w * l.widthFrac)
-                                .aspectRatio(b.width / b.height.toFloat()).then(selMod).alpha(l.opacity),
-                        )
+                        if (l.isLogo && l.corner != null) {
+                            // HTML drawLogo: কোণায় বসা লোগো (ফাঁক ২%), ওপর/নিচের বিজ্ঞাপন-টিকার এড়িয়ে — রেন্ডারের সাথে একই HtmlBrand.logoRect
+                            val wPx = with(density) { w.toPx() }
+                            val r = HtmlBrand.logoRect(wPx, hPx, l, b.width, b.height, brandInsets.first, brandInsets.second)
+                            Image(
+                                b, null,
+                                Modifier.offset { androidx.compose.ui.unit.IntOffset(r.left.toInt(), r.top.toInt()) }
+                                    .size(with(density) { r.width().toDp() }, with(density) { r.height().toDp() })
+                                    .then(selMod).alpha(l.opacity),
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+                            )
+                        } else {
+                            Image(
+                                b, null,
+                                Modifier.centerAtFrac(l.x, l.y).width(w * l.widthFrac)
+                                    .aspectRatio(b.width / b.height.toFloat()).then(selMod).alpha(l.opacity),
+                            )
+                        }
                     }
                 }
                 is AdLayer -> {
@@ -191,28 +205,12 @@ fun LayerOverlay(tl: Timeline) {
                         }
                     }
                 }
-                is TickerLayer -> if (l.text.isNotEmpty()) {
-                    Box(Modifier.fillMaxSize().padding(bottom = h * l.bottomFrac), contentAlignment = Alignment.BottomStart) {
-                        Box(
-                            Modifier.fillMaxWidth().height(h * l.barHeightFrac).clipToBounds()
-                                .background(Color(l.bgColor)).then(selMod),
-                        ) {
-                            Text(
-                                l.text,
-                                color = Color(l.color),
-                                fontSize = with(density) { (h * l.barHeightFrac * 0.55f).toSp() },
-                                fontWeight = FontWeight.Bold,
-                                softWrap = false,
-                                maxLines = 1,
-                                modifier = Modifier.align(Alignment.CenterStart).layout { m, c ->
-                                    val p = m.measure(Constraints())
-                                    layout(c.maxWidth, p.height) {
-                                        val cycle = (c.maxWidth + p.width).coerceAtLeast(1)
-                                        val shift = ((ms - l.startMs).coerceAtLeast(0L) / 1000f * l.speed * c.maxWidth) % cycle
-                                        p.place((c.maxWidth - shift).toInt(), 0)
-                                    }
-                                },
-                            )
+                // স্ক্রলিং লেখা: রেন্ডারের সাথে একই কোডে (HtmlBrand.drawTicker) — HTML ticker()-এর হুবহু স্টাইল, নিচের বিজ্ঞাপনের ঠিক ওপরে
+                is TickerLayer -> if (l.text.isNotBlank()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawIntoCanvas { c ->
+                            val r = HtmlBrand.drawTicker(c.nativeCanvas, size.width, size.height, l, ms, active)
+                            if (r != null && l.id == tl.selectedLayerId) drawRect(ED.Amber, Offset(r.left, r.top), Size(r.width(), r.height()), style = Stroke(2f))
                         }
                     }
                 }
@@ -307,11 +305,34 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                     Text(if (l.uri == null) "🖼️ ছবি বাছুন" else "🖼️ ছবি বদলান")
                 }
                 if (l.isLogo) SettingsLogoPicker { u -> tl.edit<ImageLayer>(l.id) { it.copy(uri = u) } }
-                LSlider("মাপ (প্রস্থ)", l.widthFrac, 0.05f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(widthFrac = v) } }
+                if (l.isLogo) {
+                    // HTML: লোগোর অবস্থান ৪ কোণা (ওপরে ডানে/বামে, নিচে ডানে/বামে); "নিজে সরান" = স্টেজে টেনে বা স্লাইডারে বসানো
+                    Text("অবস্থান", fontSize = 13.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            Corner.TOP_RIGHT to "↗ ওপরে ডানে", Corner.TOP_LEFT to "↖ ওপরে বামে",
+                            Corner.BOTTOM_RIGHT to "↘ নিচে ডানে", Corner.BOTTOM_LEFT to "↙ নিচে বামে",
+                        ).forEach { (c, label) ->
+                            FilterChip(
+                                selected = l.corner == c,
+                                onClick = { tl.edit<ImageLayer>(l.id) { it.copy(corner = c, rotation = 0f) } },
+                                label = { Text(label) },
+                            )
+                        }
+                        FilterChip(
+                            selected = l.corner == null,
+                            onClick = { tl.edit<ImageLayer>(l.id) { it.copy(corner = null) } },
+                            label = { Text("✋ নিজে সরান") },
+                        )
+                    }
+                }
+                LSlider(if (l.isLogo) "লোগোর মাপ (ভিডিওর প্রস্থের %)" else "মাপ (প্রস্থ)", l.widthFrac, (if (l.isLogo) 0.02f else 0.05f)..(if (l.isLogo) 0.3f else 1f)) { v -> tl.edit<ImageLayer>(l.id) { it.copy(widthFrac = v) } }
                 LSlider("স্বচ্ছতা (ধোঁয়াশা কম = বেশি)", l.opacity, 0.1f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(opacity = v) } }
-                LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(x = v) } }
-                LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(y = v) } }
-                RotSlider(l.rotation) { v -> tl.edit<ImageLayer>(l.id) { it.copy(rotation = v) } }
+                if (!l.isLogo || l.corner == null) {
+                    LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(x = v) } }
+                    LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(y = v) } }
+                }
+                if (!l.isLogo || l.corner == null) RotSlider(l.rotation) { v -> tl.edit<ImageLayer>(l.id) { it.copy(rotation = v) } }
             }
 
             is TagLayer -> {
@@ -350,9 +371,10 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 )
                 ColorRow("লেখার রং", l.color, false) { c -> tl.edit<TickerLayer>(l.id) { it.copy(color = c) } }
                 ColorRow("বারের রং", l.bgColor, false) { c -> tl.edit<TickerLayer>(l.id) { it.copy(bgColor = c) } }
-                LSlider("বারের উচ্চতা", l.barHeightFrac, 0.04f..0.2f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(barHeightFrac = v) } }
-                LSlider("গতি", l.speed, 0.03f..0.5f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(speed = v) } }
-                LSlider("নিচ থেকে দূরত্ব", l.bottomFrac, 0f..0.5f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(bottomFrac = v) } }
+                // HTML: লেখার মাপ ৪০–১২০ (ডিফল্ট ৭০) → বারের উচ্চতা ফ্রেমের ৩.৪%–১০.২%; গতি ১–১০ (ডিফল্ট ৪) → ০.০৩×গতি
+                LSlider("লেখার মাপ (বারের উচ্চতা)", l.barHeightFrac, 0.034f..0.102f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(barHeightFrac = v) } }
+                LSlider("গতি", l.speed, 0.03f..0.3f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(speed = v) } }
+                LSlider("নিচের বিজ্ঞাপনের ওপর থেকে অতিরিক্ত দূরত্ব", l.bottomFrac, 0f..0.3f) { v -> tl.edit<TickerLayer>(l.id) { it.copy(bottomFrac = v) } }
             }
 
             is NameBarLayer -> {

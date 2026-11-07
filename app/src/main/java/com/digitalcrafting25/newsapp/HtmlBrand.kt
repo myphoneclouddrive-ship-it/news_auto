@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Build
 import android.text.TextPaint
 import kotlin.math.ceil
 import kotlin.math.max
@@ -25,13 +26,15 @@ object HtmlBrand {
     /** (ওপরের বিজ্ঞাপনের নিচ-সীমা tH, নিচের বিজ্ঞাপন/টিকারের ওপর-সীমা) — HTML-এর tH ও (h − bH − kH) */
     fun insets(active: List<Layer>, h: Float): Pair<Float, Float> {
         var top = 0f
-        var bot = h
+        var adBottom = 0f
+        var tick = 0f
         for (l in active) when (l) {
-            is AdLayer -> if (l.isTop) top = max(top, h * l.heightFrac) else bot = min(bot, h - h * l.heightFrac)
-            is TickerLayer -> bot = min(bot, h - h * (l.bottomFrac + l.barHeightFrac))
+            is AdLayer -> if (l.isTop) top = max(top, h * l.heightFrac) else adBottom = max(adBottom, h * l.heightFrac)
+            is TickerLayer -> tick = max(tick, h * (l.barHeightFrac + l.bottomFrac))
             else -> {}
         }
-        return top to bot
+        // HTML: স্ক্রলিং লেখা নিচের বিজ্ঞাপনের ঠিক ওপরে বসে, তাই দুটোর উচ্চতা যোগ হয় (আগে শুধু বড়টা ধরা হতো)
+        return top to (h - adBottom - tick)
     }
 
     private fun argb(a: Float, c: Int) = Color.argb((a.coerceIn(0f, 1f) * 255).roundToInt(), Color.red(c), Color.green(c), Color.blue(c))
@@ -75,6 +78,61 @@ object HtmlBrand {
         val cy = y + bh / 2f + fs * 0.04f
         cv.drawText(t, if (right) x + bw - px else x + px, cy - (fm.ascent + fm.descent) / 2f, tp)
         return RectF(x, y, x + bw, y + bh)
+    }
+
+    /**
+     * HTML ticker(): নিচের বিজ্ঞাপনের ঠিক ওপরে বসা বার (ব্যাকগ্রাউন্ড ৮৫% ঘন), লেখা মাঝারি (500) ওজন, মাপ = বারের ০.৫২;
+     * লেখা + ৮টা ফাঁকা জায়গা বারবার জুড়ে সীমাহীন লুপে ডান থেকে বামে সরে (প্রস্থ × গতি প্রতি সেকেন্ডে)।
+     * ms = টাইমলাইনের সময়। আঁকা জায়গা ফেরত দেয় (না আঁকলে null)।
+     */
+    fun drawTicker(cv: Canvas, w: Float, h: Float, l: TickerLayer, ms: Long, active: List<Layer>): RectF? {
+        val t = l.text.replace('\n', ' ').trim()
+        if (t.isEmpty()) return null
+        var adBottom = 0f
+        for (a in active) if (a is AdLayer && !a.isTop) adBottom = max(adBottom, h * a.heightFrac)
+        val barH = (h * l.barHeightFrac).roundToInt().toFloat().coerceAtLeast(2f)
+        val bottom = h - adBottom - h * l.bottomFrac
+        val top = bottom - barH
+        val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = barH * 0.52f
+            typeface = if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 500, false) else Typeface.DEFAULT
+            color = l.color
+        }
+        val s = "$t        "
+        val pw = max(tp.measureText(s), 1f)
+        val off = ((ms - l.startMs).coerceAtLeast(0L) / 1000f * w * l.speed) % pw
+        val fm = tp.fontMetrics
+        val baseline = top + barH / 2f - (fm.ascent + fm.descent) / 2f
+        cv.save()
+        cv.clipRect(0f, top, w, bottom)
+        cv.drawRect(0f, top, w, bottom, Paint().apply { color = argb(0.85f, l.bgColor or 0xFF000000.toInt()) })
+        var x = -off
+        while (x < w) {
+            cv.drawText(s, x, baseline, tp)
+            x += pw
+        }
+        cv.restore()
+        return RectF(0f, top, w, bottom)
+    }
+
+    /**
+     * HTML drawLogo(): কোণা বাছা থাকলে (corner != null) ফাঁক = প্রস্থের ২%; ওপরের কোণা ওপরের বিজ্ঞাপনের নিচে,
+     * নিচের কোণা নিচের বিজ্ঞাপন/স্ক্রলিং লেখার ওপরে। না হলে (টেনে বসানো) x, y কেন্দ্র ধরে।
+     */
+    fun logoRect(w: Float, h: Float, l: ImageLayer, bmpW: Int, bmpH: Int, topInset: Float, bottomBase: Float): RectF {
+        val lw = w * l.widthFrac
+        val lh = lw * bmpH / max(bmpW, 1).toFloat()
+        val c = l.corner
+        if (l.isLogo && c != null) {
+            val m = w * 0.02f
+            val right = c == Corner.TOP_RIGHT || c == Corner.BOTTOM_RIGHT
+            val x = if (right) w - lw - m else m
+            val y = if (c == Corner.TOP_LEFT || c == Corner.TOP_RIGHT) topInset + m else bottomBase - lh - m
+            return RectF(x, y, x + lw, y + lh)
+        }
+        val x = w * l.x - lw / 2f
+        val y = h * l.y - lh / 2f
+        return RectF(x, y, x + lw, y + lh)
     }
 
     /**

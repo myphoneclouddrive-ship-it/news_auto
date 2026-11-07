@@ -85,7 +85,7 @@ private val EdSizes = listOf(
     "1080x1920" to "১০৮০×১৯২০ (স্টোরি ৯:১৬)",
     "1200x630" to "১২০০×৬৩০ (আড়াআড়ি)",
 )
-private val EdIcons = listOf(
+private val TplIconOptions = listOf(
     "globe" to "🌐 গ্লোব (ওয়েবসাইট)", "fb" to "📘 ফেসবুক", "yt" to "▶️ ইউটিউব", "ig" to "📷 ইনস্টাগ্রাম",
     "phone" to "📞 ফোন", "mail" to "✉️ ইমেইল", "pin" to "📍 ঠিকানা (পিন)",
 )
@@ -495,7 +495,7 @@ private fun ElementPanel(st: EdState, e: JSONObject, ver: Int, onPickImage: () -
         }
         "social" -> {
             FieldLabel("আইকন")
-            EdSelect(EdIcons, e.st("ico").ifBlank { if (e.st("net") == "yt") "yt" else "fb" }) { setS("ico", it) }
+            EdSelect(TplIconOptions, e.st("ico").ifBlank { if (e.st("net") == "yt") "yt" else "fb" }) { setS("ico", it) }
             EdText("লেখা (ইউজারনেম / নাম / নম্বর)", e.st("text"), e.st("id")) { e.put("text", it); st.touch() }
             col("color", "আইকন ও লেখার রঙ", "#ffffff")
             EdSlider("অক্ষরের সাইজ", e.fl("size", 30f), 14f, 120f, true, { e.put("size", it.roundToInt()); e.put("fx", true); st.touch() }) { st.commit() }
@@ -504,7 +504,7 @@ private fun ElementPanel(st: EdState, e: JSONObject, ver: Int, onPickImage: () -
         }
         "icon" -> {
             FieldLabel("কোন আইকন")
-            EdSelect(EdIcons, e.st("ico", "globe")) { setS("ico", it) }
+            EdSelect(TplIconOptions, e.st("ico", "globe")) { setS("ico", it) }
             col("color", "আইকনের রঙ", "#ffffff")
             FieldLabel("কোন দিকে বসবে")
             EdSelect(EdAligns, e.st("align", "c").ifBlank { "c" }) { setS("align", it) }
@@ -520,7 +520,7 @@ private fun ElementPanel(st: EdState, e: JSONObject, ver: Int, onPickImage: () -
             EdSelect(EdSrc, e.st("src", "catdate")) { setS("src", it) }
             if (e.st("src") == "custom") EdText("আপনার লেখা", e.st("text"), e.st("id")) { e.put("text", it); st.touch() }
             FieldLabel("লেখার আগে আইকন")
-            EdSelect(listOf("" to "নেই") + EdIcons, e.st("icon")) { setS("icon", it) }
+            EdSelect(listOf("" to "নেই") + TplIconOptions, e.st("icon")) { setS("icon", it) }
             col("color", "লেখার রঙ", "#ffffff")
             EdSlider("অক্ষরের সাইজ", e.fl("size", 30f), 14f, 120f, true, { e.put("size", it.roundToInt()); e.put("fx", true); st.touch() }) { st.commit() }
             FieldLabel("কোন দিকে বসবে")

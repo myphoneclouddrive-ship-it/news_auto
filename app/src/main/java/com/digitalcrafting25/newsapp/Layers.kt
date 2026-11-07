@@ -121,6 +121,7 @@ data class ImageLayer(
     val widthFrac: Float = 0.25f,    // ফ্রেমের প্রস্থের ভগ্নাংশ, উচ্চতা ছবির অনুপাতে
     val opacity: Float = 1f,         // ০..১
     val rotation: Float = 0f,        // ডিগ্রি (-১৮০..১৮০), কেন্দ্র ঘিরে ঘড়ির কাঁটার দিকে +
+    val corner: Corner? = null,      // শুধু লোগো: HTML-এর মতো কোণা (ফাঁক = প্রস্থের ২%, ওপরের/নিচের বিজ্ঞাপন-টিকার এড়িয়ে); null = নিজে টেনে বসানো (x, y)
 ) : Layer {
     override val kind get() = if (isLogo) LayerKind.LOGO else LayerKind.IMAGE
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -150,10 +151,10 @@ data class TickerLayer(
     override val endMs: Long,
     val text: String = "",
     val color: Int = WHITE,
-    val bgColor: Int = RED,
-    val barHeightFrac: Float = 0.08f,
-    val speed: Float = 0.15f,        // প্রতি সেকেন্ডে ফ্রেমের প্রস্থের কত ভগ্নাংশ সরবে
-    val bottomFrac: Float = 0f,      // নিচ থেকে কত ওপরে (০ = একদম নিচে)
+    val bgColor: Int = 0xFFC62828.toInt(),   // HTML ডিফল্ট ব্যাকগ্রাউন্ড #c62828
+    val barHeightFrac: Float = 0.0595f, // HTML: h × ০.০৮৫ × মাপ(৭০)/১০০
+    val speed: Float = 0.12f,        // HTML: প্রস্থ × ০.০৩ × গতি(৪) = প্রতি সেকেন্ডে প্রস্থের ভগ্নাংশ
+    val bottomFrac: Float = 0f,      // নিচের বিজ্ঞাপনের ওপর থেকে অতিরিক্ত কত উঁচুতে (০ = বিজ্ঞাপনের ঠিক ওপরে, বিজ্ঞাপন না থাকলে একদম নিচে)
 ) : Layer {
     override val kind get() = LayerKind.TICKER
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -189,7 +190,7 @@ data class AdLayer(
     override val endMs: Long,
     val uri: Uri?,
     val isTop: Boolean = false,
-    val heightFrac: Float = 0.18f,   // ফ্রেমের উচ্চতার ভগ্নাংশ, প্রস্থ ছবির অনুপাতে
+    val heightFrac: Float = 0.15f,   // HTML ডিফল্ট ১৫% (ফ্রেমের উচ্চতার ভগ্নাংশ); পুরো প্রস্থের পট্টি, ছবি ভেতরে মাঝে
     val adId: String = "",          // সেটিংসের কোন বিজ্ঞাপন (খালি = নিজের ছবি); নতুন বিজ্ঞাপনে আগে না-বসা গুলো বসে
 ) : Layer {
     override val kind get() = if (isTop) LayerKind.AD_TOP else LayerKind.AD_BOTTOM
@@ -270,7 +271,7 @@ object LayerDefaults {
         when (kind) {
             LayerKind.TEXT -> TextLayer(id, startMs, endMs, text = text)
             LayerKind.IMAGE -> ImageLayer(id, startMs, endMs, uri)
-            LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.14f)
+            LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.06f, corner = Corner.TOP_RIGHT)   // HTML: ওপরে ডানে, প্রস্থের ৬%
             LayerKind.TAG -> TagLayer(id, startMs, endMs, text = text)
             LayerKind.TICKER -> TickerLayer(id, startMs, endMs, text = text)
             LayerKind.NAME_BAR -> NameBarLayer(id, startMs, endMs, name = text, title = "আপনার পদবি")

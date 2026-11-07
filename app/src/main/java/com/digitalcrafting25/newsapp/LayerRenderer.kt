@@ -113,9 +113,9 @@ class LayerFrameRenderer(
             when (l) {
                 is TextLayer -> drawText(cv, l)
                 is TagLayer -> HtmlBrand.drawTag(cv, w.toFloat(), h.toFloat(), l, topInset, bottomBase)
-                is ImageLayer -> drawImage(cv, l)
+                is ImageLayer -> drawImage(cv, l, topInset, bottomBase)
                 is AdLayer -> drawAd(cv, l)
-                is TickerLayer -> drawTicker(cv, l, ms)
+                is TickerLayer -> HtmlBrand.drawTicker(cv, w.toFloat(), h.toFloat(), l, ms, active)
                 is NameBarLayer -> HtmlBrand.drawNameBar(cv, w.toFloat(), h.toFloat(), l, ms, bottomBase)
                 is OverlayLayer -> cv.drawRect(0f, 0f, w.toFloat(), h.toFloat(), fill(l.color, l.alpha))
                 // ব্রাইটনেস: সাদা/কালোর স্বচ্ছ আস্তরণ দিয়ে আনুমানিক (ধাপ ৭-এ আরও ভালো করা যাবে)
@@ -180,18 +180,15 @@ class LayerFrameRenderer(
         cv.restore()
     }
 
-    private fun drawImage(cv: Canvas, l: ImageLayer) {
+    private fun drawImage(cv: Canvas, l: ImageLayer, topInset: Float, bottomBase: Float) {
         val b = images[l.id] ?: return
-        val dw = w * l.widthFrac
-        val dh = dw * b.height / b.width.toFloat()
-        val left = w * l.x - dw / 2f
-        val top = h * l.y - dh / 2f
+        val r = HtmlBrand.logoRect(w.toFloat(), h.toFloat(), l, b.width, b.height, topInset, bottomBase)
         val p = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
             alpha = (l.opacity.coerceIn(0f, 1f) * 255).roundToInt()
         }
         cv.save()
-        if (l.rotation != 0f) cv.rotate(l.rotation, w * l.x, h * l.y)
-        cv.drawBitmap(b, null, RectF(left, top, left + dw, top + dh), p)
+        if (l.rotation != 0f) cv.rotate(l.rotation, r.centerX(), r.centerY())
+        cv.drawBitmap(b, null, r, p)
         cv.restore()
     }
 
@@ -207,24 +204,6 @@ class LayerFrameRenderer(
         val left = (w - dw) / 2f
         val y = top + (sh - dh) / 2f
         cv.drawBitmap(b, null, RectF(left, y, left + dw, y + dh), Paint(Paint.FILTER_BITMAP_FLAG))
-    }
-
-    private fun drawTicker(cv: Canvas, l: TickerLayer, ms: Long) {
-        if (l.text.isEmpty()) return
-        val barH = h * l.barHeightFrac
-        val bottom = h - h * l.bottomFrac
-        val top = bottom - barH
-        cv.save()
-        cv.clipRect(0f, top, w.toFloat(), bottom)
-        cv.drawRect(0f, top, w.toFloat(), bottom, fill(l.bgColor))
-        val tp = textPaint(l.color, barH * 0.55f, true)
-        val fm = tp.fontMetrics
-        val textW = tp.measureText(l.text)
-        val cycle = (w + textW).coerceAtLeast(1f)
-        val shift = ((ms - l.startMs).coerceAtLeast(0L) / 1000f * l.speed * w) % cycle
-        val baseline = top + (barH - (fm.descent - fm.ascent)) / 2f - fm.ascent
-        cv.drawText(l.text, w - shift, baseline, tp)
-        cv.restore()
     }
 }
 

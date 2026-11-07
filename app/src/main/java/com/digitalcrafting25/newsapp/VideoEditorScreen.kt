@@ -494,12 +494,20 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
                             sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.2f),
                             rotation = wrapDeg(cur.rotation + rotDeg),
                         )
-                        is ImageLayer -> cur.copy(
-                            x = (cur.x + pan.x / w).coerceIn(0f, 1f),
-                            y = (cur.y + pan.y / h).coerceIn(0f, 1f),
-                            widthFrac = (cur.widthFrac * zoom).coerceIn(0.05f, 1f),
-                            rotation = wrapDeg(cur.rotation + rotDeg),
-                        )
+                        is ImageLayer -> {
+                            // কোণায় বসা লোগো টানলে "নিজে সরান" হয়ে যায়: শুরুর জায়গা কোণা থেকে আনুমানিক ধরা হয়
+                            val c = cur.corner
+                            val bx = if (c == null) cur.x else if (c == Corner.TOP_RIGHT || c == Corner.BOTTOM_RIGHT) 1f - 0.02f - cur.widthFrac / 2f else 0.02f + cur.widthFrac / 2f
+                            val by = if (c == null) cur.y else if (c == Corner.TOP_LEFT || c == Corner.TOP_RIGHT) 0.1f else 0.9f
+                            val minW = if (cur.isLogo) 0.02f else 0.05f
+                            cur.copy(
+                                x = (bx + pan.x / w).coerceIn(0f, 1f),
+                                y = (by + pan.y / h).coerceIn(0f, 1f),
+                                widthFrac = (cur.widthFrac * zoom).coerceIn(minW, if (cur.isLogo) 0.3f else 1f),
+                                rotation = wrapDeg(cur.rotation + rotDeg),
+                                corner = null,
+                            )
+                        }
                         else -> cur
                     }
                 }

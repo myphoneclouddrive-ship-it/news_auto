@@ -441,9 +441,81 @@ class Timeline {
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
         var layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
         if (layer is AdLayer && adId.isNotEmpty()) layer = layer.copy(adId = adId)
-        commitAll(clips, layers + layer)
+        var next: List<Layer> = layers + layer
+        // HTML adAdd: নতুন বিজ্ঞাপন আগেরগুলোর পরে বসে, আর একই সারির (নিচে/ওপরে) সব বিজ্ঞাপন পুরো ভিডিও জুড়ে সমান ভাগ হয়
+        if (layer is AdLayer) next = splitAds(next, adBars(layers, layer.isTop) + layer, total)
+        commitAll(clips, next)
         selectedLayerId = layer.id
         return null
+    }
+
+    // ---------- বিজ্ঞাপন বার: অটো ভাগ (HTML adSplit / adFill / adEnd) ----------
+
+    /** একই সারির (isTop) বিজ্ঞাপন বার, শুরুর সময় অনুযায়ী সাজানো */
+    private fun adBars(list: List<Layer>, top: Boolean, exceptId: Long? = null): List<AdLayer> =
+        list.filterIsInstance<AdLayer>().filter { it.isTop == top && it.id != exceptId }.sortedBy { it.startMs }
+
+    private fun patchTimes(list: List<Layer>, t: Map<Long, Pair<Long, Long>>): List<Layer> =
+        list.map { l -> t[l.id]?.let { l.withTime(it.first, it.second) } ?: l }
+
+    /** HTML adSplit: n টা বার পুরো দৈর্ঘ্যে সমান ভাগ (১টা = পুরো, ২টা = অর্ধেক-অর্ধেক …) */
+    private fun splitAds(list: List<Layer>, bars: List<AdLayer>, total: Long): List<Layer> {
+        val n = bars.size
+        if (n == 0 || total <= 0L) return list
+        val t = HashMap<Long, Pair<Long, Long>>()
+        bars.forEachIndexed { i, o ->
+            val a = total * i / n
+            val e = if (i == n - 1) total else total * (i + 1) / n
+            t[o.id] = a to e
+        }
+        return patchTimes(list, t)
+    }
+
+    /** HTML adFill: একটা বিজ্ঞাপন মুছলে ফাঁকা জায়গা আগের বিজ্ঞাপন নিয়ে নেয় (প্রথমটা ০ থেকে শুরু); বাকিদের মাপ বদলায় না */
+    private fun fillAds(list: List<Layer>, top: Boolean, total: Long): List<Layer> {
+        val bars = adBars(list, top)
+        val n = bars.size
+        if (n == 0 || total <= 0L) return list
+        val t = HashMap<Long, Pair<Long, Long>>()
+        bars.forEachIndexed { i, o ->
+            val s0 = if (i == 0) 0L else o.startMs
+            val e = if (i < n - 1) bars[i + 1].startMs else total
+            t[o.id] = s0 to maxOf(s0 + 200L, e)
+        }
+        return patchTimes(list, t)
+    }
+
+    /** ঠিক পরের লাগানো বিজ্ঞাপন (০.২ সে.-এর মধ্যে লাগোয়া) */
+    private fun adNext(list: List<Layer>, l: AdLayer): AdLayer? =
+        adBars(list, l.isTop, l.id).filter { it.startMs >= l.endMs - 200L && it.startMs - l.endMs < 200L }.minByOrNull { it.startMs }
+
+    /** HTML adEnd: বিজ্ঞাপনের শেষ প্রান্ত e-তে সরানো; পাশের বিজ্ঞাপন লাগানো থাকলে সীমানা একসঙ্গে সরে (কমপক্ষে ০.৫ সে.) */
+    private fun adEnd(list: List<Layer>, l: AdLayer, e0: Long, total: Long): List<Layer> {
+        val nx = adNext(list, l)
+        var e = maxOf(l.startMs + 500L, minOf(e0, total))
+        val t = HashMap<Long, Pair<Long, Long>>()
+        if (nx != null) {
+            e = minOf(e, nx.endMs - 500L)
+            t[l.id] = l.startMs to e
+            t[nx.id] = e to nx.endMs
+        } else {
+            val hi = adBars(list, l.isTop, l.id).filter { it.startMs >= l.endMs - 10L }.minOfOrNull { it.startMs } ?: Long.MAX_VALUE
+            e = minOf(e, hi)
+            t[l.id] = l.startMs to e
+        }
+        return patchTimes(list, t)
+    }
+
+    /** বিজ্ঞাপন বারের কিনারা টানা: শেষ প্রান্ত টানলে সীমানা সরে; শুরু টানলে আগের লাগোয়া বিজ্ঞাপনের শেষ সরে (প্রথম বারের শুরু ০-তে আটকানো, HTML-এর মতো) */
+    private fun resizeAd(l: AdLayer, s0: Long, e0: Long) {
+        val total = totalMs
+        var next: List<Layer> = layers
+        if (e0 != l.endMs) next = adEnd(next, l, e0, total)
+        if (s0 != l.startMs) {
+            val prev = adBars(next, l.isTop, l.id).filter { it.endMs >= l.startMs - 200L && l.startMs - it.endMs < 200L }.maxByOrNull { it.endMs }
+            if (prev != null) next = adEnd(next, prev, s0, total)
+        }
+        if (next != layers) commitAll(clips, next)
     }
 
     /** লেয়ারের মান বদলায়। একই লেয়ারের পরপর বদল (স্লাইডার) একটাই আনডু ধাপ */
@@ -461,6 +533,7 @@ class Timeline {
     /** লেয়ারের শুরু-শেষ; ভিডিওর ভেতরে থাকতে বাধ্য, কমপক্ষে ০.৩ সেকেন্ড */
     fun setLayerTime(id: Long, startMs: Long, endMs: Long) {
         val total = totalMs
+        (layerById(id) as? AdLayer)?.let { resizeAd(it, startMs, endMs); return }   // বিজ্ঞাপন: পাশের বার সমেত সীমানা সরে
         val s = startMs.coerceIn(0L, (total - MIN_LAYER_MS).coerceAtLeast(0L))
         val e = endMs.coerceIn(s + MIN_LAYER_MS, maxOf(total, s + MIN_LAYER_MS))
         updateLayer(id) { it.withTime(s, e) }
@@ -497,6 +570,7 @@ class Timeline {
     /** লেয়ার বারের শুরু/শেষ টেনে বদল; অডিওতে শুরু সরালে সোর্স-অফসেটও সমান সরে (ফাইলের যে অংশ বাজবে তা ঠিক থাকে) */
     fun resizeLayer(id: Long, startMs: Long, endMs: Long) {
         val l = layerById(id) ?: return
+        if (l is AdLayer) { resizeAd(l, startMs, endMs); return }
         val (s, e) = clampLayerRange(l, startMs, endMs)
         if (s == l.startMs && e == l.endMs) return
         updateLayer(id) {
@@ -506,8 +580,10 @@ class Timeline {
     }
 
     fun removeLayer(id: Long) {
-        if (layers.none { it.id == id }) return
-        commitAll(clips, layers.filterNot { it.id == id })
+        val gone = layers.firstOrNull { it.id == id } ?: return
+        var next: List<Layer> = layers.filterNot { it.id == id }
+        if (gone is AdLayer) next = fillAds(next, gone.isTop, totalMs)   // HTML adFill
+        commitAll(clips, next)
     }
 
     /** একই গ্রুপের (ভিজ্যুয়াল / অডিও) ভেতরে ওপরে (delta > 0) বা নিচে (delta < 0) সরায় */
@@ -532,7 +608,9 @@ class Timeline {
         val copy = layers[i].withId(newId())
         val m = layers.toMutableList()
         m.add(i + 1, copy)
-        commitAll(clips, m)
+        // বিজ্ঞাপনের কপি হলে একই সারির সব বার আবার সমান ভাগ (কপি আসলটার ঠিক পরে)
+        val out: List<Layer> = if (copy is AdLayer) splitAds(m, adBars(m, copy.isTop), totalMs) else m
+        commitAll(clips, out)
         selectedLayerId = copy.id
     }
 

@@ -162,7 +162,7 @@ object DraftStore {
                 put("t", "image"); l.uri?.let { put("uri", it.toString()) }; put("logo", l.isLogo)
                 put("x", l.x.toDouble()); put("y", l.y.toDouble())
                 put("w", l.widthFrac.toDouble()); put("opacity", l.opacity.toDouble())
-                put("rot", l.rotation.toDouble())
+                put("rot", l.rotation.toDouble()); l.corner?.let { put("corner", it.name) }
             }
             is TagLayer -> {
                 put("t", "tag"); put("text", l.text); put("corner", l.corner.name)
@@ -209,6 +209,7 @@ object DraftStore {
             "image" -> ImageLayer(
                 id, s, e, o.uriOrNull("uri"), o.optBoolean("logo"),
                 o.f("x", 0.5f), o.f("y", 0.5f), o.f("w", 0.25f), o.f("opacity", 1f), o.f("rot", 0f),
+                runCatching { Corner.valueOf(o.optString("corner")) }.getOrNull(),
             )
             "tag" -> TagLayer(
                 id, s, e, o.optString("text"),
