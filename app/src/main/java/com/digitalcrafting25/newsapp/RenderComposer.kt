@@ -43,12 +43,16 @@ object RenderComposer {
 
         val items = spec.clips.map { c ->
             // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়; তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন থাকলে ওই ফ্রেমের ওপর
-            val fxList = mutableListOf<Effect>(
-                Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
-            )
-            if (c.hasTransform()) fxList += clipTransform(c)
-            // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
-            if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
+            val fxList = mutableListOf<Effect>()
+            if (band > 0 && c.card != null) {
+                // ইন্ট্রো/আউট্রো কার্ড (HTML-এর মতো): ব্যান্ড ছাড়া পুরো ক্যানভাস জুড়ে; কার্ডের ভিডিও আগেই w×outH মাপে বানানো (ViewModels.startRender)
+                fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
+            } else {
+                fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
+                if (c.hasTransform()) fxList += clipTransform(c)
+                // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
+                if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
+            }
             val fit = Effects(emptyList(), fxList)
             if (c.isImage) {
                 val ms = (c.imageSec * 1000).toLong().coerceAtLeast(500L)

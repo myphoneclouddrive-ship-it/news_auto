@@ -290,7 +290,8 @@ private fun VisualLanes(tl: Timeline) {
     val vis = tl.visualLayers
     if (vis.isEmpty()) return
     Divider()
-    Column(Modifier.fillMaxWidth().heightIn(max = 78.dp).verticalScroll(rememberScrollState()).padding(top = 2.dp, bottom = 1.dp)) {
+    // আলাদা স্ক্রল নেই: পুরো টাইমলাইন (অডিও + মূল ভিডিও + লেয়ার) বাইরের একটাই ওপর-নিচ স্ক্রলে চলে
+    Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp)) {
         vis.asReversed().forEach { l ->
             Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(LANE_H.dp)) {
                 LayerBar(tl, l)
@@ -616,7 +617,7 @@ private fun AudioLanes(tl: Timeline, onAddAudio: () -> Unit) {
                 val row = rows.firstOrNull { r -> r.all { l.startMs >= it.endMs - 10L || l.endMs <= it.startMs + 10L } }
                 if (row != null) row.add(l) else rows.add(arrayListOf(l))
             }
-            Column(Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxWidth()) {
                 rows.forEach { r ->
                     Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(LANE_H.dp)) {
                         r.forEach { LayerBar(tl, it) }

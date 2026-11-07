@@ -249,10 +249,12 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             val renderClips = withContext(Dispatchers.IO) {
                 snapClips.map { c ->
                     val s = c.card
-                    if (s != null && !c.isImage && (s.w != asp.w || s.h != asp.h)) {
+                    // ব্যান্ড চালু থাকলে কার্ড পুরো ক্যানভাসের মাপে (১২৮০×(৭২০+২×ব্যান্ড)) — ইন্ট্রো/আউট্রোতে ব্যান্ড থাকে না
+                    val th = asp.h + 2 * band
+                    if (s != null && !c.isImage && (s.w != asp.w || s.h != th)) {
                         runCatching {
-                            val s2 = s.copy(w = asp.w, h = asp.h)
-                            val (u, d) = CardVideoMaker.make(app, s2, asp.w, asp.h)
+                            val s2 = s.copy(w = asp.w, h = th)
+                            val (u, d) = CardVideoMaker.make(app, s2, asp.w, th)
                             c.copy(uri = u, card = s2, durationMs = d)
                         }.getOrDefault(c)
                     } else c

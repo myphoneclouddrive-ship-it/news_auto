@@ -97,10 +97,13 @@ class LayerFrameRenderer(
         bmp.eraseColor(Color.TRANSPARENT)
         val cv = Canvas(bmp)
         if (yOff > 0) {
-            cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(Color.WHITE))
-            cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(Color.WHITE))
-            drawBandText(cv, fbTop, 0f, yOff.toFloat())
-            drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
+            // ইন্ট্রো/আউট্রোতে ব্যান্ড নেই (কার্ড পুরো ক্যানভাস জুড়ে); বাকি সময় সাদা ব্যান্ড + লেখা
+            if (!inCard) {
+                cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(Color.WHITE))
+                cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(Color.WHITE))
+                drawBandText(cv, fbTop, 0f, yOff.toFloat())
+                drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
+            }
             cv.save()
             cv.translate(0f, yOff.toFloat())
         }
