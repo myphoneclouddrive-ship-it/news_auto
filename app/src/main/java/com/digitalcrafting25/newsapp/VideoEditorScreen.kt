@@ -89,9 +89,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ---------- ওপরের স্থির অংশ ----------
-        if (tl.clips.isEmpty()) {
-            EmptyStage(addMedia)
-        } else {
+        if (tl.clips.isNotEmpty()) {
             StageCard(vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile)
         }
 
@@ -179,28 +177,6 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
         if (tl.clips.isNotEmpty()) {
             EditorDockBar(tl, act, setError, setInfo, vm, editOpen, { editOpen = !editOpen }, onBack)
         }
-    }
-}
-
-/** কোনো ক্লিপ নেই: বড় ড্যাশ-করা ➕ বাক্স */
-@Composable
-private fun EmptyStage(onAdd: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    Column(
-        Modifier.fillMaxWidth().clip(shape).background(ED.Panel).border(1.dp, ED.Border, shape).padding(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            Modifier.size(72.dp).dashedBorder(Color(0xFF4B5160), radius = 14.dp).clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onAdd),
-            contentAlignment = Alignment.Center,
-        ) { Text("+", fontSize = 36.sp, color = Color.White, fontWeight = FontWeight.SemiBold) }
-        Text("➕ ভিডিও / ছবি যোগ করুন", color = ED.Text, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        Text(
-            "যোগ করা ক্লিপগুলো নিচের টাইমলাইনে পরপর জোড়া লাগবে; এরপর কাটা, ট্রিম, লেয়ার ও অডিও যোগ করা যাবে।",
-            color = ED.Muted, fontSize = 12.sp,
-        )
     }
 }
 

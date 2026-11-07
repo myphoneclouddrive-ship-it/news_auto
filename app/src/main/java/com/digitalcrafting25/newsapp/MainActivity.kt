@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -167,7 +168,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); auth.logout() })
+            if (!EditorUi.fullscreen) TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
                 val tick by Net.refreshTick.collectAsStateWithLifecycle()
@@ -182,10 +183,10 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                 }
                 }
             }
-            BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
+            if (!EditorUi.fullscreen) BottomNav(page, onSelect = { page = it }, onHeight = { navH = it })
         }
         // গোল ড্যাশবোর্ড বাটন: মেনুর উপরে ভাসে; নিচের কিনারা মেনুর ভেতরে ৩৫dp নিচে
-        if (navH > 0) {
+        if (navH > 0 && !EditorUi.fullscreen) {
             val bottomPad = with(density) { navH.toDp() } - 35.dp
             NavCircle(
                 on = page == Page.DASH,
@@ -245,20 +246,28 @@ fun ComingSoon(title: String, text: String) {
 @Composable
 fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, onScheduled: () -> Unit) {
     var editor by remember { mutableStateOf(false) }
-    // "ভিডিও বাছুন" → গ্যালারি (শুধু ভিডিও) → বাছা ভিডিও টাইমলাইনে যোগ হয়ে এডিটর খোলে; না বাছলে এখানেই থাকে
+    var pendingOpen by remember { mutableStateOf(false) }
+    // "ভিডিও বাছুন" → গ্যালারি (শুধু ভিডিও) → বাছা ভিডিও টাইমলাইনে যোগ হলে এডিটর খোলে; না বাছলে এখানেই থাকে
     val pickVideo = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
     ) { u ->
         if (u != null) {
             ev.addUris(listOf(u))
-            editor = true
+            pendingOpen = true
         }
     }
+    val hasClips = ev.tl.clips.isNotEmpty()
+    // ক্লিপ যোগ হওয়া শেষ হলে তবেই এডিটর খোলে; সব ক্লিপ মুছে গেলে নতুন পোস্টে ফেরে (ফাঁকা এডিটর স্ক্রিন নেই)
+    LaunchedEffect(pendingOpen, hasClips) { if (pendingOpen && hasClips) { editor = true; pendingOpen = false } }
+    LaunchedEffect(editor, hasClips) { if (editor && !hasClips) editor = false }
+    // এডিটর খোলা থাকলে ওপরের হেডার ও নিচের মেনুবার লুকানো
+    DisposableEffect(editor) {
+        EditorUi.fullscreen = editor
+        onDispose { EditorUi.fullscreen = false }
+    }
+    BackHandler(enabled = editor) { editor = false }
     if (editor) {
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.padding(14.dp)) { AppBtn("← নতুন পোস্ট", color = C.Gray, onClick = { editor = false }) }
-            Box(Modifier.weight(1f)) { VideoEditorScreen(ev, onBack = { editor = false }) }
-        }
+        VideoEditorScreen(ev, onBack = { editor = false })
     } else {
         NewPostScreen(np, ads, onOpenVideo = {
             pickVideo.launch(
