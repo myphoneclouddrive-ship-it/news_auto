@@ -301,6 +301,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 LSlider("লেখার মাপ", l.sizeFrac, 0.03f..0.2f) { v -> tl.edit<TextLayer>(l.id) { it.copy(sizeFrac = v) } }
                 LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<TextLayer>(l.id) { it.copy(x = v) } }
                 LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<TextLayer>(l.id) { it.copy(y = v) } }
+                RotSlider(l.rotation) { v -> tl.edit<TextLayer>(l.id) { it.copy(rotation = v) } }
             }
 
             is ImageLayer -> {
@@ -312,6 +313,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 LSlider("স্বচ্ছতা (ধোঁয়াশা কম = বেশি)", l.opacity, 0.1f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(opacity = v) } }
                 LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(x = v) } }
                 LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<ImageLayer>(l.id) { it.copy(y = v) } }
+                RotSlider(l.rotation) { v -> tl.edit<ImageLayer>(l.id) { it.copy(rotation = v) } }
             }
 
             is TagLayer -> {
@@ -426,6 +428,25 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
 
             else -> {}
         }
+    }
+}
+
+/** ঘোরানোর স্লাইডার (ডিগ্রি); ০° এর কাছে নিজে আটকে যায়, পাশে ↺ চাপলে সোজা */
+@Composable
+private fun RotSlider(deg: Float, onChange: (Float) -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🔄 ঘোরানো: ${deg.toInt()}°", fontSize = 12.sp, color = ED.Sub, modifier = Modifier.weight(1f))
+            if (deg != 0f) TextButton(
+                onClick = { onChange(0f) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) { Text("↺ সোজা", fontSize = 12.sp) }
+        }
+        Slider(
+            value = deg.coerceIn(-180f, 180f),
+            onValueChange = { v -> onChange(if (kotlin.math.abs(v) < 3f) 0f else Math.round(v).toFloat()) },
+            valueRange = -180f..180f,
+        )
     }
 }
 

@@ -97,6 +97,7 @@ data class TextLayer(
     val bold: Boolean = true,
     val x: Float = 0.5f,             // কেন্দ্রের অবস্থান, ফ্রেমের ভগ্নাংশ
     val y: Float = 0.5f,
+    val rotation: Float = 0f,        // ডিগ্রি (-১৮০..১৮০), কেন্দ্র ঘিরে ঘড়ির কাঁটার দিকে +
 ) : Layer {
     override val kind get() = LayerKind.TEXT
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -114,6 +115,7 @@ data class ImageLayer(
     val y: Float = 0.5f,
     val widthFrac: Float = 0.25f,    // ফ্রেমের প্রস্থের ভগ্নাংশ, উচ্চতা ছবির অনুপাতে
     val opacity: Float = 1f,         // ০..১
+    val rotation: Float = 0f,        // ডিগ্রি (-১৮০..১৮০), কেন্দ্র ঘিরে ঘড়ির কাঁটার দিকে +
 ) : Layer {
     override val kind get() = if (isLogo) LayerKind.LOGO else LayerKind.IMAGE
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)

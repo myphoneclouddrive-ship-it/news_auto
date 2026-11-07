@@ -166,10 +166,13 @@ class LayerFrameRenderer(
         val bh = layout.height + 2 * padV
         val left = w * l.x - bw / 2f
         val top = h * l.y - bh / 2f
+        cv.save()
+        if (l.rotation != 0f) cv.rotate(l.rotation, w * l.x, h * l.y)
         if (l.bgColor != 0) cv.drawRect(left, top, left + bw, top + bh, fill(l.bgColor))
         cv.save()
         cv.translate(left + padH, top + padV)
         layout.draw(cv)
+        cv.restore()
         cv.restore()
     }
 
@@ -196,7 +199,10 @@ class LayerFrameRenderer(
         val p = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
             alpha = (l.opacity.coerceIn(0f, 1f) * 255).roundToInt()
         }
+        cv.save()
+        if (l.rotation != 0f) cv.rotate(l.rotation, w * l.x, h * l.y)
         cv.drawBitmap(b, null, RectF(left, top, left + dw, top + dh), p)
+        cv.restore()
     }
 
     private fun drawAd(cv: Canvas, l: AdLayer) {

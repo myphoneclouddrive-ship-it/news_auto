@@ -457,6 +457,43 @@ class Timeline {
         updateLayer(id) { it.withTime(s, e) }
     }
 
+    /**
+     * লেয়ার বারের কিনারা টেনে দৈর্ঘ্য বাড়ানো-কমানোর সীমা: (নতুন শুরু, নতুন শেষ) ফেরত দেয়।
+     * ভিডিওর ভেতরে থাকতে বাধ্য, কমপক্ষে ০.৩ সেকেন্ড; ফাইলের অডিওতে সোর্সের দৈর্ঘ্যের বাইরে বাড়ানো যায় না
+     * (বিপ/সোর্সের দৈর্ঘ্য অজানা হলে সীমা নেই)। যে প্রান্ত বদলায়নি সেটা আগের মতোই থাকে।
+     */
+    fun clampLayerRange(l: Layer, s0: Long, e0: Long): Pair<Long, Long> {
+        val total = totalMs
+        val a = l as? AudioLayer
+        val limited = a != null && a.sourceDurationMs > 0L
+        val moveS = s0 != l.startMs
+        val moveE = e0 != l.endMs
+        var s = l.startMs
+        if (moveS) {
+            s = s0.coerceAtLeast(0L)
+            if (limited) s = s.coerceAtLeast(l.startMs - a!!.sourceOffsetMs)
+            s = s.coerceAtMost((l.endMs - MIN_LAYER_MS).coerceAtLeast(0L))
+        }
+        var e = l.endMs
+        if (moveE) {
+            e = e0.coerceAtMost(maxOf(total, s + MIN_LAYER_MS))
+            if (limited) e = e.coerceAtMost(l.startMs + (a!!.sourceDurationMs - a.sourceOffsetMs))
+            e = e.coerceAtLeast(s + MIN_LAYER_MS)
+        }
+        return s to e
+    }
+
+    /** লেয়ার বারের শুরু/শেষ টেনে বদল; অডিওতে শুরু সরালে সোর্স-অফসেটও সমান সরে (ফাইলের যে অংশ বাজবে তা ঠিক থাকে) */
+    fun resizeLayer(id: Long, startMs: Long, endMs: Long) {
+        val l = layerById(id) ?: return
+        val (s, e) = clampLayerRange(l, startMs, endMs)
+        if (s == l.startMs && e == l.endMs) return
+        updateLayer(id) {
+            if (it is AudioLayer) it.copy(startMs = s, endMs = e, sourceOffsetMs = (it.sourceOffsetMs + (s - it.startMs)).coerceAtLeast(0L))
+            else it.withTime(s, e)
+        }
+    }
+
     fun removeLayer(id: Long) {
         if (layers.none { it.id == id }) return
         commitAll(clips, layers.filterNot { it.id == id })

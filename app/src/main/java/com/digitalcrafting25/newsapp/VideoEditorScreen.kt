@@ -107,17 +107,18 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // ---------- ওপরের অংশ: প্রিভিউ পুরো বাকি উচ্চতা নেয় ----------
-        // এডিট প্যানেল খোলা থাকলে শুধু সেটাই দেখায়: প্রিভিউ/কন্ট্রোল/টাইমলাইন লুকানো (প্লেয়ার ভেতরে থেকে যায়, তাই ফিরে এলে আগের মতো)
+        // এডিট প্যানেল খোলা থাকলে ওপরে ছোট প্রিভিউ + প্লে/সময় বার থেকে যায় (প্রিভিউ ঢাকা পড়ে না), নিচে প্যানেল; টাইমলাইন/জুম লুকানো
         val selClipNow = tl.clipById(tl.selectedId)
         val selLayerNow = tl.layerById(tl.selectedLayerId)
         val panelOpen = (selClipNow?.card != null) || (selLayerNow != null && editOpen)
         if (tl.clips.isNotEmpty()) {
             // weight অবশ্যই এখানেই (সরাসরি এই Column-এর সন্তানে) দিতে হয়; StageCard-এর ভেতরে Surface থাকায় ভেতরে দিলে কাজ করত না,
             // ফলে স্টেজ পুরো উচ্চতা খেয়ে নিচের মেনু (ডক) ০ উচ্চতা পেত
-            Box(if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f).fillMaxWidth()) {
+            Box(if (panelOpen) Modifier.weight(0.42f).fillMaxWidth() else Modifier.weight(1f).fillMaxWidth()) {
                 StageCard(
                     Modifier.fillMaxSize(),
                     vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered, onBack,
+                    compact = panelOpen,
                 )
             }
         } else {
@@ -132,7 +133,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
             )
         }
         Column(
-            (if (panelOpen) Modifier.weight(1f) else Modifier.heightIn(max = 0.dp))
+            (if (panelOpen) Modifier.weight(0.58f) else Modifier.heightIn(max = 0.dp))
                 .fillMaxWidth().background(ED.Panel).verticalScroll(rememberScrollState())
                 .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -238,6 +239,7 @@ private fun StageCard(
     onAddAudio: () -> Unit,
     onRendered: (android.net.Uri) -> Unit,
     onBack: () -> Unit,
+    compact: Boolean = false,   // এডিট প্যানেল খোলা: শুধু প্রিভিউ + প্লে বার (টপ বার, জুম, টাইমলাইন নেই)
 ) {
     val tl = vm.tl
     val total = tl.totalMs
@@ -303,13 +305,13 @@ private fun StageCard(
     EditorDarkTheme {
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
     // প্রিভিউ সর্বোচ্চ ~৪৮% উচ্চতা নেয় (১৬:৯ ভিডিও নিজের মাপেই বসে, ওপর-নিচে ফাঁকা থাকে না); বাকিটা টাইমলাইন
-    val previewMaxH = maxHeight * 0.48f
+    val previewMaxH = if (compact) (maxHeight - 56.dp).coerceAtLeast(80.dp) else maxHeight * 0.48f
     Column(
         Modifier.fillMaxSize().padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ওপরের বার: পেছনে · 720P · পাবলিশ
-        EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true })
+        if (!compact) EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true })
 
         FramePreview(tl, vm.aspect, pp, playing, Modifier.heightIn(max = previewMaxH))
 
@@ -332,10 +334,12 @@ private fun StageCard(
         }
 
         // জুম (টাইমলাইন): 🔍− স্লাইডার ＋ ⤢ — এক সারিতে
-        NudgeZoomBar(tl)
-        // টাইমলাইন বাকি জায়গা নেয়; ট্র্যাক বেশি হলে ওপর-নিচে স্ক্রল হয়
-        Column(Modifier.weight(1f, fill = true).fillMaxWidth().verticalScroll(rememberScrollState())) {
-            EditorTimeline(tl, onAddMedia, onAddAudio)
+        if (!compact) {
+            NudgeZoomBar(tl)
+            // টাইমলাইন বাকি জায়গা নেয়; ট্র্যাক বেশি হলে ওপর-নিচে স্ক্রল হয়
+            Column(Modifier.weight(1f, fill = true).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                EditorTimeline(tl, onAddMedia, onAddAudio)
+            }
         }
 
         // বার্তা / রেন্ডারের অগ্রগতি
@@ -457,9 +461,17 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
     }
 }
 
+/** ডিগ্রি -১৮০..১৮০ এর ভেতরে রাখে */
+private fun wrapDeg(d: Float): Float {
+    var r = d % 360f
+    if (r > 180f) r -= 360f
+    if (r < -180f) r += 360f
+    return r
+}
+
 /**
  * স্টেজে টেনে সরানো ও দুই আঙুলে বড়-ছোট করা (HTML-এর স্টেজ ড্র্যাগ): বাছা লেখা বা ছবি/লোগো লেয়ারের জন্য।
- * এক আঙুলে টানলে অবস্থান (x, y) বদলায়; দুই আঙুলে চিমটি দিলে লেখার মাপ / ছবির প্রস্থ বদলায়।
+ * এক আঙুলে টানলে অবস্থান (x, y) বদলায়; দুই আঙুলে চিমটি দিলে লেখার মাপ / ছবির প্রস্থ বদলায়, দুই আঙুল ঘোরালে লেয়ার ঘোরে।
  * প্লে চলার সময় বা লেয়ার এই মুহূর্তে না থাকলে বন্ধ। প্যানেলের স্লাইডারও আগের মতো কাজ করে।
  */
 @Composable
@@ -471,7 +483,7 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
     if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips), cardRangesMs(tl.clips))) return
     Box(
         Modifier.fillMaxSize().pointerInput(id) {
-            detectTransformGestures { _, pan, zoom, _ ->
+            detectTransformGestures { _, pan, zoom, rotDeg ->
                 val w = size.width.toFloat().coerceAtLeast(1f)
                 val h = size.height.toFloat().coerceAtLeast(1f)
                 tl.updateLayer(id) { cur ->
@@ -480,11 +492,13 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
                             x = (cur.x + pan.x / w).coerceIn(0f, 1f),
                             y = (cur.y + pan.y / h).coerceIn(0f, 1f),
                             sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.2f),
+                            rotation = wrapDeg(cur.rotation + rotDeg),
                         )
                         is ImageLayer -> cur.copy(
                             x = (cur.x + pan.x / w).coerceIn(0f, 1f),
                             y = (cur.y + pan.y / h).coerceIn(0f, 1f),
                             widthFrac = (cur.widthFrac * zoom).coerceIn(0.05f, 1f),
+                            rotation = wrapDeg(cur.rotation + rotDeg),
                         )
                         else -> cur
                     }

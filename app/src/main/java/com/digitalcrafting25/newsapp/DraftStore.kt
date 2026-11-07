@@ -156,12 +156,13 @@ object DraftStore {
             is TextLayer -> {
                 put("t", "text"); put("text", l.text); put("color", l.color); put("bg", l.bgColor)
                 put("size", l.sizeFrac.toDouble()); put("bold", l.bold)
-                put("x", l.x.toDouble()); put("y", l.y.toDouble())
+                put("x", l.x.toDouble()); put("y", l.y.toDouble()); put("rot", l.rotation.toDouble())
             }
             is ImageLayer -> {
                 put("t", "image"); l.uri?.let { put("uri", it.toString()) }; put("logo", l.isLogo)
                 put("x", l.x.toDouble()); put("y", l.y.toDouble())
                 put("w", l.widthFrac.toDouble()); put("opacity", l.opacity.toDouble())
+                put("rot", l.rotation.toDouble())
             }
             is TagLayer -> {
                 put("t", "tag"); put("text", l.text); put("corner", l.corner.name)
@@ -202,11 +203,11 @@ object DraftStore {
         return when (o.getString("t")) {
             "text" -> TextLayer(
                 id, s, e, o.optString("text"), o.optInt("color", -1), o.optInt("bg", 0),
-                o.f("size", 0.07f), o.optBoolean("bold", true), o.f("x", 0.5f), o.f("y", 0.5f),
+                o.f("size", 0.07f), o.optBoolean("bold", true), o.f("x", 0.5f), o.f("y", 0.5f), o.f("rot", 0f),
             )
             "image" -> ImageLayer(
                 id, s, e, o.uriOrNull("uri"), o.optBoolean("logo"),
-                o.f("x", 0.5f), o.f("y", 0.5f), o.f("w", 0.25f), o.f("opacity", 1f),
+                o.f("x", 0.5f), o.f("y", 0.5f), o.f("w", 0.25f), o.f("opacity", 1f), o.f("rot", 0f),
             )
             "tag" -> TagLayer(
                 id, s, e, o.optString("text"),

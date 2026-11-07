@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -64,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -295,12 +299,19 @@ private fun VisualLanes(tl: Timeline) {
 
 @Composable
 private fun LayerBar(tl: Timeline, l: Layer) {
-    val clips = tl.clips
     val zoom = tl.timelineZoom
-    val x0 = xOfMs(clips, l.startMs, zoom)
-    val x1 = xOfMs(clips, l.endMs, zoom)
+    val curL by rememberUpdatedState(l)
+    // টানার সময় শুধু এই বারের লোকাল স্টেট (ms) বদলায়; মডেলে আঙুল ছাড়লে একবারই বসে (মূল ভিডিওর হাতলের মতো)
+    var dS by remember { mutableStateOf<Long?>(null) }
+    var dE by remember { mutableStateOf<Long?>(null) }
+    val sMs = dS ?: l.startMs
+    val eMs = dE ?: l.endMs
+    val x0 = xOfMs(tl.clips, sMs, zoom)
+    val x1 = xOfMs(tl.clips, eMs, zoom)
     val w = maxOf(10f, x1 - x0)
     val selected = l.id == tl.selectedLayerId
+    val showHandles = selected || w >= 40f
+    val hitW = (w / 2f).coerceIn(10f, 22f)
     val shape = RoundedCornerShape(7.dp)
     Box(
         Modifier.offset(x = x0.dp).width(w.dp).height(LANE_H.dp).clip(shape)
@@ -311,7 +322,7 @@ private fun LayerBar(tl: Timeline, l: Layer) {
     ) {
         Text(
             layerBarLabel(l),
-            modifier = Modifier.padding(horizontal = 6.dp),
+            modifier = Modifier.padding(horizontal = if (showHandles && w >= 48f) (hitW * 0.7f).dp else 6.dp),
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             color = Color.White,
@@ -319,6 +330,39 @@ private fun LayerBar(tl: Timeline, l: Layer) {
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
         )
+        if (showHandles) {
+            // বাঁ কিনারা: শুরু; ডান কিনারা: শেষ। ডেল্টা dp-তে (dpPerSec = ১), সময় msOfX দিয়ে — রুলারের সাথে মেলে
+            TrimHandle("◀", Modifier.align(Alignment.CenterStart), 1f, enabled = true, selected = selected,
+                hitW = hitW.dp, knobW = 8.dp, knobH = 16.dp,
+                onStart = { tl.selectedLayerId = curL.id; tl.selectedId = null; dS = null; dE = null },
+                onDrag = { dDp ->
+                    val k = curL
+                    val ms = msOfX(tl.clips, xOfMs(tl.clips, k.startMs, tl.timelineZoom) + dDp, tl.timelineZoom)
+                    dS = tl.clampLayerRange(k, ms, k.endMs).first
+                },
+                onCancel = { dS = null; dE = null },
+            ) { dDp ->
+                val k = curL
+                val ms = msOfX(tl.clips, xOfMs(tl.clips, k.startMs, tl.timelineZoom) + dDp, tl.timelineZoom)
+                tl.resizeLayer(k.id, ms, k.endMs)
+                dS = null; dE = null
+            }
+            TrimHandle("▶", Modifier.align(Alignment.CenterEnd), 1f, enabled = true, selected = selected,
+                hitW = hitW.dp, knobW = 8.dp, knobH = 16.dp,
+                onStart = { tl.selectedLayerId = curL.id; tl.selectedId = null; dS = null; dE = null },
+                onDrag = { dDp ->
+                    val k = curL
+                    val ms = msOfX(tl.clips, xOfMs(tl.clips, k.endMs, tl.timelineZoom) + dDp, tl.timelineZoom)
+                    dE = tl.clampLayerRange(k, k.startMs, ms).second
+                },
+                onCancel = { dS = null; dE = null },
+            ) { dDp ->
+                val k = curL
+                val ms = msOfX(tl.clips, xOfMs(tl.clips, k.endMs, tl.timelineZoom) + dDp, tl.timelineZoom)
+                tl.resizeLayer(k.id, k.startMs, ms)
+                dS = null; dE = null
+            }
+        }
     }
 }
 
@@ -365,7 +409,12 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
     val shape = RoundedCornerShape(9.dp)
     val (colIdx, roleName) = segRole(tl, c)
     val col = ED.segColor(colIdx)
-    val w = clipWidthDp(c, tl.timelineZoom)
+    val dpPerSec = DP_PER_SEC * tl.timelineZoom
+    // টানার সময় শুধু এই ক্লিপের ছোট স্টেট বদলায় (সেকেন্ডে); প্রিভিউ প্লেয়ার/মডেল আঙুল ছাড়লে একবারই বদলায় — তাই ল্যাগ নেই
+    var dragS by remember { mutableFloatStateOf(0f) }
+    var dragE by remember { mutableFloatStateOf(0f) }
+    val baseW = clipWidthDp(c, tl.timelineZoom)
+    val w = if (dragS == 0f && dragE == 0f) baseW else maxOf(MIN_CLIP_DP, (c.lengthMs() / 1000f - dragS + dragE) * dpPerSec)
     val shadow = TextStyle(shadow = Shadow(Color.Black, Offset(1f, 1f), 3f))
     Box(
         Modifier.width(w.dp).height(CLIP_H.dp).clip(shape).background(col)
@@ -379,8 +428,12 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
                 }
             },
     ) {
-        // ফিল্মস্ট্রিপ: ক্লিপের চওড়া জুড়ে পরপর ফ্রেম
-        ClipStrip(c, w, Modifier.fillMaxSize())
+        // ফিল্মস্ট্রিপ আগের মাপেই থাকে (টানার সময় নতুন করে লোড/স্ট্রেচ হয় না); বাঁ দিক ছাঁটলে ভেতরের ছবি বাঁয়ে সরে
+        Box(
+            Modifier.fillMaxSize().wrapContentWidth(Alignment.Start, unbounded = true)
+                .width(baseW.dp).fillMaxHeight()
+                .offset { IntOffset((-dragS * dpPerSec * density).toInt(), 0) },
+        ) { ClipStrip(c, baseW, Modifier.fillMaxSize()) }
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(0f to Color(0x99000000), 0.55f to Color.Transparent),
@@ -399,50 +452,87 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
         )
-        // ট্রিম হাতল (HTML-এর মতো): টেনে ক্লিপের শুরু/শেষ ছাঁটা
+        // ট্রিম হাতল: আঙুল ধরা মাত্র (স্লপ ছাড়া) লাইভ বদলায়, ছাড়লে একবারে মডেলে বসে
         val cur by rememberUpdatedState(c)
-        val dpPerSec = DP_PER_SEC * tl.timelineZoom
         TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage && c.card == null, selected = selected,
-            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
+            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
+            onDrag = { dSec ->
+                val k = cur
+                val e = k.effEndSec()
+                val minD = -k.startSec
+                val maxD = (e - 0.3f - k.startSec).coerceAtLeast(0f)
+                dragS = dSec.coerceIn(minD, maxD)
+            },
+            onCancel = { dragS = 0f; dragE = 0f },
+        ) { dSec ->
             val k = cur
             if (!k.isImage && k.durationMs > 0L) {
                 val e = k.effEndSec()
                 tl.trim(k.id, (k.startSec + dSec).coerceIn(0f, (e - 0.2f).coerceAtLeast(0f)), e)
             }
+            dragS = 0f; dragE = 0f
         }
         TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true, selected = selected,
-            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
+            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
+            onDrag = { dSec ->
+                val k = cur
+                if (k.isImage) {
+                    dragE = dSec.coerceIn(0.5f - k.imageSec, 600f - k.imageSec)
+                } else if (k.card == null && k.durationMs > 0L) {
+                    val dur = k.durationMs / 1000f
+                    val minD = -(k.lengthMs() / 1000f - 0.3f).coerceAtLeast(0f)
+                    val maxD = (dur - k.effEndSec()).coerceAtLeast(0f)
+                    dragE = dSec.coerceIn(minD, maxD)
+                }
+            },
+            onCancel = { dragS = 0f; dragE = 0f },
+        ) { dSec ->
             val k = cur
             if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
             else if (k.card == null && k.durationMs > 0L) {
                 val dur = k.durationMs / 1000f
                 tl.trim(k.id, k.startSec, (k.effEndSec() + dSec).coerceIn(k.startSec + 0.2f, dur))
             }
+            dragS = 0f; dragE = 0f
         }
         if (selected) Box(Modifier.fillMaxSize().border(2.dp, ED.Amber, shape))
     }
 }
 
-/** টেনে ছাঁটার হাতল: টানা শেষ হলে সেকেন্ডে মোট সরানো (dSec) পাঠায়; ডান দিকে টানলে +  */
+/** টেনে ছাঁটার হাতল: আঙুলের সাথে সাথে onDrag(মোট সরানো সেকেন্ড) ডাকে, ছাড়লে onCommit; ডান দিকে টানলে + */
 @Composable
-private fun TrimHandle(glyph: String, modifier: Modifier, dpPerSec: Float, enabled: Boolean, selected: Boolean, onStart: () -> Unit, onCommit: (Float) -> Unit) {
+private fun TrimHandle(
+    glyph: String, modifier: Modifier, dpPerSec: Float, enabled: Boolean, selected: Boolean,
+    onStart: () -> Unit, onDrag: (Float) -> Unit, onCancel: () -> Unit,
+    hitW: Dp = 32.dp, knobW: Dp = 12.dp, knobH: Dp = 24.dp,
+    onCommit: (Float) -> Unit,
+) {
     val dps by rememberUpdatedState(dpPerSec)
+    val start by rememberUpdatedState(onStart)
+    val dragCb by rememberUpdatedState(onDrag)
+    val cancelCb by rememberUpdatedState(onCancel)
     val commit by rememberUpdatedState(onCommit)
     Box(
-        modifier.width(26.dp).fillMaxHeight()
+        modifier.width(hitW).fillMaxHeight()
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
-                var acc = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { acc = 0f; onStart() },
-                    onDragEnd = { if (acc != 0f) commit(acc / density / dps); acc = 0f },
-                    onDragCancel = { acc = 0f },
-                ) { _, dx -> acc += dx }
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    start()
+                    var acc = 0f
+                    val finished = drag(down.id) { ch ->
+                        acc += ch.positionChange().x
+                        dragCb(acc / density / dps)
+                        ch.consume()
+                    }
+                    if (finished && acc != 0f) commit(acc / density / dps) else cancelCb()
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.width(12.dp).height(24.dp).clip(RoundedCornerShape(4.dp))
+            Modifier.width(knobW).height(knobH).clip(RoundedCornerShape(4.dp))
                 .background(if (selected) Color(0xF2FFFFFF) else Color(0x88000000)),
             contentAlignment = Alignment.Center,
         ) { Text(glyph, fontSize = 8.sp, color = if (selected) Color(0xFF111114) else Color.White, maxLines = 1, softWrap = false) }
