@@ -9,6 +9,7 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -117,6 +118,11 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     var musicName by mutableStateOf("")
     var musicVolume by mutableFloatStateOf(0.3f)
     var keepAudio by mutableStateOf(true)
+    // পাবলিশ ডায়ালগ ও "২ ভিডিও" পেইজ (HTML-এর vTitle / vc_pub_tt / vc_pub_tb / pbTc)
+    var videoTitle by mutableStateOf("")
+    var fbTop by mutableStateOf("")
+    var fbBottom by mutableStateOf("")
+    var fbColor by mutableIntStateOf(0xFF000000.toInt())
     private fun displayName(uri: Uri): String = runCatching {
         app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null

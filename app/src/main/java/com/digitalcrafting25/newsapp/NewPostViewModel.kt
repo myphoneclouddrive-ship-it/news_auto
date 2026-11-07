@@ -478,7 +478,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** নিজে পোস্ট তৈরি (AI ছাড়া): /manual-post ৫ টাকা কাটে, তারপর সরাসরি কার্ডের ধাপে */
     fun manualPost() {
-        val t = mTitle.trim()
+        val t = mTitle.replace(Regex("\\s*\\n+\\s*"), " ").trim()
         if (t.isEmpty()) { error = "শিরোনাম লিখুন"; return }
         if (mBody.text.isBlank()) { error = "পোস্ট লিখুন"; return }
         if (mpLow) { error = "ব্যালেন্স কম আছে (কমপক্ষে ৳${PostUtil.bn(PostUtil.MP_COST)} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"; return }
@@ -508,12 +508,55 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun fmtWrap(mark: String, manual: Boolean = false) = wrapIn(if (manual) mBody else body, mark) { v -> if (manual) mBody = v else { snap(); body = v } }
 
+    private val boldRx = Regex("\\*\\*(.+?)\\*\\*")
+    private val italRx = Regex("(?<!\\*)\\*(?!\\*)([^*\\n]+?)(?<!\\*)\\*(?!\\*)")
+    private val lone = Regex("(?<!\\*)\\*(?!\\*)")
+
+    /**
+     * ওয়েবের execCommand('bold'/'italic')-এর মতো টগল:
+     * - সাধারণ লেখা সিলেক্ট করে চাপলে বোল্ড/ইটালিক হয়
+     * - বোল্ড/ইটালিক লেখার ভেতরে (সিলেক্ট করে বা শুধু কার্সার রেখে) চাপলে সাধারণ হয়; আংশিক সিলেক্ট করলে শুধু ওইটুকু সাধারণ হয়
+     * - কিছু সিলেক্ট না করে সাধারণ জায়গায় চাপলে কিছুই হয় না (আগে অদ্ভুত "****" বসত)
+     */
     private fun wrapIn(v: TextFieldValue, mark: String, set: (TextFieldValue) -> Unit) {
-        val s = v.selection.min; val e = v.selection.max
         val t = v.text
-        val nt = if (s == e) t.substring(0, s) + mark + mark + t.substring(e)
-        else t.substring(0, s) + mark + t.substring(s, e) + mark + t.substring(e)
-        set(TextFieldValue(nt, if (s == e) TextRange(s + mark.length) else TextRange(s, e + mark.length * 2)))
+        var s = v.selection.min.coerceIn(0, t.length)
+        var e = v.selection.max.coerceIn(0, t.length)
+        val ml = mark.length
+        val rx = if (mark == "**") boldRx else italRx
+        val ls = t.lastIndexOf('\n', s - 1).let { if (it < 0) 0 else it + 1 }
+        val le = t.indexOf('\n', e).let { if (it < 0) t.length else it }
+        val ms = ArrayList<IntRange>()   // এই লাইনগুলোর পুরো বোল্ড/ইটালিক অংশ (চিহ্ন সহ)
+        var p = ls
+        while (p <= le) {
+            var q = t.indexOf('\n', p); if (q < 0 || q > le) q = le
+            rx.findAll(t.substring(p, q)).forEach { ms.add((p + it.range.first)..(p + it.range.last)) }
+            p = q + 1
+        }
+        // ক) সিলেকশন/কার্সার একটা বোল্ড অংশের ভেতরে → সাধারণ করা
+        val inside = ms.firstOrNull { m ->
+            val cs = m.first + ml; val ce = m.last + 1 - ml
+            if (s == e) s in cs..(m.last + 1) else s >= m.first && e <= m.last + 1 && maxOf(s, cs) < minOf(e, ce)
+        }
+        if (inside != null) {
+            val cs = inside.first + ml; val ce = inside.last + 1 - ml
+            val a = if (s == e) cs else maxOf(s, cs)
+            val b = if (s == e) ce else minOf(e, ce)
+            val left = t.substring(cs, a); val mid = t.substring(a, b); val right = t.substring(b, ce)
+            val rep = (if (left.isNotEmpty()) mark + left + mark else "") + mid + (if (right.isNotEmpty()) mark + right + mark else "")
+            val nt = t.substring(0, inside.first) + rep + t.substring(inside.last + 1)
+            val ms0 = inside.first + (if (left.isNotEmpty()) left.length + ml * 2 else 0)
+            set(TextFieldValue(nt, if (s == e) TextRange(ms0 + (s.coerceIn(cs, ce) - cs)) else TextRange(ms0, ms0 + mid.length)))
+            return
+        }
+        // খ) কিছু সিলেক্ট নেই → কিছু করার নেই
+        if (s == e) return
+        // গ) সাধারণ লেখা → বোল্ড/ইটালিক। আংশিক ছোঁয়া পুরনো অংশ পুরোটা ধরে নেয়, ভেতরের পুরনো চিহ্ন সরিয়ে একটাই জোড়া বসায়
+        ms.forEach { m -> if (m.first < e && m.last + 1 > s) { s = minOf(s, m.first); e = maxOf(e, m.last + 1) } }
+        val inner = t.substring(s, e).let { if (mark == "**") it.replace("**", "") else it.replace(lone, "") }
+        if (inner.isBlank()) return
+        val nt = t.substring(0, s) + mark + inner + mark + t.substring(e)
+        set(TextFieldValue(nt, TextRange(s + ml, s + ml + inner.length)))
     }
 
     /** prefix: "## " = উপশিরোনাম, "• " = তালিকা, "" = সাধারণ লেখা */
@@ -703,6 +746,30 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         val ox = im.width * k - bw; val oy = im.height * k - bh
         if (ox > 1f) fx = (fx - dx / ox).coerceIn(0f, 1f)
         if (oy > 1f) fy = (fy - dy / oy).coerceIn(0f, 1f)
+        dragging = true
+        refreshFast()
+    }
+
+    /** আঙুল তুললে: পুরো মাপের প্রিভিউ আর থাম্বনেইল একবার আঁকা */
+    fun panEnd() { dragging = false; job?.cancel(); refresh() }
+
+    // টানার সময় হালকা প্রিভিউ: ডিবাউন্স নেই, আধা মাপে আঁকে, চলার সময় নতুন ইভেন্ট এলে শেষে সর্বশেষ অবস্থা আবার আঁকে
+    private var dragging = false
+    private var fastBusy = false
+    private var fastDirty = false
+    private fun refreshFast() {
+        if (fastBusy) { fastDirty = true; return }
+        fastBusy = true
+        viewModelScope.launch {
+            try {
+                do {
+                    fastDirty = false
+                    val d = cardData(); val id = tplId; val ad = adNow()
+                    val pv = withContext(Dispatchers.Default) { CardRender.render(id, d, 0.5f, ad) }
+                    if (dragging) preview = pv
+                } while (fastDirty && dragging)
+            } finally { fastBusy = false }
+        }
     }
 
     private fun bnDate(): String = runCatching { SimpleDateFormat("d MMMM yyyy", Locale("bn", "BD")).format(Date()) }.getOrDefault("")

@@ -42,7 +42,29 @@ sealed interface Layer {
 
 val Layer.isAudio: Boolean get() = kind.isAudio
 val Layer.lengthMs: Long get() = (endMs - startMs).coerceAtLeast(0L)
-fun Layer.isActiveAt(ms: Long): Boolean = ms >= startMs && ms < endMs
+/**
+ * লেয়ার এই মুহূর্তে চালু কিনা। নাম/পদবির বারে repeatSec > 0 হলে: প্রথমবার startMs থেকে (দৈর্ঘ্য = endMs - startMs),
+ * তারপর প্রতি max(repeatSec, দৈর্ঘ্য+১) সেকেন্ডে আবার; stopMs (আউট্রো শুরুর ১৫ সেকেন্ড আগে) থেকে আর আসে না — HTML nameDraw-এর নিয়ম।
+ */
+fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE): Boolean {
+    if (this is NameBarLayer && repeatSec > 0) {
+        val du = endMs - startMs
+        if (du <= 0L || ms < startMs || ms >= maxOf(startMs, stopMs)) return false
+        val period = maxOf(repeatSec * 1000L, du + 1000L)
+        return (ms - startMs) % period < du
+    }
+    return ms >= startMs && ms < endMs
+}
+
+/** "আবার দেখান"-এর শেষ সীমা: আউট্রো শুরুর ১৫ সেকেন্ড আগে (আউট্রো না থাকলে ভিডিওর শেষের ১৫ সেকেন্ড আগে) */
+fun repeatStopMs(clips: List<Clip>): Long {
+    var acc = 0L
+    for (c in clips) {
+        if (c.card?.outro == true) return (acc - 15_000L).coerceAtLeast(0L)
+        acc += c.lengthMs()
+    }
+    return (acc - 15_000L).coerceAtLeast(0L)
+}
 
 /** ভিডিওর ওপরে বসানো লেখা */
 data class TextLayer(
@@ -123,6 +145,7 @@ data class NameBarLayer(
     val bgColor: Int = DARK,
     val textColor: Int = WHITE,
     val bottomFrac: Float = 0.12f,
+    val repeatSec: Int = 0,          // ০ = একবার; >০ হলে প্রতি এত সেকেন্ডে (শুরু থেকে শুরু) আবার আসে (HTML-এর "আবার দেখান")
 ) : Layer {
     override val kind get() = LayerKind.NAME_BAR
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -162,6 +185,7 @@ data class AdjustLayer(
     override val startMs: Long,
     override val endMs: Long,
     val brightness: Float = 0f,      // -১..+১
+    val contrast: Float = 0f,        // -১..+১ (HTML: -১০০..১০০; ০ = স্বাভাবিক)
 ) : Layer {
     override val kind get() = LayerKind.ADJUST
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
@@ -184,6 +208,9 @@ data class AudioLayer(
     val sourceClipId: Long? = null,
     val muted: Boolean = false,      // এই লেয়ারের শব্দ বন্ধ
     val sourceDurationMs: Long = 0L, // সোর্স ফাইলের পুরো দৈর্ঘ্য (০ = অজানা/বিপ)
+    val fadeInMs: Long = 0L,         // শুরুতে ধীরে জোরালো (০/১০০০/২০০০)
+    val fadeOutMs: Long = 0L,        // শেষে ধীরে মিলিয়ে যাওয়া (০/১০০০/২০০০)
+    val denoise: Boolean = false,    // হালকা নয়েজ কমানো (৯০Hz হাই-পাস + নয়েজ গেট), রেন্ডারে প্রযোজ্য
 ) : Layer {
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)

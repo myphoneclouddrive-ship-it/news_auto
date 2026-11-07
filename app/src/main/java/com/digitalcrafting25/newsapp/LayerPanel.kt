@@ -88,7 +88,8 @@ internal fun layerSummary(l: Layer): String = when (l) {
     is TickerLayer -> l.text.replace('\n', ' ').take(20)
     is NameBarLayer -> (l.name + if (l.title.isNotBlank()) " · " + l.title else "").take(24)
     is OverlayLayer -> "${Math.round(l.alpha * 100)}%"
-    is AdjustLayer -> (if (l.brightness > 0f) "+" else "") + "${Math.round(l.brightness * 100)}%"
+    is AdjustLayer -> "☀️" + (if (l.brightness > 0f) "+" else "") + "${Math.round(l.brightness * 100)}%" +
+        if (l.contrast != 0f) " ◐" + (if (l.contrast > 0f) "+" else "") + "${Math.round(l.contrast * 100)}%" else ""
     else -> ""
 }
 
@@ -126,7 +127,8 @@ private fun cornerAlignment(c: Corner): Alignment = when (c) {
 @Composable
 fun LayerOverlay(tl: Timeline) {
     val ms = tl.playheadMs
-    val active = tl.visualLayers.filter { it.isActiveAt(ms) }
+    val repStop = repeatStopMs(tl.clips)
+    val active = tl.visualLayers.filter { it.isActiveAt(ms, repStop) }
     if (active.isEmpty()) return
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -369,6 +371,23 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 ColorRow("ব্যাকগ্রাউন্ড", l.bgColor, false) { c -> tl.edit<NameBarLayer>(l.id) { it.copy(bgColor = c) } }
                 ColorRow("লেখার রং", l.textColor, false) { c -> tl.edit<NameBarLayer>(l.id) { it.copy(textColor = c) } }
                 LSlider("নিচ থেকে দূরত্ব", l.bottomFrac, 0f..0.6f) { v -> tl.edit<NameBarLayer>(l.id) { it.copy(bottomFrac = v) } }
+                // HTML: "আবার দেখান (প্রতি … সেকেন্ডে; ০ = একবার)"
+                OutlinedTextField(
+                    value = if (l.repeatSec == 0) "" else l.repeatSec.toString(),
+                    onValueChange = { v ->
+                        val n = v.filter { ch -> ch.isDigit() }.take(3).toIntOrNull() ?: 0
+                        tl.edit<NameBarLayer>(l.id) { it.copy(repeatSec = n.coerceIn(0, 600)) }
+                    },
+                    label = { Text("আবার দেখান (প্রতি … সেকেন্ডে; ০ = একবার)") },
+                    placeholder = { Text("০") },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "প্রথমবার এই লেয়ারের শুরু থেকে আসবে, তারপর ওই ব্যবধানে (শুরু থেকে শুরু) আবার আসবে। আউট্রো শুরুর ১৫ সেকেন্ড আগে থেকে আর আসবে না। ফাঁকা বা ০ রাখলে একবারই।",
+                    color = ED.Muted, fontSize = 12.sp,
+                )
             }
 
             is AdLayer -> {
@@ -386,14 +405,19 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
 
             is AdjustLayer -> {
                 Text(
-                    "ব্রাইটনেস: বাঁয়ে কমে (ছায়া), ডানে বাড়ে (আলো)। সাদা/কালো আস্তরণ দিয়ে করা, তাই বেশি বাড়ালে ছবি ফ্যাকাশে দেখাবে।",
+                    "☀️ ব্রাইটনেস: ০ = স্বাভাবিক; বাঁয়ে কমবে, ডানে বাড়বে (সাদা/কালো আস্তরণ দিয়ে করা, বেশি বাড়ালে ছবি ফ্যাকাশে হবে)।",
                     color = ED.Muted, fontSize = 12.sp,
                 )
-                LSlider("ব্রাইটনেস", l.brightness, -0.8f..0.8f) { v -> tl.edit<AdjustLayer>(l.id) { it.copy(brightness = v) } }
+                LSlider("☀️ ব্রাইটনেস", l.brightness, -0.8f..0.8f) { v -> tl.edit<AdjustLayer>(l.id) { it.copy(brightness = v) } }
+                Text(
+                    "◐ কন্ট্রাস্ট: ০ = স্বাভাবিক; বাঁয়ে ঝাপসা, ডানে গাঢ়। প্রিভিউয়ে আনুমানিক, রেন্ডারে ভিডিওর ওপর সরাসরি বসে।",
+                    color = ED.Muted, fontSize = 12.sp,
+                )
+                LSlider("◐ কন্ট্রাস্ট", l.contrast, -1f..1f) { v -> tl.edit<AdjustLayer>(l.id) { it.copy(contrast = v) } }
                 OutlinedButton(
-                    onClick = { tl.edit<AdjustLayer>(l.id) { it.copy(brightness = 0f) } },
+                    onClick = { tl.edit<AdjustLayer>(l.id) { it.copy(brightness = 0f, contrast = 0f) } },
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                ) { Text("↺ ০ করুন", fontSize = 12.sp) }
+                ) { Text("↺ রিসেট", fontSize = 12.sp) }
             }
 
             else -> {}

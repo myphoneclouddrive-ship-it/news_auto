@@ -33,6 +33,7 @@ class LayerFrameRenderer(
     private val h: Int,
     private val base: Bitmap?,      // পুরোনো শিরোনাম-বার/লোগো (সবসময় আছে), না থাকলে null
     allLayers: List<Layer>,
+    private val repeatStopMs: Long = Long.MAX_VALUE,
 ) {
     private val layers: List<Layer> = allLayers.filterNot { it.isAudio }
     private val images = HashMap<Long, Bitmap>()
@@ -74,7 +75,7 @@ class LayerFrameRenderer(
 
     /** টাইমলাইনের ms-এ ফ্রেমের ওপরের ছবি */
     fun frameAt(ms: Long): Bitmap {
-        val active = layers.filter { it.isActiveAt(ms) }
+        val active = layers.filter { it.isActiveAt(ms, repeatStopMs) }
         val key = active.map { it.id }
         val animated = active.any { it is TickerLayer }
         if (!animated && cur >= 0 && key == lastKey) return bufs[cur]

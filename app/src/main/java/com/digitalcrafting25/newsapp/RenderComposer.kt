@@ -20,6 +20,8 @@ import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.Contrast
+import androidx.media3.effect.TimestampWrapper
 import androidx.media3.effect.MatrixTransformation
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
@@ -92,8 +94,12 @@ object RenderComposer {
         // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
         val totalMs = spec.clips.sumOf { it.lengthMs() }
         val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs }
-        val renderer = LayerFrameRenderer(ctx, w, h, makeOverlay(ctx, spec, w, h), visible)
-        val videoFx: List<Effect> = if (renderer.isEmpty) emptyList() else {
+        val renderer = LayerFrameRenderer(ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips))
+        // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
+        val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()
+            .filter { it.contrast != 0f && it.endMs > it.startMs }
+            .map { TimestampWrapper(Contrast(it.contrast.coerceIn(-1f, 1f)), it.startMs * 1000L, it.endMs * 1000L) }
+        val videoFx: List<Effect> = contrastFx + if (renderer.isEmpty) emptyList() else {
             listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(LayerFrameOverlay(renderer))))
         }
 

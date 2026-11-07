@@ -278,7 +278,11 @@ fun EditorDockBar(
                         DockBtn("🗑️", "মুছুন") { tl.remove(c.id) }
                         DockBtn("⏪", "সরান", enabled = idx > 0) { tl.move(c.id, -1) }
                         DockBtn("⏩", "সরান", enabled = idx in 0 until tl.clips.lastIndex) { tl.move(c.id, 1) }
-                        DockBtn("⟲", "রিসেট") { onInfo("⟲ সব কাট বাতিল করার টুল পরে যোগ হবে") }
+                        DockBtn("⟲", "রিসেট") {
+                            val m = tl.resetClipCuts(c.id)
+                            onMessage(m)
+                            if (m == null) onInfo("⟲ সব কাট বাতিল হয়েছে")
+                        }
                     }
 
                     // ---- অডিও লেয়ার বাছা ----
@@ -304,10 +308,26 @@ fun EditorDockBar(
                             if (a.muted) "আনমিউট" else "মিউট",
                             active = a.muted,
                         ) { tl.editAudio(a.id) { it.copy(muted = !it.muted) } }
-                        DockBtn("🌅", "ফেড ইন") { onInfo("🌅 ফেড ইন পরে যোগ হবে") }
-                        DockBtn("🌇", "ফেড আউট") { onInfo("🌇 ফেড আউট পরে যোগ হবে") }
-                        DockBtn("🎙️", "নয়েজ কমান") { onInfo("🎙️ নয়েজ কমানো পরে যোগ হবে") }
-                        DockBtn("✂️", "স্প্লিট") { onInfo("✂️ অডিও স্প্লিট পরে যোগ হবে") }
+                        // প্রতি চাপে ০ → ১ → ২ → ০ সেকেন্ড (HTML-এর মতো)
+                        DockBtn("🌅", if (a.fadeInMs > 0L) "ফেড ইন ${a.fadeInMs / 1000}সে" else "ফেড ইন", active = a.fadeInMs > 0L) {
+                            val n = (a.fadeInMs + 1000L) % 3000L
+                            tl.editAudio(a.id) { it.copy(fadeInMs = n) }
+                            onInfo(if (n == 0L) "🌅 ফেড ইন বন্ধ" else "🌅 ফেড ইন ${n / 1000} সেকেন্ড")
+                        }
+                        DockBtn("🌇", if (a.fadeOutMs > 0L) "ফেড আউট ${a.fadeOutMs / 1000}সে" else "ফেড আউট", active = a.fadeOutMs > 0L) {
+                            val n = (a.fadeOutMs + 1000L) % 3000L
+                            tl.editAudio(a.id) { it.copy(fadeOutMs = n) }
+                            onInfo(if (n == 0L) "🌇 ফেড আউট বন্ধ" else "🌇 ফেড আউট ${n / 1000} সেকেন্ড")
+                        }
+                        DockBtn("🎙️", if (a.denoise) "নয়েজ ফেরান" else "নয়েজ কমান", active = a.denoise) {
+                            tl.editAudio(a.id) { it.copy(denoise = !it.denoise) }
+                            onInfo(if (a.denoise) "🎙️ আসল অডিও ফিরেছে" else "🎙️ নয়েজ কমানো চালু (রেন্ডারে প্রযোজ্য)")
+                        }
+                        DockBtn("✂️", "স্প্লিট") {
+                            val m = tl.splitAudioLayer(a.id)
+                            onMessage(m)
+                            if (m == null) onInfo("✂️ অডিও দুই ভাগ হয়েছে")
+                        }
                         DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(a.id, 1) }
                         DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(a.id, -1) }
                         DockBtn("📋", "ডুপ্লিকেট") { tl.duplicateLayer(a.id) }

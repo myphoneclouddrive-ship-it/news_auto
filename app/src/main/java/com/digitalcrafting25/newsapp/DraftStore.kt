@@ -171,7 +171,7 @@ object DraftStore {
             is NameBarLayer -> {
                 put("t", "name"); put("name", l.name); put("title", l.title)
                 put("accent", l.accent); put("bg", l.bgColor); put("textColor", l.textColor)
-                put("bottom", l.bottomFrac.toDouble())
+                put("bottom", l.bottomFrac.toDouble()); put("rep", l.repeatSec)
             }
             is AdLayer -> {
                 put("t", "ad"); l.uri?.let { put("uri", it.toString()) }
@@ -181,13 +181,14 @@ object DraftStore {
                 put("t", "overlay"); put("color", l.color); put("alpha", l.alpha.toDouble())
             }
             is AdjustLayer -> {
-                put("t", "adjust"); put("brightness", l.brightness.toDouble())
+                put("t", "adjust"); put("brightness", l.brightness.toDouble()); put("contrast", l.contrast.toDouble())
             }
             is AudioLayer -> {
                 put("t", "audio"); put("kind", l.kind.name); l.uri?.let { put("uri", it.toString()) }
                 put("name", l.name); put("volume", l.volume.toDouble()); put("off", l.sourceOffsetMs)
                 l.sourceClipId?.let { put("src", it) }
                 put("muted", l.muted); put("sdur", l.sourceDurationMs)
+                put("fi", l.fadeInMs); put("fo", l.fadeOutMs); put("nc", l.denoise)
             }
         }
     }
@@ -215,17 +216,18 @@ object DraftStore {
             "name" -> NameBarLayer(
                 id, s, e, o.optString("name"), o.optString("title"),
                 o.optInt("accent", 0xFFD32F2F.toInt()), o.optInt("bg", 0xFF1B1E26.toInt()),
-                o.optInt("textColor", -1), o.f("bottom", 0.12f),
+                o.optInt("textColor", -1), o.f("bottom", 0.12f), o.optInt("rep", 0),
             )
             "ad" -> AdLayer(id, s, e, o.uriOrNull("uri"), o.optBoolean("top"), o.f("h", 0.18f))
             "overlay" -> OverlayLayer(id, s, e, o.optInt("color", 0xFF000000.toInt()), o.f("alpha", 0.35f))
-            "adjust" -> AdjustLayer(id, s, e, o.f("brightness", 0f))
+            "adjust" -> AdjustLayer(id, s, e, o.f("brightness", 0f), o.f("contrast", 0f))
             "audio" -> AudioLayer(
                 id, s, e,
                 runCatching { LayerKind.valueOf(o.optString("kind")) }.getOrDefault(LayerKind.AUDIO),
                 o.uriOrNull("uri"), o.optString("name"), o.f("volume", 1f), o.optLong("off"),
                 if (o.has("src")) o.getLong("src") else null,
                 o.optBoolean("muted"), o.optLong("sdur"),
+                o.optLong("fi"), o.optLong("fo"), o.optBoolean("nc"),
             )
             else -> null
         }

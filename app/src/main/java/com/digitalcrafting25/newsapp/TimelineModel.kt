@@ -403,7 +403,7 @@ class Timeline {
     fun layerById(id: Long?): Layer? = if (id == null) null else layers.firstOrNull { it.id == id }
 
     /** এই মুহূর্তে (টাইমলাইনের ms) যেসব লেয়ার চালু */
-    fun layersAt(ms: Long): List<Layer> = layers.filter { it.isActiveAt(ms) }
+    fun layersAt(ms: Long): List<Layer> { val stop = repeatStopMs(clips); return layers.filter { it.isActiveAt(ms, stop) } }
 
     /**
      * প্লেহেডের জায়গায় নতুন লেয়ার যোগ করে ও বাছাই করে। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
@@ -520,6 +520,59 @@ class Timeline {
         commitAll(clips, layers + layer)
         selectedLayerId = layer.id
         selectedId = null
+        return null
+    }
+
+    /**
+     * প্লেহেডের জায়গায় অডিও লেয়ার দুই ভাগ করে (HTML au_split-এর মতো): প্রথম ভাগ ফেড-ইন রাখে, দ্বিতীয় ভাগ ফেড-আউট রাখে,
+     * আর দ্বিতীয় ভাগের সোর্স-অফসেট কাটার দূরত্বে এগোয়। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun splitAudioLayer(id: Long): String? {
+        val i = layers.indexOfFirst { it.id == id }
+        val l = layers.getOrNull(i) as? AudioLayer ?: return "অডিও লেয়ার পাওয়া যায়নি"
+        val pos = playheadMs
+        if (pos - l.startMs < MIN_LAYER_MS || l.endMs - pos < MIN_LAYER_MS) {
+            return "লাল দাগ অডিও বারের ভেতরে (কিনারা থেকে একটু সরিয়ে) আনুন, তারপর স্প্লিট চাপুন"
+        }
+        val a = l.copy(endMs = pos, fadeOutMs = 0L)
+        val b = l.copy(
+            id = newId(), startMs = pos,
+            sourceOffsetMs = l.sourceOffsetMs + (pos - l.startMs),
+            fadeInMs = 0L,
+        )
+        val m = layers.toMutableList()
+        m[i] = a
+        m.add(i + 1, b)
+        commitAll(clips, m)
+        selectedLayerId = b.id
+        return null
+    }
+
+    /**
+     * ক্লিপের "সব কাট বাতিল" (HTML ⟲ রিসেট): বাছা ক্লিপের পাশাপাশি একই ভিডিওর লাগোয়া টুকরোগুলো
+     * (স্প্লিটে যেগুলো ভাগ হয়েছিল) জোড়া লেগে পুরো দৈর্ঘ্যের একটা ক্লিপ হয়, ট্রিমও খুলে যায়।
+     * কিছু বদলানোর না থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun resetClipCuts(id: Long): String? {
+        val i = clips.indexOfFirst { it.id == id }
+        if (i < 0) return "ক্লিপ পাওয়া যায়নি"
+        val c = clips[i]
+        if (c.isImage) return "ছবিতে কাট নেই"
+        fun joinable(a: Clip, b: Clip): Boolean =
+            !a.isImage && !b.isImage && a.card == null && b.card == null && a.uri == b.uri &&
+                Math.abs(a.effEndSec() - b.startSec) < 0.01f
+        var lo = i
+        while (lo > 0 && joinable(clips[lo - 1], clips[lo])) lo--
+        var hi = i
+        while (hi < clips.lastIndex && joinable(clips[hi], clips[hi + 1])) hi++
+        val untouched = lo == hi && c.startSec <= 0.001f && (c.endSec <= 0.001f || c.endSec * 1000f >= c.durationMs - 10f)
+        if (untouched) return "এই ক্লিপে কোনো কাট নেই"
+        val full = clips[lo].copy(startSec = 0f, endSec = 0f)
+        val m = clips.toMutableList()
+        for (k in hi downTo lo) m.removeAt(k)
+        m.add(lo, full)
+        commit(m)
+        selectedId = full.id
         return null
     }
 

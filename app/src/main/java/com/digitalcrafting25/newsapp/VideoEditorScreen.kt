@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -52,6 +53,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -74,7 +77,7 @@ import kotlinx.coroutines.withContext
 private const val SHOW_EXTRA_CONTROLS = false
 
 @Composable
-fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
+fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: (android.net.Uri) -> Unit = {}) {
     val ctx = LocalContext.current
     val tl = vm.tl
     val status by RenderBus.status.collectAsStateWithLifecycle()
@@ -108,7 +111,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
         if (tl.clips.isNotEmpty()) {
             StageCard(
                 if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f),
-                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile,
+                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered,
             )
         } else {
             Spacer(Modifier.weight(1f))
@@ -220,6 +223,7 @@ private fun StageCard(
     setInfo: (String?) -> Unit,
     onAddMedia: () -> Unit,
     onAddAudio: () -> Unit,
+    onRendered: (android.net.Uri) -> Unit,
 ) {
     val tl = vm.tl
     val total = tl.totalMs
@@ -227,6 +231,18 @@ private fun StageCard(
     val shape = RoundedCornerShape(14.dp)
     var playing by remember { mutableStateOf(false) }
     var showPublish by remember { mutableStateOf(false) }
+    // পাবলিশ চেপে রেন্ডার শুরু হলে, শেষ হওয়ামাত্র "২ ভিডিও" পেইজে যাবে (আগের পুরোনো Done ধরে নয়: আগে Running দেখতে হবে)
+    var awaiting by remember { mutableStateOf(false) }
+    var sawRunning by remember { mutableStateOf(false) }
+    LaunchedEffect(status, awaiting) {
+        if (!awaiting) return@LaunchedEffect
+        when (status) {
+            is RenderStatus.Running -> sawRunning = true
+            is RenderStatus.Done -> if (sawRunning) { awaiting = false; sawRunning = false; onRendered(status.uri) }
+            is RenderStatus.Failed -> if (sawRunning) { awaiting = false; sawRunning = false }
+            else -> {}
+        }
+    }
     // আসল প্রিভিউ প্লেয়ার: ক্লিপ বদলালেই আগে থেকে prepare হয়ে থাকে
     val ctx = LocalContext.current
     val pp = remember { PreviewPlayer(ctx) }
@@ -258,11 +274,16 @@ private fun StageCard(
     }
     LaunchedEffect(running) { if (running) playing = false }
     if (showPublish) PublishDialog(
+        vm = vm,
+        hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP },
+        hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM },
         onDismiss = { showPublish = false },
         onRender = { yt ->
             vm.aspect = Aspect.LANDSCAPE
             showPublish = false
-            setError(vm.startRender())
+            val err = vm.startRender()
+            setError(err)
+            if (err == null) { awaiting = true; sawRunning = false }
         },
     )
     EditorDarkTheme {
@@ -347,6 +368,33 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
             val fv = c?.flipV == true
             val px = (c?.panX ?: 0f).coerceIn(-1f, 1f)
             val py = (c?.panY ?: 0f).coerceIn(-1f, 1f)
+            // কন্ট্রাস্ট (এডজাস্ট লেয়ার): ভিডিও/ছবির ওপর রঙের ম্যাট্রিক্স; লেখা-বার-বিজ্ঞাপন (LayerOverlay) এর বাইরে
+            val ct = tl.layersAt(tl.playheadMs).filterIsInstance<AdjustLayer>().sumOf { it.contrast.toDouble() }.toFloat().coerceIn(-1f, 1f)
+            Box(
+                Modifier.fillMaxSize().then(
+                    if (ct == 0f) Modifier else Modifier.drawWithContent {
+                        val sc = 1f + ct
+                        val off = 127.5f * (1f - sc)
+                        val paint = androidx.compose.ui.graphics.Paint().apply {
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                                androidx.compose.ui.graphics.ColorMatrix(
+                                    floatArrayOf(
+                                        sc, 0f, 0f, 0f, off,
+                                        0f, sc, 0f, 0f, off,
+                                        0f, 0f, sc, 0f, off,
+                                        0f, 0f, 0f, 1f, 0f,
+                                    ),
+                                ),
+                            )
+                        }
+                        drawIntoCanvas { c ->
+                            c.saveLayer(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height), paint)
+                            drawContent()
+                            c.restore()
+                        }
+                    },
+                ),
+            ) {
             bmp?.let {
                 Image(
                     it, null,
@@ -379,38 +427,128 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                         },
                 )
             }
+            }
             LayerOverlay(tl)
         }
     }
 }
 
 
-/** HTML `#vc_pub`: কোথায় কোথায় পাবলিশ হবে — ফেইসবুক / ইউটিউব / ওয়ার্ডপ্রেস (ওয়ার্ডপ্রেসে ইউটিউব লাগে) */
+/** HTML `#vc_pub`: কোথায় কোথায় পাবলিশ হবে — ফেইসবুক / ইউটিউব / ওয়ার্ডপ্রেস; ফেইসবুকে ব্যানারের ওপরে/নিচের লেখা ও রং */
 @Composable
-private fun PublishDialog(onDismiss: () -> Unit, onRender: (yt: Boolean) -> Unit) {
+private fun PublishDialog(
+    vm: EditorViewModel,
+    hasTopAd: Boolean,
+    hasBottomAd: Boolean,
+    onDismiss: () -> Unit,
+    onRender: (yt: Boolean) -> Unit,
+) {
     var fb by remember { mutableStateOf(false) }
     var yt by remember { mutableStateOf(false) }
     var wp by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("📤 পাবলিশ") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("কোথায় কোথায় পাবলিশ হবে?", fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(fb, { fb = it }); Text("১। ফেইসবুক")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(yt, { yt = it; if (!it) wp = false }); Text("২। ইউটিউব (১৬:৯)")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(wp, { wp = it; if (it) yt = true }); Text("৩। ওয়ার্ডপ্রেস")
-                }
-                Text("ইউটিউব ছাড়া ওয়ার্ডপ্রেস হবে না; টিক দিলে ইউটিউব নিজে টিক হবে।", fontSize = 12.sp)
-                Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", fontSize = 12.sp)
+    val dBg = Color(0xFF14161B)
+    val dCard = Color(0xFF1B1E26)
+    val dBorder = Color(0xFF2A2E37)
+    val dText = Color(0xFFE5E7EB)
+    val dSub = Color(0xFF9CA3AF)
+    val cbColors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = Color(0xFFC62828), uncheckedColor = dSub)
+    // HTML pbInfo: দুই দিকেই ব্যানার থাকলে লেখার বক্স আসে না; যে দিকে ব্যানার আছে সে দিকের ঘরও থাকে না
+    val showTextBox = fb && !(hasTopAd && hasBottomAd)
+
+    @Composable
+    fun Opt(checked: Boolean, onChange: (Boolean) -> Unit, title: String, sub: String? = null) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                .clip(RoundedCornerShape(10.dp)).background(dCard)
+                .border(1.dp, dBorder, RoundedCornerShape(10.dp))
+                .clickable { onChange(!checked) }
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Checkbox(checked, onChange, colors = cbColors)
+            Column(Modifier.padding(top = 10.dp, end = 6.dp)) {
+                Text(title, color = dText, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (sub != null) Text(sub, color = dSub, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 2.dp))
             }
-        },
-        confirmButton = { Button(enabled = fb || yt || wp, onClick = { onRender(yt) }) { Text("🎬 রেন্ডার") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("বন্ধ করুন") } },
-    )
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(14.dp)).background(dBg)
+                .border(1.dp, dBorder, RoundedCornerShape(14.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("📤 পাবলিশ", color = dText, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("✖", color = dSub, fontSize = 20.sp, modifier = Modifier.clickable { onDismiss() }.padding(horizontal = 8.dp, vertical = 4.dp))
+            }
+            Text("কোথায় কোথায় পাবলিশ হবে?", color = Color(0xFFC7CBD6), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp, bottom = 10.dp))
+
+            Opt(fb, { fb = it }, "১। ফেইসবুক")
+            Opt(
+                yt, { yt = it; if (!it) wp = false }, "২। ইউটিউব",
+                "১৬:৯ সাইজ; শুধু নিচের ব্যানার ভিডিওর ভিতরে বসবে (ওপরের ব্যানার ইউটিউবে বসবে না, শুধু ফেইসবুকে)",
+            )
+            Opt(
+                wp, { wp = it; if (it) yt = true }, "৩। ওয়ার্ডপ্রেস",
+                "ইউটিউব ছাড়া ওয়ার্ডপ্রেস হবে না; টিক দিলে ইউটিউব নিজে থেকে টিক হবে",
+            )
+
+            if (showTextBox) {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                        .clip(RoundedCornerShape(8.dp)).background(Color(0xFFFAFAFA))
+                        .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(8.dp))
+                        .padding(10.dp),
+                ) {
+                    Text("ফেইসবুকের ব্যানার এরিয়ায় কী লিখবে?", color = Color(0xFF222222), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                    if (!hasTopAd) {
+                        Text("⬆️ উপরে", color = Color(0xFF222222), fontSize = 13.sp)
+                        OutlinedTextField(
+                            value = vm.fbTop, onValueChange = { vm.fbTop = it },
+                            placeholder = { Text("যেমন: আমাদের পেইজ ফলো করুন (সর্বোচ্চ ২ লাইন)", fontSize = 12.sp) },
+                            maxLines = 2, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 6.dp),
+                        )
+                    }
+                    if (!hasBottomAd) {
+                        Text("⬇️ নিচে", color = Color(0xFF222222), fontSize = 13.sp)
+                        OutlinedTextField(
+                            value = vm.fbBottom, onValueChange = { vm.fbBottom = it },
+                            placeholder = { Text("যেমন: বিস্তারিত কমেন্টে (সর্বোচ্চ ২ লাইন)", fontSize = 12.sp) },
+                            maxLines = 2, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+                        )
+                    }
+                    Text("🎨 লেখার রং", color = Color(0xFF222222), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0xFF000000, 0xFFDC2626, 0xFF1D4ED8, 0xFF15803D, 0xFF7E22CE).forEach { c ->
+                            val ci = c.toInt()
+                            val on = vm.fbColor == ci
+                            Box(
+                                Modifier.size(34.dp).clip(CircleShape).background(Color(ci))
+                                    .border(3.dp, if (on) Color(0xFF38BDF8) else Color.White, CircleShape)
+                                    .clickable { vm.fbColor = ci },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×720",
+                color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+            )
+            Text("এখন শুধু রেন্ডার হয়ে ফোনে সেভ হবে; সরাসরি আপলোড এখনো যোগ হয়নি।", color = dSub, fontSize = 12.sp)
+
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = fb || yt || wp, onClick = { onRender(yt) }, modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
+                ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
 }

@@ -274,7 +274,7 @@ private fun FormatBar(vm: NewPostViewModel, manual: Boolean) {
 fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit, header: @Composable () -> Unit = {}) {
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
-    LaunchedEffect(vm.cardTitle, vm.title, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId, vm.step) { if (vm.step in 3..4) vm.refresh() }
+    LaunchedEffect(vm.cardTitle, vm.title, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.useAd, vm.nextAdId, vm.step) { if (vm.step in 3..4) vm.refresh() }
 
     // ওয়েবের queueSave: লেখা/ছবি/বাছাই বদলালে ৪০০ms পর খসড়া সেভ
     LaunchedEffect(vm.src, vm.notes, vm.title, vm.cardTitle, vm.body.text, vm.aiPrompt, vm.imgUrl, vm.imgMode, vm.webNews, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.hasPhoto, vm.refBmp, vm.step) { vm.queueSave() }
@@ -499,7 +499,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
     }
     Sec("✍️ নিজে পোস্ট ক্রিয়েট করুন", vm.sec == "manual", { setSec("manual") }) {
         FieldLabel("শিরোনাম")
-        AppField(vm.mTitle, { vm.mTitle = it }, placeholder = "পোস্টের শিরোনাম লিখুন", singleLine = false)
+        AppField(vm.mTitle, { vm.mTitle = it.replace(Regex("\\s*\\n+\\s*"), " ") }, placeholder = "পোস্টের শিরোনাম লিখুন")   // ওয়েবের <input>-এর মতো এক লাইন
         FieldLabel("পোস্ট (এখানে পেস্ট করে এডিট করুন)")
         Text("যে লেখা বোল্ড বা উপশিরোনাম হবে, সেটা সিলেক্ট করে নিচের বাটনে চাপুন।", fontSize = 12.sp, color = C.Label)
         FormatBar(vm, manual = true)
@@ -551,6 +551,42 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
     var cropOpen by remember { mutableStateOf(false) }
     var collOpen by remember { mutableStateOf(false) }
 
+    // প্রিভিউ (আঙুল টেনে ছবির অবস্থান)
+    Box(
+        Modifier.fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId))
+            .clip(RoundedCornerShape(10.dp)).background(Color(0xFFDDDDDD))
+            .pointerInput(vm.hasPhoto) {
+                if (vm.hasPhoto) detectDragGestures(onDragEnd = { vm.panEnd() }, onDragCancel = { vm.panEnd() }) { change, drag ->
+                    change.consume()
+                    val k = CardRender.W / size.width.toFloat()
+                    vm.pan(drag.x * k, drag.y * k)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val pv = vm.preview
+        if (pv != null) Image(pv.asImageBitmap(), contentDescription = "কার্ডের প্রিভিউ", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        else CircularProgressIndicator(color = C.Red)
+    }
+    if (vm.hasPhoto) Text(if (vm.canEditCollage) "👆 কার্ডের ওপর আঙুল টেনে পুরো কোলাজের পজিশন ঠিক করুন; প্রতিটি ছবি আলাদা সরাতে 🧩 কোলাজ এডিট চাপুন।" else "👆 ছবির ওপর আঙুল টেনে ছবির পজিশন ঠিক করুন, বা ✂️ ক্রপ দিয়ে অংশ কেটে নিন।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
+    if (vm.collItems.size == 2) {
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !vm.collVertical, onClick = { vm.setCollVertical(false) }, label = { Text("◀️▶️ পাশাপাশি") })
+            FilterChip(selected = vm.collVertical, onClick = { vm.setCollVertical(true) }, label = { Text("⬆️⬇️ উপর-নিচ") })
+        }
+    }
+    if (vm.hasPhoto) {
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppBtn("↔️ ফ্লিপ", color = C.Gray, small = true) { vm.flipPhoto() }
+            AppBtn("✂️ ক্রপ", color = C.Blue, small = true) { cropOpen = true }
+            AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
+        }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (vm.canEditCollage) AppBtn("🧩 কোলাজ এডিট (প্রতিটি ছবি আলাদা)", color = C.Blue, small = true) { collOpen = true }
+            if (vm.canUndoCrop) AppBtn("↩️ ক্রপ ফেরত", color = C.Gray, small = true) { vm.undoCrop() }
+        }
+    }
+
     FieldLabel("ফোটোকার্ডের শিরোনাম")
     AppField(vm.cardTitle, { vm.cardTitle = it.replace(Regex("\\s*\\n+\\s*"), " "); vm.saveDraft() }, singleLine = false, visual = CardTitleVT)
 
@@ -591,11 +627,6 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
         "upload" -> {
             AppBtn(if (vm.hasPhoto) "📷 ছবি বদলান" else "📷 ছবি আনুন", Modifier.padding(top = 8.dp), color = C.Blue) { pick() }
             Text("১টি ছবি দিলে সরাসরি যোগ হবে। একাধিক (সর্বোচ্চ ৬টি) একসাথে বাছলে সব মিলিয়ে একটা কোলাজ ছবি হবে।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !vm.collVertical, onClick = { vm.setCollVertical(false) }, label = { Text("◀️▶️ পাশাপাশি") })
-                FilterChip(selected = vm.collVertical, onClick = { vm.setCollVertical(true) }, label = { Text("⬆️⬇️ উপর-নিচ") })
-            }
-            Text("দুইটা ছবির সাজানো (যেকোনো সময় বদলানো যাবে)", fontSize = 12.sp, color = C.Muted)
         }
         "link" -> {
             FieldLabel("ইমেজ লিংক")
@@ -611,29 +642,6 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
     }
     if (vm.imgMsg.isNotEmpty()) Text(vm.imgMsg, fontSize = 13.sp, color = if (vm.imgMsg.startsWith("⚠️")) C.Red else C.Green, modifier = Modifier.padding(top = 6.dp))
 
-    // লিংকের খবরের রেফারেন্স ছবি
-    vm.refBmp?.let { rb ->
-        InfoCard(Modifier.padding(top = 10.dp)) {
-            Text("রেফারেন্স ছবি (লিংকের খবর থেকে, পাবলিশ হবে না)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Image(rb.asImageBitmap(), contentDescription = "রেফারেন্স ছবি", modifier = Modifier.padding(top = 6.dp).fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit)
-            Text("টিক না দিলে এই ছবি দেখে কার্টুন বানানো হয়। অন্যের ছবি ব্যবহারে কপিরাইটের ঝুঁকি থাকে, অনুমতি বা সূত্র দেখে নিন।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppBtn("✔ এই ছবিই সরাসরি ব্যবহার করুন", Modifier.weight(1f), color = C.Green, small = true) { vm.useRefNow() }
-                AppBtn("✕ বাদ দিন", color = C.Gray, small = true) { vm.dropRef() }
-            }
-        }
-    }
-    if (vm.hasPhoto) {
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppBtn("↔️ ফ্লিপ", color = C.Gray, small = true) { vm.flipPhoto() }
-            AppBtn("✂️ ক্রপ", color = C.Blue, small = true) { cropOpen = true }
-            AppBtn("✖ ছবি সরান", color = C.Gray, small = true) { vm.clearPhoto() }
-        }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (vm.canEditCollage) AppBtn("🧩 কোলাজ এডিট (প্রতিটি ছবি আলাদা)", color = C.Blue, small = true) { collOpen = true }
-            if (vm.canUndoCrop) AppBtn("↩️ ক্রপ ফেরত", color = C.Gray, small = true) { vm.undoCrop() }
-        }
-    }
 
     if (cropOpen) {
         val cb = vm.photoForCrop()
@@ -645,24 +653,6 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
         else CollageDialog(vm.collItems, vm.collVertical, onApply = { items, v -> vm.applyCollage(items, v); collOpen = false }, onCancel = { collOpen = false })
     }
 
-    // প্রিভিউ (আঙুল টেনে ছবির অবস্থান)
-    Box(
-        Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId))
-            .clip(RoundedCornerShape(10.dp)).background(Color(0xFFDDDDDD))
-            .pointerInput(vm.hasPhoto) {
-                if (vm.hasPhoto) detectDragGestures { change, drag ->
-                    change.consume()
-                    val k = CardRender.W / size.width.toFloat()
-                    vm.pan(drag.x * k, drag.y * k)
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        val pv = vm.preview
-        if (pv != null) Image(pv.asImageBitmap(), contentDescription = "কার্ডের প্রিভিউ", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        else CircularProgressIndicator(color = C.Red)
-    }
-    if (vm.hasPhoto) Text(if (vm.canEditCollage) "👆 কার্ডের ওপর আঙুল টেনে পুরো কোলাজের পজিশন ঠিক করুন; প্রতিটি ছবি আলাদা সরাতে 🧩 কোলাজ এডিট চাপুন।" else "👆 ছবির ওপর আঙুল টেনে ছবির পজিশন ঠিক করুন, বা ✂️ ক্রপ দিয়ে অংশ কেটে নিন।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
 
     AppBtn("৩. পাবলিশ করুন (WordPress + Facebook)", Modifier.padding(top = 10.dp), color = C.Green) { vm.toStep4() }
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

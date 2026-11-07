@@ -268,8 +268,16 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
         onDispose { EditorUi.fullscreen = false }
     }
     BackHandler(enabled = editor) { ev.saveDraft(); editor = false }
-    if (editor) {
-        VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false })
+    // রেন্ডার শেষে HTML-এর "২ ভিডিও" পেইজ; ব্যাক = এডিটে ফেরা, "নতুন পোস্টে ফিরুন" = সাধারণ নতুন পোস্ট
+    var resultUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    if (resultUri != null) {
+        VideoResultScreen(
+            ev, resultUri!!,
+            onBack = { resultUri = null; editor = true },
+            onNewPost = { resultUri = null },
+        )
+    } else if (editor) {
+        VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false }, onRendered = { u -> ev.saveDraft(); editor = false; resultUri = u })
     } else {
         NewPostScreen(np, ads, onOpenVideo = {
             pickVideo.launch(
