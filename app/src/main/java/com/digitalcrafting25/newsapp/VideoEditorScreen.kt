@@ -112,10 +112,14 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         val selLayerNow = tl.layerById(tl.selectedLayerId)
         val panelOpen = (selClipNow?.card != null) || (selLayerNow != null && editOpen)
         if (tl.clips.isNotEmpty()) {
-            StageCard(
-                if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f),
-                vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered, onBack,
-            )
+            // weight অবশ্যই এখানেই (সরাসরি এই Column-এর সন্তানে) দিতে হয়; StageCard-এর ভেতরে Surface থাকায় ভেতরে দিলে কাজ করত না,
+            // ফলে স্টেজ পুরো উচ্চতা খেয়ে নিচের মেনু (ডক) ০ উচ্চতা পেত
+            Box(if (panelOpen) Modifier.size(0.dp) else Modifier.weight(1f).fillMaxWidth()) {
+                StageCard(
+                    Modifier.fillMaxSize(),
+                    vm, status, error, info, setError, setInfo, addMedia, act.addAudioFile, onRendered, onBack,
+                )
+            }
         } else {
             Spacer(Modifier.weight(1f))
         }
@@ -297,14 +301,17 @@ private fun StageCard(
         },
     )
     EditorDarkTheme {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+    // প্রিভিউ সর্বোচ্চ ~৪৮% উচ্চতা নেয় (১৬:৯ ভিডিও নিজের মাপেই বসে, ওপর-নিচে ফাঁকা থাকে না); বাকিটা টাইমলাইন
+    val previewMaxH = maxHeight * 0.48f
     Column(
-        modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        Modifier.fillMaxSize().padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ওপরের বার: পেছনে · 720P · পাবলিশ
         EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true })
 
-        FramePreview(tl, vm.aspect, pp, playing, Modifier.weight(1f))
+        FramePreview(tl, vm.aspect, pp, playing, Modifier.heightIn(max = previewMaxH))
 
         // কন্ট্রোল বার: সময় (বাঁয়ে) · ◀০.১ ▶প্লে ০.১▶ (মাঝে) · আনডু/রিডু (ডানে)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -326,7 +333,10 @@ private fun StageCard(
 
         // জুম (টাইমলাইন): 🔍− স্লাইডার ＋ ⤢ — এক সারিতে
         NudgeZoomBar(tl)
-        EditorTimeline(tl, onAddMedia, onAddAudio)
+        // টাইমলাইন বাকি জায়গা নেয়; ট্র্যাক বেশি হলে ওপর-নিচে স্ক্রল হয়
+        Column(Modifier.weight(1f, fill = true).fillMaxWidth().verticalScroll(rememberScrollState())) {
+            EditorTimeline(tl, onAddMedia, onAddAudio)
+        }
 
         // বার্তা / রেন্ডারের অগ্রগতি
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
@@ -335,6 +345,7 @@ private fun StageCard(
             Text("রেন্ডার হচ্ছে… ${status.progress}%", color = ED.Sub, fontSize = 13.sp)
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
         }
+    }
     }
     }
 }
