@@ -402,7 +402,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
         // ট্রিম হাতল (HTML-এর মতো): টেনে ক্লিপের শুরু/শেষ ছাঁটা
         val cur by rememberUpdatedState(c)
         val dpPerSec = DP_PER_SEC * tl.timelineZoom
-        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage, selected = selected,
+        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage && c.card == null, selected = selected,
             onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
             val k = cur
             if (!k.isImage && k.durationMs > 0L) {
@@ -414,7 +414,7 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
             onStart = { tl.selectedId = c.id; tl.selectedLayerId = null }) { dSec ->
             val k = cur
             if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
-            else if (k.durationMs > 0L) {
+            else if (k.card == null && k.durationMs > 0L) {
                 val dur = k.durationMs / 1000f
                 tl.trim(k.id, k.startSec, (k.effEndSec() + dSec).coerceIn(k.startSec + 0.2f, dur))
             }
@@ -470,7 +470,7 @@ private fun ClipStrip(c: Clip, widthDp: Float, modifier: Modifier) {
 }
 
 private fun loadStripFrames(ctx: android.content.Context, c: Clip, n: Int): List<ImageBitmap> {
-    if (c.isImage || c.card != null) {
+    if (c.isImage) {
         return listOfNotNull(loadImageThumb(ctx, c.uri, 240)?.asImageBitmap())
     }
     val out = ArrayList<ImageBitmap>()

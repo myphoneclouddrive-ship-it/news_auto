@@ -129,7 +129,8 @@ private fun cornerAlignment(c: Corner): Alignment = when (c) {
 fun LayerOverlay(tl: Timeline) {
     val ms = tl.playheadMs
     val repStop = repeatStopMs(tl.clips)
-    val active = tl.visualLayers.filter { it.isActiveAt(ms, repStop) }
+    val cards = cardRangesMs(tl.clips)
+    val active = tl.visualLayers.filter { it.isActiveAt(ms, repStop, cards) }
     if (active.isEmpty()) return
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {

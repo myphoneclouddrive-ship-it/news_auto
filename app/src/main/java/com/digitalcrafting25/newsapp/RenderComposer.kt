@@ -101,6 +101,7 @@ object RenderComposer {
         val renderer = LayerFrameRenderer(
             ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips),
             canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
+            cardRanges = cardRangesMs(spec.clips),
         )
         // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
         val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()

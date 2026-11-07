@@ -121,18 +121,22 @@ object DraftStore {
                 put("outro", it.outro); put("style", it.style.name)
                 put("title", it.title); put("subtitle", it.subtitle)
                 it.logo?.let { l -> put("logo", l.toString()) }
+                put("w", it.w); put("h", it.h)
             })
         }
     }
 
     private fun clipFromJson(o: JSONObject): Clip {
-        val card = if (o.has("card")) o.getJSONObject("card").let {
+        // আগের ভার্সনের ছবি-কার্ড (isImage = true) এখন আর কার্ড নয়, সাধারণ ছবি-ক্লিপ হিসেবে থেকে যায়
+        val card = if (o.has("card") && !o.optBoolean("isImage")) o.getJSONObject("card").let {
             CardSpec(
                 outro = it.optBoolean("outro"),
-                style = runCatching { CardStyle.valueOf(it.optString("style")) }.getOrDefault(CardStyle.RED),
+                style = runCatching { CardStyle.valueOf(it.optString("style")) }.getOrDefault(CardStyle.GLOBAL),
                 title = it.optString("title"),
                 subtitle = it.optString("subtitle"),
                 logo = it.uriOrNull("logo"),
+                w = it.optInt("w"),
+                h = it.optInt("h"),
             )
         } else null
         return Clip(

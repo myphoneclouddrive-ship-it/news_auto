@@ -468,7 +468,7 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
     if (playing) return
     val l = tl.layers.firstOrNull { it.id == id } ?: return
     if (l !is TextLayer && l !is ImageLayer) return
-    if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips))) return
+    if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips), cardRangesMs(tl.clips))) return
     Box(
         Modifier.fillMaxSize().pointerInput(id) {
             detectTransformGestures { _, pan, zoom, _ ->

@@ -202,7 +202,7 @@ class Timeline {
 
     fun duplicate(id: Long) {
         val i = clips.indexOfFirst { it.id == id }
-        if (i < 0) return
+        if (i < 0 || clips[i].card != null) return
         val copy = clips[i].copy(id = newId())
         val m = clips.toMutableList()
         m.add(i + 1, copy)
@@ -215,7 +215,7 @@ class Timeline {
         val i = clips.indexOfFirst { it.id == id }
         if (i < 0) return
         val c = clips[i]
-        if (c.isImage || c.durationMs <= 0L) return
+        if (c.isImage || c.durationMs <= 0L || c.card != null) return   // ইন্ট্রো/আউট্রো কার্ডের দৈর্ঘ্য ফিক্সড
         val dur = c.durationMs / 1000f
         val minLen = MIN_PIECE_MS / 1000f
         val s = startSec.coerceIn(0f, (dur - minLen).coerceAtLeast(0f))
@@ -253,6 +253,7 @@ class Timeline {
                 acc += len
                 continue
             }
+            if (c.card != null) return "ইন্ট্রো/আউট্রো কার্ড কাটা যায় না"
             val off = pos - acc
             if (off < MIN_PIECE_MS || len - off < MIN_PIECE_MS) {
                 return "কাটার জায়গা ক্লিপের একদম শুরু বা শেষে। প্লেহেড আরেকটু ভেতরে নিন"
@@ -294,12 +295,13 @@ class Timeline {
     fun cardClip(outro: Boolean): Clip? = clips.firstOrNull { it.card?.outro == outro }
 
     /** ইন্ট্রো হলে সবার আগে, আউট্রো হলে সবার শেষে কার্ড-ক্লিপ বসায়; ইন্ট্রোর দৈর্ঘ্যে বাকি লেয়ার এগিয়ে যায় */
-    fun addCard(spec: CardSpec, uri: Uri, sec: Float = CardDefaults.SEC): String? {
+    fun addCard(spec: CardSpec, uri: Uri, durationMs: Long): String? {
         if (cardClip(spec.outro) != null) return "এই ${if (spec.outro) "আউট্রো" else "ইন্ট্রো"} আগে থেকেই আছে"
+        // কার্ড এখন সাউন্ডসহ ভিডিও-ক্লিপ (isImage = false); দৈর্ঘ্য ভিডিও ফাইলের নিজের দৈর্ঘ্য
         val clip = Clip(
-            id = newId(), uri = uri, isImage = true, durationMs = 0L,
+            id = newId(), uri = uri, isImage = false, durationMs = durationMs,
             name = if (spec.outro) "🏁 আউট্রো" else "🎬 ইন্ট্রো",
-            imageSec = sec, card = spec,
+            card = spec,
         )
         val m = clips.toMutableList()
         if (spec.outro) {
@@ -315,8 +317,24 @@ class Timeline {
     }
 
     /** কার্ডের লেখা/স্টাইল বদলের পর নতুন ছবির Uri বসায় (এক আনডু ধাপ) */
-    fun setCard(id: Long, spec: CardSpec, uri: Uri) {
-        updateClipTx(id, null) { it.copy(card = spec, uri = uri) }
+    fun setCard(id: Long, spec: CardSpec, uri: Uri, durationMs: Long) {
+        updateClipTx(id, null) { it.copy(card = spec, uri = uri, durationMs = durationMs, startSec = 0f, endSec = 0f) }
+    }
+
+    /**
+     * "➕ সামনে ভিডিও" / "➕ পিছনে ভিডিও": ইন্ট্রো/আউট্রো বসানোর পরও টাইমলাইনের একদম শুরুতে (ইন্ট্রোর আগে)
+     * বা একদম শেষে (আউট্রোর পরে) আরও ভিডিও/ছবি যোগ। সামনে বসলে সব লেয়ার/অডিও নতুন অংশের দৈর্ঘ্যের সমান এগিয়ে যায়।
+     */
+    fun addAtEdge(list: List<Clip>, front: Boolean) {
+        if (list.isEmpty()) return
+        if (clips.isEmpty()) { addAll(list); return }
+        if (front) {
+            commitAll(list + clips, shiftLayers(layers, list.sumOf { it.lengthMs() }))
+        } else {
+            commit(clips + list)
+        }
+        selectedId = list.last().id
+        selectedLayerId = null
     }
 
     // ================= ক্লিপ টুল (ধাপ ৬) =================
@@ -403,7 +421,7 @@ class Timeline {
     fun layerById(id: Long?): Layer? = if (id == null) null else layers.firstOrNull { it.id == id }
 
     /** এই মুহূর্তে (টাইমলাইনের ms) যেসব লেয়ার চালু */
-    fun layersAt(ms: Long): List<Layer> { val stop = repeatStopMs(clips); return layers.filter { it.isActiveAt(ms, stop) } }
+    fun layersAt(ms: Long): List<Layer> { val stop = repeatStopMs(clips); val cards = cardRangesMs(clips); return layers.filter { it.isActiveAt(ms, stop, cards) } }
 
     /**
      * প্লেহেডের জায়গায় নতুন লেয়ার যোগ করে ও বাছাই করে। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।

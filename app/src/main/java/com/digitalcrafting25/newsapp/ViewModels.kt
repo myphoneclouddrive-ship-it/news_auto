@@ -129,7 +129,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }.getOrNull() ?: "ফাইল"
 
-    fun addUris(uris: List<Uri>) {
+    /** front/back = null: সাধারণ যোগ (শেষে); true = টাইমলাইনের একদম সামনে, false = একদম পিছনে ("➕ সামনে/পিছনে ভিডিও") */
+    fun addUris(uris: List<Uri>, front: Boolean? = null) {
         viewModelScope.launch {
             val added = mutableListOf<Clip>()
             for (u in uris) {
@@ -150,32 +151,58 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 added.add(clip)
             }
-            tl.addAll(added)
+            if (front == null) tl.addAll(added) else tl.addAtEdge(added, front)
         }
     }
 
-    /** রেডি ইন্ট্রো/আউট্রো: ডিফল্ট লেখায় কার্ড বানিয়ে বসায়; আগে থেকে থাকলে সেটাই বাছে। সমস্যা থাকলে বার্তা ফেরত দেয় */
-    fun addCard(outro: Boolean): String? {
+    /** ইন্ট্রো/আউট্রো ভিডিও বানানোর সময় true (একসাথে দুটো বানানো ঠেকাতে) */
+    var cardBusy by mutableStateOf(false)
+        private set
+    /** কার্ড বানানোর অগ্রগতি ০..১০০ */
+    var cardProgress by mutableIntStateOf(0)
+        private set
+
+    /**
+     * রেডি ইন্ট্রো/আউট্রো: অ্যানিমেটেড ভিডিও-কার্ড (সাউন্ডসহ) বানিয়ে বসায়; আগে থেকে থাকলে সেটাই বাছে।
+     * সমস্যা থাকলে বার্তা ফেরত দেয়। বানাতে কয়েক সেকেন্ড লাগে, শেষে onResult-এ খবর আসে।
+     */
+    fun addCard(outro: Boolean, onResult: (String?) -> Unit = {}): String? {
         if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর ইন্ট্রো/আউট্রো দিন"
         tl.cardClip(outro)?.let {
             tl.selectedId = it.id
             tl.selectedLayerId = null
             return null
         }
-        val spec = if (outro) CardDefaults.outro(logo) else CardDefaults.intro(caption, logo)
+        if (cardBusy) return "একটু অপেক্ষা করুন, আগের কার্ড বানানো চলছে"
         val (w, h) = aspect.w to aspect.h
-        viewModelScope.launch {
-            val uri = withContext(Dispatchers.IO) { runCatching { CardMaker.make(app, spec, w, h) }.getOrNull() }
-            if (uri != null) tl.addCard(spec, uri)
+        val spec = (if (outro) CardDefaults.outro(logo) else CardDefaults.intro(caption, logo)).copy(w = w, h = h)
+        buildCard(spec, w, h, onResult) { uri, dur ->
+            val m = tl.addCard(spec, uri, dur)
+            onResult(m ?: if (outro) "🏁 আউট্রো বসেছে" else "🎬 ইন্ট্রো বসেছে — লেখা/স্টাইল নিচে বদলান")
         }
         return null
     }
 
-    fun updateCard(id: Long, spec: CardSpec) {
+    fun updateCard(id: Long, spec: CardSpec, onResult: (String?) -> Unit = {}) {
+        if (cardBusy) { onResult("একটু অপেক্ষা করুন, আগের কার্ড বানানো চলছে"); return }
         val (w, h) = aspect.w to aspect.h
+        val s2 = spec.copy(w = w, h = h)
+        buildCard(s2, w, h, onResult) { uri, dur ->
+            tl.setCard(id, s2, uri, dur)
+            onResult("✅ কার্ড বদলানো হয়েছে")
+        }
+    }
+
+    private fun buildCard(spec: CardSpec, w: Int, h: Int, onResult: (String?) -> Unit, onDone: (Uri, Long) -> Unit) {
+        cardBusy = true
+        cardProgress = 0
         viewModelScope.launch {
-            val uri = withContext(Dispatchers.IO) { runCatching { CardMaker.make(app, spec, w, h) }.getOrNull() }
-            if (uri != null) tl.setCard(id, spec, uri)
+            val r = withContext(Dispatchers.IO) {
+                runCatching { CardVideoMaker.make(app, spec, w, h) { cardProgress = (it * 100f).toInt().coerceIn(0, 100) } }
+            }
+            cardBusy = false
+            r.onSuccess { (uri, dur) -> onDone(uri, dur) }
+                .onFailure { onResult("⚠️ ইন্ট্রো/আউট্রো বানানো যায়নি: ${it.message ?: "অজানা সমস্যা"}") }
         }
     }
 
@@ -198,13 +225,6 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         for (l in tl.layers) LayerDefaults.validate(l)?.let { return it }
-        // কার্ড (ইন্ট্রো/আউট্রো) এখনকার ভিডিওর মাপে আবার বানানো (মাপ না বদলালে আগের ফাইলই মেলে)
-        val renderClips = clips.map { c ->
-            val s = c.card
-            if (s != null && c.isImage) {
-                runCatching { c.copy(uri = CardMaker.make(app, s, aspect.w, aspect.h)) }.getOrDefault(c)
-            } else c
-        }
         val hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP }
         val hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM }
         val top = if (hasTopAd) "" else fbTop.trim()
@@ -213,12 +233,37 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val band = if (fbBand && aspect == Aspect.LANDSCAPE && (top.isNotEmpty() || bottom.isNotEmpty())) {
             (Math.round(aspect.h * 0.18f) / 2) * 2
         } else 0
-        RenderBus.spec = RenderSpec(
-            renderClips, aspect, caption, logo, music, musicVolume, keepAudio, tl.layers.toList(),
-            fbTop = top, fbBottom = bottom, fbColor = fbColor, fbBandPx = band,
-        )
+        val asp = aspect
+        val snapClips = clips.toList()
+        val snapLayers = tl.layers.toList()
+        val cap = caption
+        val lg = logo
+        val mu = music
+        val mv = musicVolume
+        val ka = keepAudio
+        val fc = fbColor
         RenderBus.status.value = RenderStatus.Running(0)
-        ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
+        viewModelScope.launch {
+            // কার্ড (ইন্ট্রো/আউট্রো) যে মাপে বানানো সেটা এখনকার ভিডিওর মাপের সাথে না মিললে ওই মাপে আবার বানানো
+            // (দৈর্ঘ্য একই থাকে, তাই টাইমলাইন/লেয়ারের সময় বদলায় না; ব্যর্থ হলে আগের ফাইলই চলে)
+            val renderClips = withContext(Dispatchers.IO) {
+                snapClips.map { c ->
+                    val s = c.card
+                    if (s != null && !c.isImage && (s.w != asp.w || s.h != asp.h)) {
+                        runCatching {
+                            val s2 = s.copy(w = asp.w, h = asp.h)
+                            val (u, d) = CardVideoMaker.make(app, s2, asp.w, asp.h)
+                            c.copy(uri = u, card = s2, durationMs = d)
+                        }.getOrDefault(c)
+                    } else c
+                }
+            }
+            RenderBus.spec = RenderSpec(
+                renderClips, asp, cap, lg, mu, mv, ka, snapLayers,
+                fbTop = top, fbBottom = bottom, fbColor = fc, fbBandPx = band,
+            )
+            ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
+        }
         return null
     }
 

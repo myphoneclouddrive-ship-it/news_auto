@@ -242,6 +242,15 @@ fun EditorDockBar(
     // মেনুর স্তর: null = মূল টুলবার; "audio"/"brand"/"ads"/"card" = ভেতরের সারি (CapCut-এর মতো দুই ধাপ)
     var group by remember { mutableStateOf<String?>(null) }
 
+    // "➕ সামনে ভিডিও" / "➕ পিছনে ভিডিও": ইন্ট্রোর আগে বা আউট্রোর পরে আরও ভিডিও/ছবি (true = সামনে)
+    var pickFront by rememberSaveable { mutableStateOf(true) }
+    val pickEdge = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            vm.addUris(uris, front = pickFront)
+            onInfo(if (pickFront) "➕ সামনে যোগ হচ্ছে…" else "➕ পিছনে যোগ হচ্ছে…")
+        }
+    }
+
     fun toMenu() {
         tl.selectedId = null
         tl.selectedLayerId = null
@@ -428,14 +437,37 @@ fun EditorDockBar(
                                 }
                                 "card" -> {
                                     DockBtn("clapper", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
-                                        val m = vm.addCard(false)
+                                        val m = vm.addCard(false, onInfo)
                                         onMessage(m)
                                         if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
                                     }
                                     DockBtn("flag", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
-                                        val m = vm.addCard(true)
+                                        val m = vm.addCard(true, onInfo)
                                         onMessage(m)
                                         if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
+                                    }
+                                    DockBtn("plus", "সামনে ভিডিও") {
+                                        if (tl.clips.isEmpty()) onMessage("আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন")
+                                        else {
+                                            onMessage(null)
+                                            pickFront = true
+                                            pickEdge.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                        }
+                                    }
+                                    DockBtn("plus", "পিছনে ভিডিও") {
+                                        if (tl.clips.isEmpty()) onMessage("আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন")
+                                        else {
+                                            onMessage(null)
+                                            pickFront = false
+                                            pickEdge.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                        }
+                                    }
+                                    if (vm.cardBusy) {
+                                        Text(
+                                            "🎬 কার্ড বানানো হচ্ছে… ${vm.cardProgress}%",
+                                            color = ED.Sub, fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp).align(androidx.compose.ui.Alignment.CenterVertically),
+                                        )
                                     }
                                 }
                             }
@@ -583,7 +615,8 @@ private fun CardEditor(vm: EditorViewModel, c: Clip, spec: CardSpec, onInfo: (St
     var style by remember(c.id, spec) { mutableStateOf(spec.style) }
     var title by remember(c.id, spec) { mutableStateOf(spec.title) }
     var sub by remember(c.id, spec) { mutableStateOf(spec.subtitle) }
-    val changed = style != spec.style || title != spec.title || sub != spec.subtitle ||
+    // আউট্রোর লেখা ফিক্সড ("ধন্যবাদ! আমাদের সাথে থাকুন" + লাইক/কমেন্ট/শেয়ার), তাই শুধু ইন্ট্রোর লেখা বদলানো যায়
+    val changed = style != spec.style || (!spec.outro && (title != spec.title || sub != spec.subtitle)) ||
         (vm.logo != spec.logo)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(if (spec.outro) "🏁 আউট্রো কার্ড" else "🎬 ইন্ট্রো কার্ড", fontWeight = FontWeight.Bold, color = ED.Amber, fontSize = 13.sp)
@@ -592,20 +625,36 @@ private fun CardEditor(vm: EditorViewModel, c: Clip, spec: CardSpec, onInfo: (St
                 OptionTile(label = st.label, selected = style == st) { style = st }
             }
         }
-        androidx.compose.material3.OutlinedTextField(
-            value = title, onValueChange = { title = it },
-            label = { Text("শিরোনাম") }, maxLines = 3, modifier = Modifier.fillMaxWidth(),
-        )
-        androidx.compose.material3.OutlinedTextField(
-            value = sub, onValueChange = { sub = it },
-            label = { Text("উপশিরোনাম (ঐচ্ছিক)") }, maxLines = 2, modifier = Modifier.fillMaxWidth(),
-        )
+        if (!spec.outro) {
+            androidx.compose.material3.OutlinedTextField(
+                value = title, onValueChange = { title = it.take(40) },
+                label = { Text("বড় লেখা (যেমন: ব্রেকিং নিউজ)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            androidx.compose.material3.OutlinedTextField(
+                value = sub, onValueChange = { sub = it.take(70) },
+                label = { Text("নিচের ছোট লেখা (যেমন: সর্বশেষ সংবাদ • সবার আগে)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Text(
-            if (vm.logo != null) "নিচের \"লোগো\" বাছা আছে, তাই কার্ডে লোগোও বসবে।" else "লোগো বাছা থাকলে কার্ডের মাঝে তা-ও বসবে।",
+            if (vm.logo != null) "নিচের \"লোগো\" বাছা আছে, তাই কার্ডে লোগোও বসবে।" else "লোগো বাছা থাকলে কার্ডে তা-ও বসবে।",
             color = ED.Muted, fontSize = 11.sp,
         )
-        SmallBtn(if (changed) "🔄 কার্ডে প্রয়োগ করুন" else "✔ কার্ড হালনাগাদ", Modifier.fillMaxWidth(), enabled = changed) {
-            vm.updateCard(c.id, spec.copy(style = style, title = title, subtitle = sub, logo = vm.logo))
+        val busy = vm.cardBusy
+        if (busy) {
+            Text("🎬 কার্ড বানানো হচ্ছে… ${vm.cardProgress}%", color = ED.Sub, fontSize = 12.sp)
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { vm.cardProgress / 100f }, modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        SmallBtn(
+            if (changed) "🔄 কার্ডে প্রয়োগ করুন" else "✔ কার্ড হালনাগাদ",
+            Modifier.fillMaxWidth(), enabled = changed && !busy,
+        ) {
+            vm.updateCard(
+                c.id,
+                spec.copy(style = style, title = if (spec.outro) spec.title else title, subtitle = if (spec.outro) spec.subtitle else sub, logo = vm.logo),
+                onResult = onInfo,
+            )
             onInfo("🔄 কার্ড বদলানো হচ্ছে…")
         }
     }

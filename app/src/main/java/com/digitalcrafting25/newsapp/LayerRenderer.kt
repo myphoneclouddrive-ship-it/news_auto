@@ -40,6 +40,8 @@ class LayerFrameRenderer(
     private val fbTop: String = "",
     private val fbBottom: String = "",
     private val fbColor: Int = Color.BLACK,
+    // ইন্ট্রো/আউট্রো কার্ডের সময়: ওখানে স্ক্রলিং লেখা/বিজ্ঞাপন/ট্যাগ/লোগো এবং পুরোনো লোগো-বার আঁকা হয় না (HTML-এর মতো)
+    private val cardRanges: List<LongRange> = emptyList(),
 ) {
     private val layers: List<Layer> = allLayers.filterNot { it.isAudio }
     private val images = HashMap<Long, Bitmap>()
@@ -49,6 +51,7 @@ class LayerFrameRenderer(
     )
     private var cur = -1
     private var lastKey: List<Long>? = null
+    private var lastInCard = false
     private val u = h / 220f
 
     val isEmpty: Boolean get() = layers.isEmpty() && base == null && yOff == 0
@@ -81,13 +84,15 @@ class LayerFrameRenderer(
 
     /** টাইমলাইনের ms-এ ফ্রেমের ওপরের ছবি */
     fun frameAt(ms: Long): Bitmap {
-        val active = layers.filter { it.isActiveAt(ms, repeatStopMs) }
+        val active = layers.filter { it.isActiveAt(ms, repeatStopMs, cardRanges) }
         val key = active.map { it.id }
+        val inCard = cardRanges.any { ms in it }
         val animated = active.any { it is TickerLayer }
-        if (!animated && cur >= 0 && key == lastKey) return bufs[cur]
+        if (!animated && cur >= 0 && key == lastKey && inCard == lastInCard) return bufs[cur]
 
         cur = if (cur == 0) 1 else 0
         lastKey = key
+        lastInCard = inCard
         val bmp = bufs[cur]
         bmp.eraseColor(Color.TRANSPARENT)
         val cv = Canvas(bmp)
@@ -99,7 +104,7 @@ class LayerFrameRenderer(
             cv.save()
             cv.translate(0f, yOff.toFloat())
         }
-        base?.let { cv.drawBitmap(it, 0f, 0f, null) }
+        if (!inCard) base?.let { cv.drawBitmap(it, 0f, 0f, null) }
         for (l in active) {
             when (l) {
                 is TextLayer -> drawText(cv, l)

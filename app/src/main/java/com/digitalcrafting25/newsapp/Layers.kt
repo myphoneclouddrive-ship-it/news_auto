@@ -46,7 +46,8 @@ val Layer.lengthMs: Long get() = (endMs - startMs).coerceAtLeast(0L)
  * লেয়ার এই মুহূর্তে চালু কিনা। নাম/পদবির বারে repeatSec > 0 হলে: প্রথমবার startMs থেকে (দৈর্ঘ্য = endMs - startMs),
  * তারপর প্রতি max(repeatSec, দৈর্ঘ্য+১) সেকেন্ডে আবার; stopMs (আউট্রো শুরুর ১৫ সেকেন্ড আগে) থেকে আর আসে না — HTML nameDraw-এর নিয়ম।
  */
-fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE): Boolean {
+fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE, cards: List<LongRange> = emptyList()): Boolean {
+    if (cards.isNotEmpty() && hiddenInCard() && cards.any { ms in it }) return false
     if (this is NameBarLayer && repeatSec > 0) {
         val du = endMs - startMs
         if (du <= 0L || ms < startMs || ms >= maxOf(startMs, stopMs)) return false
@@ -55,6 +56,24 @@ fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE): Boolean {
     }
     return ms >= startMs && ms < endMs
 }
+
+/**
+ * ইন্ট্রো/আউট্রো কার্ডের সময়ের পরিসর (টাইমলাইনের ms)। HTML-এর মতো ওই অংশে পুরো ফ্রেম কার্ডের,
+ * তাই স্ক্রলিং লেখা, বিজ্ঞাপন, ট্যাগ ও আলাদা লোগো আসে না (`hiddenInCard`)।
+ */
+fun cardRangesMs(clips: List<Clip>): List<LongRange> {
+    val out = ArrayList<LongRange>()
+    var acc = 0L
+    for (c in clips) {
+        val len = c.lengthMs()
+        if (c.card != null && len > 0L) out += acc until acc + len
+        acc += len
+    }
+    return out
+}
+
+/** HTML draw()-এর isOut নিয়ম: ইন্ট্রো/আউট্রো অংশে স্ক্রলিং লেখা, ওপর-নিচের বিজ্ঞাপন, ট্যাগ ও লোগো থাকে না */
+fun Layer.hiddenInCard(): Boolean = this is TickerLayer || this is AdLayer || this is TagLayer || (this is ImageLayer && isLogo)
 
 /** "আবার দেখান"-এর শেষ সীমা: আউট্রো শুরুর ১৫ সেকেন্ড আগে (আউট্রো না থাকলে ভিডিওর শেষের ১৫ সেকেন্ড আগে) */
 fun repeatStopMs(clips: List<Clip>): Long {
