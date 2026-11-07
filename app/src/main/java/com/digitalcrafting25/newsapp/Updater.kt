@@ -2,6 +2,7 @@ package com.digitalcrafting25.newsapp
 
 import android.app.DownloadManager
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -129,8 +130,63 @@ object Updater {
             }
             val body = j.optString("body", "")
             val sha = Regex("sha256:\\s*([0-9a-fA-F]{64})").find(body)?.groupValues?.get(1)
-            val notes = body.lines().filterNot { it.trim().startsWith("sha256:") }.joinToString("\n").trim()
+            // একাধিক ভার্সন বাদ পড়ে থাকলে সবগুলোর "নতুন কী" একসাথে; না পারলে শুধু সর্বশেষটার নোট
+            val notes = runCatching { notesSince(repo, BuildConfig.VERSION_CODE) }.getOrNull().orEmpty()
+                .ifBlank { cleanNotes(body) }
             return UpdateInfo(code, j.optString("name", tag), url ?: return null, sha, notes)
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** রিলিজ নোটের লেখা থেকে `sha256:` লাইন বাদ */
+    private fun cleanNotes(body: String): String =
+        body.lines().filterNot { it.trim().startsWith("sha256:") }.joinToString("\n").trim()
+
+    /**
+     * ইন্সটল করা ভার্সনের (installed) পরের সব রিলিজের নোট, নতুন থেকে পুরোনো। একটাই রিলিজ হলে শুধু তার নোট;
+     * একাধিক হলে প্রতিটার আগে ভার্সনের নাম। একই লেখা বারবার থাকলে একবারই দেখায়। ব্লকিং; ব্যর্থ হলে ব্যতিক্রম ছোঁড়ে।
+     */
+    private fun notesSince(repo: String, installed: Int): String {
+        val c = URL("https://api.github.com/repos/$repo/releases?per_page=20").openConnection() as HttpURLConnection
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", UA)
+        c.connectTimeout = 15000
+        c.readTimeout = 20000
+        try {
+            if (c.responseCode !in 200..299) throw IOException("releases ${c.responseCode}")
+            val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+            val items = ArrayList<Triple<Int, String, String>>()   // কোড, নাম, নোট
+            for (i in 0 until arr.length()) {
+                val r = arr.getJSONObject(i)
+                if (r.optBoolean("draft") || r.optBoolean("prerelease")) continue
+                val tag = r.optString("tag_name")
+                val code = tag.trim().removePrefix("v").toIntOrNull() ?: continue
+                if (code <= installed) continue
+                val body = cleanNotes(r.optString("body", ""))
+                if (body.isNotBlank()) items += Triple(code, r.optString("name", tag), body)
+            }
+            items.sortByDescending { it.first }
+            val seen = HashSet<String>()
+            val uniq = items.filter { seen.add(it.third) }
+            return when {
+                uniq.isEmpty() -> ""
+                uniq.size == 1 -> uniq[0].third
+                else -> uniq.joinToString("\n\n") { "# ${it.second}\n${it.third}" }
+            }
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** ওয়েব-ফলব্যাকে API ছাড়া নোট: ওই ট্যাগের কমিটের `RELEASE_NOTES.md` (raw.githubusercontent, লিমিট নেই) */
+    private fun notesFromRaw(repo: String, tag: String): String {
+        val c = URL("https://raw.githubusercontent.com/$repo/$tag/RELEASE_NOTES.md").openConnection() as HttpURLConnection
+        c.setRequestProperty("User-Agent", UA)
+        c.connectTimeout = 15000
+        c.readTimeout = 20000
+        return try {
+            if (c.responseCode in 200..299) cleanNotes(c.inputStream.bufferedReader().use { it.readText() }) else ""
         } finally {
             c.disconnect()
         }
@@ -176,7 +232,8 @@ object Updater {
         }
         // build.yml: ভার্সন কোড = ১০০ + রান নম্বর, নাম = ২.০.রান নম্বর
         val name = if (code > 100) "2.0.${code - 100}" else tag
-        return UpdateInfo(code, name, url, sha, "")
+        val notes = runCatching { notesFromRaw(repo, tag) }.getOrDefault("")
+        return UpdateInfo(code, name, url, sha, notes)
     }
 
     fun isNewer(info: UpdateInfo) = info.versionCode > BuildConfig.VERSION_CODE

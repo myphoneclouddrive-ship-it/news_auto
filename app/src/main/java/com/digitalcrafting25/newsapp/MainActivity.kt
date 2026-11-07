@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -143,7 +144,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    if (info.notes.isNotBlank()) Text(info.notes)
+                    UpdateNotes(info.notes, 260.dp)
                     upd.progress?.let { p ->
                         LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                         Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
@@ -369,6 +370,32 @@ fun NumField(label: String, value: Float, modifier: Modifier = Modifier, onChang
     )
 }
 
+/**
+ * আপডেটে নতুন কী কী ফিচার এল তার তালিকা। নোটের লেখা সাধারণ মার্কডাউন: `- ` / `* ` দিয়ে শুরু লাইন = বুলেট,
+ * `#` দিয়ে শুরু লাইন = মোটা শিরোনাম (একাধিক ভার্সনের নোট একসাথে থাকলে ভার্সনের নাম)। নোট না থাকলে কিছু দেখায় না।
+ */
+@Composable
+fun UpdateNotes(notes: String, maxHeight: androidx.compose.ui.unit.Dp) {
+    if (notes.isBlank()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("✨ নতুন যা যা এসেছে", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = maxHeight).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            notes.lines().forEach { raw ->
+                val t = raw.trim()
+                when {
+                    t.isEmpty() -> androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+                    t.startsWith("#") -> Text(t.trimStart('#').trim(), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    t.startsWith("- ") || t.startsWith("* ") -> Text("•  " + t.drop(2).trim(), fontSize = 14.sp)
+                    else -> Text(t, fontSize = 14.sp)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun UpdateScreen(vm: UpdateViewModel) {
     val st by vm.state.collectAsStateWithLifecycle()
@@ -389,7 +416,7 @@ fun UpdateScreen(vm: UpdateViewModel) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    if (info.notes.isNotBlank()) Text(info.notes)
+                    UpdateNotes(info.notes, 360.dp)
                     if (st.downloaded) {
                         Text("নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
                     } else {

@@ -402,9 +402,9 @@ fun EditorDockBar(
                             DockBtn("🔆", "উজ্জ্বল +") { step(0.1f) }
                             DockBtn("🔅", "উজ্জ্বল −") { step(-0.1f) }
                         }
-                        if (l.isLogoLayer()) {
-                            // লোগো লেয়ার নয়: ওপর-নিচ/কপি নেই, শুধু এডিট ও মুছুন
-                            DockBtn("🗑️", "লোগো মুছুন") { tl.removeLayer(l.id); toMenu() }
+                        if (l.isSingletonLayer()) {
+                            // লোগো/স্ক্রলিং লেখা লেয়ার নয়: ওপর-নিচ/কপি নেই, শুধু এডিট ও মুছুন
+                            DockBtn("🗑️", if (l is TickerLayer) "স্ক্রলিং মুছুন" else "লোগো মুছুন") { tl.removeLayer(l.id); toMenu() }
                         } else {
                             DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
                             DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
@@ -445,7 +445,7 @@ fun EditorDockBar(
                                     DockBtn("logo", "লোগো", active = tl.layers.any { it.isLogoLayer() }) { act.add(LayerKind.LOGO) }
                                     DockBtn("pin", "ট্যাগ") { act.add(LayerKind.TAG) }
                                     DockBtn("user", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
-                                    DockBtn("ticker", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }
+                                    DockBtn("ticker", "স্ক্রলিং লেখা", active = tl.layers.any { it is TickerLayer }) { act.add(LayerKind.TICKER) }
                                 }
                                 "ads" -> {
                                     DockBtn("adBottom", "নিচের বিজ্ঞাপন") { act.add(LayerKind.AD_BOTTOM) }

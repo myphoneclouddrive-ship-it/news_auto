@@ -101,9 +101,9 @@ object RenderComposer {
 
         // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
         val totalMs = spec.clips.sumOf { it.lengthMs() }
-        val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs }
+        val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs || (it is NameBarLayer && it.repeatSec > 0) }
         val renderer = LayerFrameRenderer(
-            ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips),
+            ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
             canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
             cardRanges = cardRangesMs(spec.clips),
         )

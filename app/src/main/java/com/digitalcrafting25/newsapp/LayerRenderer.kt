@@ -34,6 +34,7 @@ class LayerFrameRenderer(
     private val base: Bitmap?,      // পুরোনো শিরোনাম-বার/লোগো (সবসময় আছে), না থাকলে null
     allLayers: List<Layer>,
     private val repeatStopMs: Long = Long.MAX_VALUE,
+    private val totalMs: Long = -1L,   // টাইমলাইনের মোট দৈর্ঘ্য: নাম-বারের "আবার দেখান"-এর প্রথম সময়ের হিসাবে
     // ফেইসবুক ব্যান্ড: ক্যানভাস canvasH উচ্চতার, লেয়ারগুলো yOff নিচে সরে ১২৮০×h ফ্রেমের ভেতরে আঁকা হয়; বাকি জায়গা সাদা ব্যান্ড
     private val canvasH: Int = h,
     private val yOff: Int = 0,
@@ -84,7 +85,7 @@ class LayerFrameRenderer(
 
     /** টাইমলাইনের ms-এ ফ্রেমের ওপরের ছবি */
     fun frameAt(ms: Long): Bitmap {
-        val active = layers.filter { it.isActiveAt(ms, repeatStopMs, cardRanges) }
+        val active = layers.filter { it.isActiveAt(ms, repeatStopMs, cardRanges, totalMs) }
         val key = active.map { it.id }
         val inCard = cardRanges.any { ms in it }
         val animated = active.any { it is TickerLayer || it is NameBarLayer }   // নাম-বারের স্লাইড ফ্রেমে ফ্রেমে বদলায়
@@ -116,7 +117,7 @@ class LayerFrameRenderer(
                 is ImageLayer -> drawImage(cv, l, topInset, bottomBase)
                 is AdLayer -> drawAd(cv, l)
                 is TickerLayer -> HtmlBrand.drawTicker(cv, w.toFloat(), h.toFloat(), l, ms, active)
-                is NameBarLayer -> HtmlBrand.drawNameBar(cv, w.toFloat(), h.toFloat(), l, ms, bottomBase)
+                is NameBarLayer -> HtmlBrand.drawNameBar(cv, w.toFloat(), h.toFloat(), l, ms, bottomBase, totalMs)
                 is OverlayLayer -> cv.drawRect(0f, 0f, w.toFloat(), h.toFloat(), fill(l.color, l.alpha))
                 // ব্রাইটনেস: সাদা/কালোর স্বচ্ছ আস্তরণ দিয়ে আনুমানিক (ধাপ ৭-এ আরও ভালো করা যাবে)
                 is AdjustLayer -> if (l.brightness != 0f) {
@@ -153,7 +154,7 @@ class LayerFrameRenderer(
     private fun textPaint(color: Int, size: Float, bold: Boolean) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         textSize = size
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        typeface = BrandFont.get(if (bold) 700 else 500)
     }
 
     private fun drawText(cv: Canvas, l: TextLayer) {
@@ -192,18 +193,14 @@ class LayerFrameRenderer(
         cv.restore()
     }
 
-    /** HTML strip()/fit()-এর মতো: পুরো প্রস্থের সাদা পট্টি (w × উচ্চতা), ছবি তার ভেতরে অনুপাত ঠিক রেখে মাঝে বসে — দুই পাশ ফাঁকা থাকে না */
+    /** ব্যানার: পুরো প্রস্থ × ফ্রেমের ১৫% (১২৮০×৭২০-তে ১২৮০×১০৮); ছবি পুরো পট্টি ভরে বসে */
     private fun drawAd(cv: Canvas, l: AdLayer) {
         val b = images[l.id] ?: return
         val sh = h * l.heightFrac
         val top = if (l.isTop) 0f else h - sh
         cv.drawRect(0f, top, w.toFloat(), top + sh, Paint().apply { color = android.graphics.Color.WHITE })
-        val r = minOf(w / b.width.toFloat(), sh / b.height.toFloat())
-        val dw = b.width * r
-        val dh = b.height * r
-        val left = (w - dw) / 2f
-        val y = top + (sh - dh) / 2f
-        cv.drawBitmap(b, null, RectF(left, y, left + dw, y + dh), Paint(Paint.FILTER_BITMAP_FLAG))
+        // ব্যানার সবসময় পুরো পট্টি (১২৮০×১০৮) জুড়ে বসে; ছবি ছোট/বড় যা-ই হোক এই মাপে আসে (HTML-এর render(ad, 1280, 108)-এর মতো)
+        cv.drawBitmap(b, null, RectF(0f, top, w.toFloat(), top + sh), Paint(Paint.FILTER_BITMAP_FLAG))
     }
 }
 

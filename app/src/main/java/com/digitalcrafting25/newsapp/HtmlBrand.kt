@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.os.Build
 import android.text.TextPaint
 import kotlin.math.ceil
 import kotlin.math.max
@@ -49,7 +48,7 @@ object HtmlBrand {
         val right = l.corner == Corner.TOP_RIGHT || l.corner == Corner.BOTTOM_RIGHT
         val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = fs
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = BrandFont.get(700)
         }
         val tw = tp.measureText(t)
         val px = fs * 0.7f
@@ -95,7 +94,7 @@ object HtmlBrand {
         val top = bottom - barH
         val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = barH * 0.52f
-            typeface = if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 500, false) else Typeface.DEFAULT
+            typeface = BrandFont.get(500)
             color = l.color
         }
         val s = "$t        "
@@ -140,12 +139,13 @@ object HtmlBrand {
      * fade চালু থাকলে পাশ থেকে স্লাইড হয়ে ঢোকে ও বেরোয় (easeInOutCubic)।
      * ms = টাইমলাইনের সময়; লেয়ার চালু থাকার সময়েই ডাকতে হবে।
      */
-    fun drawNameBar(cv: Canvas, w: Float, h: Float, l: NameBarLayer, ms: Long, nameBase: Float): RectF? {
+    fun drawNameBar(cv: Canvas, w: Float, h: Float, l: NameBarLayer, ms: Long, nameBase: Float, totalMs: Long = -1L): RectF? {
         val a = l.name.trim()
         if (a.isEmpty()) return null
         val b = l.title.trim()
         val du = (l.endMs - l.startMs).coerceAtLeast(1L).toDouble()
-        var lt = (ms - l.startMs).toDouble()
+        // HTML: "আবার দেখান" চালু থাকলে প্রথমবার ১০ সেকেন্ডে আসে (লেয়ারের নিজের শুরু নয়)
+        var lt = (ms - l.firstShowMs(totalMs)).toDouble()
         if (l.repeatSec > 0) lt %= max(l.repeatSec * 1000.0, du + 1000.0)
         if (lt < 0.0 || lt > du) return null
         var k = 1.0
@@ -159,8 +159,8 @@ object HtmlBrand {
         val x0 = w * 0.04f
         val f1 = (bh * 0.4f).roundToInt().toFloat()
         val f2 = (bh * 0.26f).roundToInt().toFloat()
-        val p1 = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = f1; typeface = Typeface.DEFAULT_BOLD; color = Color.WHITE }
-        val p2 = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = f2; typeface = Typeface.DEFAULT; color = Color.rgb(0xDD, 0xDD, 0xDD) }
+        val p1 = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = f1; typeface = BrandFont.get(700); color = Color.WHITE }
+        val p2 = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = f2; typeface = BrandFont.get(400); color = Color.rgb(0xDD, 0xDD, 0xDD) }
         var tw = p1.measureText(a)
         if (b.isNotEmpty()) tw = max(tw, p2.measureText(b))
         val pad = bh * 0.28f

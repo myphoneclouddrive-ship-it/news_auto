@@ -43,18 +43,32 @@ sealed interface Layer {
 val Layer.isAudio: Boolean get() = kind.isAudio
 val Layer.lengthMs: Long get() = (endMs - startMs).coerceAtLeast(0L)
 /**
- * লেয়ার এই মুহূর্তে চালু কিনা। নাম/পদবির বারে repeatSec > 0 হলে: প্রথমবার startMs থেকে (দৈর্ঘ্য = endMs - startMs),
- * তারপর প্রতি max(repeatSec, দৈর্ঘ্য+১) সেকেন্ডে আবার; stopMs (আউট্রো শুরুর ১৫ সেকেন্ড আগে) থেকে আর আসে না — HTML nameDraw-এর নিয়ম।
+ * নাম/পদবির বারের প্রথম দেখানোর সময় (টাইমলাইনের ms)। HTML nameDraw-এর মতো:
+ * "আবার দেখান" চালু (repeatSec > 0) থাকলে লেয়ারের নিজের শুরু ধরা হয় না, ইন্ট্রোসহ ১০ সেকেন্ডে প্রথম আসে
+ * (ভিডিও ছোট হলে min(১০ সে., মোট − দৈর্ঘ্য)); বন্ধ থাকলে লেয়ারের নিজের startMs।
+ * totalMs < 0 হলে (মোট দৈর্ঘ্য জানা নেই) ১০ সেকেন্ড ধরা হয়।
  */
-fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE, cards: List<LongRange> = emptyList()): Boolean {
+fun NameBarLayer.firstShowMs(totalMs: Long = -1L): Long {
+    if (repeatSec <= 0) return startMs
+    val du = (endMs - startMs).coerceAtLeast(0L)
+    return if (totalMs < 0L) 10_000L else minOf(10_000L, maxOf(0L, totalMs - du))
+}
+
+/**
+ * লেয়ার এই মুহূর্তে চালু কিনা। নাম/পদবির বারে repeatSec > 0 হলে: প্রথমবার firstShowMs-এ (ইন্ট্রোসহ ১০ সেকেন্ডে; দৈর্ঘ্য = endMs - startMs),
+ * তারপর প্রতি max(repeatSec, দৈর্ঘ্য+১) সেকেন্ডে আবার; stopMs (আউট্রো শুরুর ১৫ সেকেন্ড আগে) থেকে আর আসে না — HTML nameDraw-এর নিয়ম।
+ * totalMs = টাইমলাইনের মোট দৈর্ঘ্য (প্রথম দেখানোর সময়ের হিসাবে লাগে)।
+ */
+fun Layer.isActiveAt(ms: Long, stopMs: Long = Long.MAX_VALUE, cards: List<LongRange> = emptyList(), totalMs: Long = -1L): Boolean {
     if (cards.isNotEmpty() && hiddenInCard() && cards.any { ms in it }) return false
     // লোগো লেয়ার নয়, HTML-এর মতো সেটিং: ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে সবসময় থাকে (শুরু/শেষ সময় ধরা হয় না)
-    if (isLogoLayer()) return true
+    if (isSingletonLayer()) return true
     if (this is NameBarLayer && repeatSec > 0) {
         val du = endMs - startMs
-        if (du <= 0L || ms < startMs || ms >= maxOf(startMs, stopMs)) return false
+        val st = firstShowMs(totalMs)
+        if (du <= 0L || ms < st || ms >= maxOf(st, stopMs)) return false
         val period = maxOf(repeatSec * 1000L, du + 1000L)
-        return (ms - startMs) % period < du
+        return (ms - st) % period < du
     }
     return ms >= startMs && ms < endMs
 }
@@ -77,6 +91,9 @@ fun cardRangesMs(clips: List<Clip>): List<LongRange> {
 /** HTML draw()-এর isOut নিয়ম: ইন্ট্রো/আউট্রো অংশে স্ক্রলিং লেখা, ওপর-নিচের বিজ্ঞাপন, ট্যাগ ও লোগো থাকে না */
 /** লোগো (টাইমলাইনে আলাদা বার নেই; পুরো ভিডিওতে থাকে) */
 fun Layer.isLogoLayer(): Boolean = this is ImageLayer && isLogo
+
+/** HTML-এর মতো একটাই, টাইমলাইনে বার নেই, ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে: লোগো ও স্ক্রলিং লেখা */
+fun Layer.isSingletonLayer(): Boolean = isLogoLayer() || this is TickerLayer
 
 fun Layer.hiddenInCard(): Boolean = this is TickerLayer || this is AdLayer || this is TagLayer || (this is ImageLayer && isLogo)
 
@@ -172,7 +189,7 @@ data class NameBarLayer(
     val bgColor: Int = DARK,             // এখন ব্যবহার হয় না (HTML-এ পট্টি সবসময় কালো ৭৮%); পুরোনো ড্রাফটের জন্য রাখা
     val textColor: Int = WHITE,
     val bottomFrac: Float = 0.12f,
-    val repeatSec: Int = 0,          // ০ = একবার; >০ হলে প্রতি এত সেকেন্ডে (শুরু থেকে শুরু) আবার আসে (HTML-এর "আবার দেখান")
+    val repeatSec: Int = 0,          // ০ = একবার (লেয়ারের নিজের শুরুতে); >০ হলে HTML-এর মতো ইন্ট্রোসহ ১০ সেকেন্ডে প্রথম আসে, তারপর প্রতি এত সেকেন্ডে (শুরু থেকে শুরু) আবার ("আবার দেখান")
     val sizeFrac: Float = 0.11f,     // HTML size: বারের উচ্চতা = ফ্রেম উচ্চতার ১১%
     val liftFrac: Float = 0f,        // HTML lift: ওপরে তোলা (ফ্রেম উচ্চতার ভগ্নাংশ)
     val right: Boolean = false,      // HTML side: ডান পাশ থেকে
@@ -183,6 +200,12 @@ data class NameBarLayer(
     override fun withId(id: Long) = copy(id = id)
 }
 
+/** ভিডিও এডিটরের ব্যানার: ১২৮০×৭২০ ফ্রেমে ঠিক ১২৮০×১০৮ (HTML VC_AD_W/VC_AD_H); যেকোনো মাপের ছবি এই মাপে বসে */
+const val EDITOR_AD_W = 1280
+const val EDITOR_AD_H = 108
+const val EDITOR_FRAME_H = 720
+const val EDITOR_AD_FRAC = EDITOR_AD_H / EDITOR_FRAME_H.toFloat()   // = ০.১৫
+
 /** বিজ্ঞাপন ছবি: নিচে (isTop = false) বা ওপরে (isTop = true); যত খুশি যোগ করা যাবে */
 data class AdLayer(
     override val id: Long,
@@ -190,9 +213,10 @@ data class AdLayer(
     override val endMs: Long,
     val uri: Uri?,
     val isTop: Boolean = false,
-    val heightFrac: Float = 0.15f,   // HTML ডিফল্ট ১৫% (ফ্রেমের উচ্চতার ভগ্নাংশ); পুরো প্রস্থের পট্টি, ছবি ভেতরে মাঝে
     val adId: String = "",          // সেটিংসের কোন বিজ্ঞাপন (খালি = নিজের ছবি); নতুন বিজ্ঞাপনে আগে না-বসা গুলো বসে
 ) : Layer {
+    /** উচ্চতা স্থির: ফ্রেমের ১৫% (১২৮০×৭২০-তে ঠিক ১০৮px); বদলানো যায় না */
+    val heightFrac: Float get() = EDITOR_AD_FRAC
     override val kind get() = if (isTop) LayerKind.AD_TOP else LayerKind.AD_BOTTOM
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)

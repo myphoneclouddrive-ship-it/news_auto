@@ -421,7 +421,7 @@ class Timeline {
     fun layerById(id: Long?): Layer? = if (id == null) null else layers.firstOrNull { it.id == id }
 
     /** এই মুহূর্তে (টাইমলাইনের ms) যেসব লেয়ার চালু */
-    fun layersAt(ms: Long): List<Layer> { val stop = repeatStopMs(clips); val cards = cardRangesMs(clips); return layers.filter { it.isActiveAt(ms, stop, cards) } }
+    fun layersAt(ms: Long): List<Layer> { val stop = repeatStopMs(clips); val cards = cardRangesMs(clips); return layers.filter { it.isActiveAt(ms, stop, cards, totalMs) } }
 
     /**
      * প্লেহেডের জায়গায় নতুন লেয়ার যোগ করে ও বাছাই করে। সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
@@ -437,6 +437,11 @@ class Timeline {
                 selectedLayerId = ex.id
                 return null
             }
+        }
+        // স্ক্রলিং লেখা একটাই (HTML-এর মতো): আগে থাকলে নতুন লেয়ার নয়, আগেরটা বাছা হয়
+        if (kind == LayerKind.TICKER) {
+            val ex = layers.firstOrNull { it is TickerLayer }
+            if (ex != null) { selectedLayerId = ex.id; return null }
         }
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
         var layer = LayerDefaults.create(kind, newId(), s, e, uri, text)

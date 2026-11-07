@@ -136,7 +136,7 @@ fun LayerOverlay(tl: Timeline) {
     val ms = tl.playheadMs
     val repStop = repeatStopMs(tl.clips)
     val cards = cardRangesMs(tl.clips)
-    val active = tl.visualLayers.filter { it.isActiveAt(ms, repStop, cards) }
+    val active = tl.visualLayers.filter { it.isActiveAt(ms, repStop, cards, tl.totalMs) }
     if (active.isEmpty()) return
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -154,6 +154,7 @@ fun LayerOverlay(tl: Timeline) {
                         color = Color(l.color),
                         fontSize = with(density) { (h * l.sizeFrac).toSp() },
                         fontWeight = if (l.bold) FontWeight.Bold else FontWeight.Normal,
+                        fontFamily = BrandFont.family(l.bold),
                         modifier = Modifier.centerAtFrac(l.x, l.y).widthIn(max = w * 0.95f).then(selMod)
                             .then(if (l.bgColor != 0) Modifier.background(Color(l.bgColor)) else Modifier)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -198,9 +199,9 @@ fun LayerOverlay(tl: Timeline) {
                             Modifier.fillMaxSize().then(selMod),
                             contentAlignment = if (l.isTop) Alignment.TopCenter else Alignment.BottomCenter,
                         ) {
-                            // HTML strip()-এর মতো: পুরো প্রস্থের সাদা পট্টি, ছবি ভেতরে অনুপাত ঠিক রেখে মাঝে (দুই পাশ ফাঁকা থাকে না)
-                            Box(Modifier.fillMaxWidth().height(h * l.heightFrac).background(Color.White), contentAlignment = Alignment.Center) {
-                                Image(b, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                            // ব্যানার: পুরো প্রস্থ × ফ্রেমের ১৫% (১২৮০×১০৮), ছবি যে মাপেরই হোক এই মাপে বসে (রেন্ডারের মতো)
+                            Box(Modifier.fillMaxWidth().height(h * l.heightFrac).background(Color.White)) {
+                                Image(b, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
                             }
                         }
                     }
@@ -217,7 +218,7 @@ fun LayerOverlay(tl: Timeline) {
                 is NameBarLayer -> if (l.name.isNotBlank()) {
                     Canvas(Modifier.fillMaxSize()) {
                         drawIntoCanvas { c ->
-                            val r = HtmlBrand.drawNameBar(c.nativeCanvas, size.width, size.height, l, ms, brandInsets.second * size.height / hPx)
+                            val r = HtmlBrand.drawNameBar(c.nativeCanvas, size.width, size.height, l, ms, brandInsets.second * size.height / hPx, tl.totalMs)
                             if (r != null && l.id == tl.selectedLayerId) drawRect(ED.Amber, Offset(r.left, r.top), Size(r.width(), r.height()), style = Stroke(2f))
                         }
                     }
@@ -252,10 +253,10 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
         Modifier.edPanel(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(if (l.isLogoLayer()) "✏️ ${l.kind.label} (ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে)" else "✏️ ${l.kind.label} লেয়ার", fontWeight = FontWeight.Bold)
+        Text(if (l.isSingletonLayer()) "✏️ ${l.kind.label} (ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে)" else "✏️ ${l.kind.label} লেয়ার", fontWeight = FontWeight.Bold)
 
         // সময়
-        if (total > LayerDefaults.MIN_LAYER_MS && !l.isLogoLayer()) {
+        if (total > LayerDefaults.MIN_LAYER_MS && !l.isSingletonLayer()) {
             var r by remember(l.id, l.startMs, l.endMs, total) {
                 val s = l.startMs.toFloat().coerceIn(0f, total.toFloat())
                 mutableStateOf(s..l.endMs.toFloat().coerceIn(s, total.toFloat()))
@@ -428,7 +429,7 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                     Text(if (l.uri == null) "🖼️ বিজ্ঞাপনের ছবি বাছুন" else "🖼️ অন্য ছবি বাছুন")
                 }
                 SettingsAdPicker(l.adId) { u, id -> tl.edit<AdLayer>(l.id) { it.copy(uri = u, adId = id) } }
-                LSlider("উচ্চতা (ফ্রেমের তুলনায়)", l.heightFrac, 0.05f..0.5f) { v -> tl.edit<AdLayer>(l.id) { it.copy(heightFrac = v) } }
+                Text("ব্যানারের মাপ স্থির: ${EDITOR_AD_W}×${EDITOR_AD_H} (ফ্রেমের ১৫%)। ছবি ছোট বা বড় হলেও এই মাপে বসবে।", color = ED.Muted, fontSize = 12.sp)
             }
 
             is OverlayLayer -> {

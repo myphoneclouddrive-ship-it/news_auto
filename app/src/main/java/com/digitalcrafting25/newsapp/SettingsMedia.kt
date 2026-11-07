@@ -34,7 +34,7 @@ object SettingsMedia {
 
     /** বিজ্ঞাপন আঁকা PNG ফাইলের Uri (একই বিজ্ঞাপন আবার চাইলে নতুন করে আঁকে, কারণ সেটিংসে বদলে যেতে পারে) */
     suspend fun adUri(ctx: Context, ad: Ad): Uri = withContext(Dispatchers.IO) {
-        save(File(dir(ctx), "ad_${ad.id}.png"), AdRender.render(ad))
+        save(File(dir(ctx), "ad_${ad.id}.png"), AdRender.render(ad, EDITOR_AD_W, EDITOR_AD_H))
     }
 
     suspend fun logoUri(ctx: Context, o: LogoOpt): Uri = withContext(Dispatchers.IO) {

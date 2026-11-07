@@ -354,7 +354,10 @@ private fun StageCard(
     }
 }
 
-/** প্লেহেডের জায়গার ফ্রেম (ভিডিওর মাপ অনুযায়ী ক্রপ করে দেখায়) */
+/** প্রিভিউ ফ্রেমের অনুপাত: রেন্ডার 1280×720-এর মতোই ১৬:৯ */
+private const val PREVIEW_ASPECT = 1280f / 720f
+
+/** প্লেহেডের জায়গার ফ্রেম (ভিডিও ১৬:৯ ফ্রেমে ক্রপ করে দেখায়) */
 @Composable
 private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playing: Boolean, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
@@ -383,7 +386,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
     }
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
-            Modifier.aspectRatio(aspect.w / aspect.h.toFloat())
+            Modifier.aspectRatio(PREVIEW_ASPECT)   // সবসময় ১৬:৯ (১২৮০×৭২০), HTML/ইউটিউবের মতো
                 .clip(RoundedCornerShape(10.dp)).background(Color.Black)
                 .border(1.dp, ED.Border, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
@@ -480,7 +483,7 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
     if (playing) return
     val l = tl.layers.firstOrNull { it.id == id } ?: return
     if (l !is TextLayer && l !is ImageLayer) return
-    if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips), cardRangesMs(tl.clips))) return
+    if (!l.isActiveAt(tl.playheadMs, repeatStopMs(tl.clips), cardRangesMs(tl.clips), tl.totalMs)) return
     Box(
         Modifier.fillMaxSize().pointerInput(id) {
             detectTransformGestures { _, pan, zoom, rotDeg ->
