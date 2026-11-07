@@ -323,7 +323,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
     }
     Sec("🎬 ভিডিও পোস্ট করুন", vm.sec == "video", { setSec("video") }) {
         AppBtn("📁 ভিডিও বাছুন", Modifier.padding(top = 8.dp), color = C.Gray, onClick = onOpenVideo)
-        Text("ভিডিও বাছলে ভিডিও এডিটরে চলে যাবে। এই অবস্থায় কোনো টাকা কাটবে না।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
+        Text("ভিডিও বাছলে গ্যালারি খুলবে, ভিডিও বেছে নিলে সেটা নিয়ে ভিডিও এডিটরে চলে যাবে। এই অবস্থায় কোনো টাকা কাটবে না।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
     }
 
     if (vm.sec == "manual") {

@@ -243,13 +243,28 @@ fun ComingSoon(title: String, text: String) {
 @Composable
 fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, onScheduled: () -> Unit) {
     var editor by remember { mutableStateOf(false) }
+    // "ভিডিও বাছুন" → গ্যালারি (শুধু ভিডিও) → বাছা ভিডিও টাইমলাইনে যোগ হয়ে এডিটর খোলে; না বাছলে এখানেই থাকে
+    val pickVideo = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { u ->
+        if (u != null) {
+            ev.addUris(listOf(u))
+            editor = true
+        }
+    }
     if (editor) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.padding(14.dp)) { AppBtn("← নতুন পোস্ট", color = C.Gray, onClick = { editor = false }) }
-            Box(Modifier.weight(1f)) { VideoEditorScreen(ev) }
+            Box(Modifier.weight(1f)) { VideoEditorScreen(ev, onBack = { editor = false }) }
         }
     } else {
-        NewPostScreen(np, ads, onOpenVideo = { editor = true }, onScheduled = onScheduled)
+        NewPostScreen(np, ads, onOpenVideo = {
+            pickVideo.launch(
+                androidx.activity.result.PickVisualMediaRequest(
+                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VideoOnly,
+                ),
+            )
+        }, onScheduled = onScheduled)
     }
 }
 

@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
  *  নিচে (স্ক্রল): আইকন ডক (মেনু / ক্লিপ / লেয়ার / অডিও টুল) → এডিট প্যানেল → ভিডিওর মাপ, শিরোনাম, লোগো, মিউজিক, রেন্ডারের অবস্থা
  */
 @Composable
-fun VideoEditorScreen(vm: EditorViewModel) {
+fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}) {
     val ctx = LocalContext.current
     val tl = vm.tl
     val status by RenderBus.status.collectAsStateWithLifecycle()
@@ -80,6 +80,8 @@ fun VideoEditorScreen(vm: EditorViewModel) {
     val setError: (String?) -> Unit = { m -> error = m; if (m != null) info = null }
     val setInfo: (String?) -> Unit = { m -> info = m; if (m != null) error = null }
     val act = rememberDockActions(tl, setError, setInfo)
+    // নতুন লেয়ার বাছলেই এডিট প্যানেল খোলা; ডকের ✏️ চেপে বন্ধ/চালু
+    var editOpen by remember(tl.selectedLayerId) { mutableStateOf(true) }
     val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
 
     Column(
@@ -98,7 +100,7 @@ fun VideoEditorScreen(vm: EditorViewModel) {
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (tl.clips.isNotEmpty()) EditorDock(tl, act, setError, setInfo, vm)
+            if (tl.clips.isNotEmpty()) EditorDockPanel(tl, act, vm, editOpen, setError, setInfo)
 
             Text("ভিডিওর মাপ")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -171,6 +173,11 @@ fun VideoEditorScreen(vm: EditorViewModel) {
                 is RenderStatus.Failed -> Text("❌ ${s.message}", color = MaterialTheme.colorScheme.error)
                 RenderStatus.Idle -> {}
             }
+        }
+
+        // ---------- নিচে আটকানো মেনু (HTML `#vc_dock`) ----------
+        if (tl.clips.isNotEmpty()) {
+            EditorDockBar(tl, act, setError, setInfo, vm, editOpen, { editOpen = !editOpen }, onBack)
         }
     }
 }

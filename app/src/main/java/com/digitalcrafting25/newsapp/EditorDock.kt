@@ -186,20 +186,22 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
 // ডক: আইকনের সারি (সবকিছু কিছু বাছা না থাকলে "লেয়ার মেনু"; ক্লিপ বাছলে ক্লিপ-টুল; লেয়ার/অডিও বাছলে তার টুল)
 // ---------------------------------------------------------------------------
 
+/** নিচে আটকানো ডক বার (HTML `#vc_dock`): কিছু বাছা না থাকলে লেয়ার মেনু; ক্লিপ বাছলে ক্লিপ-টুল; লেয়ার/অডিও বাছলে তার টুল */
 @Composable
-fun EditorDock(
+fun EditorDockBar(
     tl: Timeline,
     act: DockActions,
     onMessage: (String?) -> Unit,
     onInfo: (String?) -> Unit,
     vm: EditorViewModel,
+    editOpen: Boolean,
+    onToggleEdit: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val selClip = tl.clipById(tl.selectedId)
     val selLayer = tl.layerById(tl.selectedLayerId)
-    // নতুন লেয়ার বাছলেই এডিট প্যানেল খোলা; ✏️ চেপে বন্ধ/চালু
-    var editOpen by remember(tl.selectedLayerId) { mutableStateOf(true) }
     val rec by act.recording
 
     fun toMenu() {
@@ -208,7 +210,6 @@ fun EditorDock(
     }
 
     EditorDarkTheme {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val barShape = RoundedCornerShape(12.dp)
             Row(
                 Modifier.fillMaxWidth().clip(barShape).background(ED.Dock).border(1.dp, ED.Border, barShape)
@@ -248,16 +249,28 @@ fun EditorDock(
                                 tl.adjustClipVolume(c.id, -10)?.let { onInfo("🔉 ভলিউম $it%") }
                             }
                         }
-                        DockBtn("↔️", "ফ্লিপ ডান-বাম", active = c.flipH) {
+                        DockBtn("🔍", "জুম +") {
+                            tl.setClipZoomPan(c.id, zoom = c.zoom + 0.25f)
+                            onInfo("🔍 জুম ${Math.round((c.zoom + 0.25f).coerceIn(1f, 4f) * 100)}%")
+                        }
+                        DockBtn("🔍", "জুম −") {
+                            tl.setClipZoomPan(c.id, zoom = c.zoom - 0.25f)
+                            onInfo("🔍 জুম ${Math.round((c.zoom - 0.25f).coerceIn(1f, 4f) * 100)}%")
+                        }
+                        DockBtn("↺", "জুম রিসেট", enabled = c.zoom > 1.001f || c.panX != 0f || c.panY != 0f) {
+                            tl.setClipZoomPan(c.id, zoom = 1f, panX = 0f, panY = 0f)
+                        }
+                        DockBtn("↔️", "ফ্লিপ", active = c.flipH) {
                             tl.toggleFlip(c.id, true)?.let { onInfo(if (it) "↔️ ডান-বাম ফ্লিপ চালু" else "↔️ ডান-বাম ফ্লিপ বন্ধ") }
                         }
-                        DockBtn("↕️", "ফ্লিপ ওপর-নিচ", active = c.flipV) {
+                        DockBtn("↕️", "উল্টো", active = c.flipV) {
                             tl.toggleFlip(c.id, false)?.let { onInfo(if (it) "↕️ ওপর-নিচ ফ্লিপ চালু" else "↕️ ওপর-নিচ ফ্লিপ বন্ধ") }
                         }
                         DockBtn("📋", "ডুপ্লিকেট") { tl.duplicate(c.id) }
                         DockBtn("🗑️", "মুছুন") { tl.remove(c.id) }
                         DockBtn("⏪", "সরান", enabled = idx > 0) { tl.move(c.id, -1) }
                         DockBtn("⏩", "সরান", enabled = idx in 0 until tl.clips.lastIndex) { tl.move(c.id, 1) }
+                        DockBtn("⟲", "রিসেট") { onInfo("⟲ সব কাট বাতিল করার টুল পরে যোগ হবে") }
                     }
 
                     // ---- অডিও লেয়ার বাছা ----
@@ -266,7 +279,7 @@ fun EditorDock(
                         val group = tl.layers.filter { it.isAudio }
                         val gi = group.indexOfFirst { it.id == a.id }
                         DockBtn("🔙", "মেনু") { toMenu() }
-                        DockBtn("✏️", "এডিট", active = editOpen) { editOpen = !editOpen }
+                        DockBtn("✏️", "এডিট", active = editOpen) { onToggleEdit() }
                         DockBtn("🔔", "বিপ") { act.beep() }
                         DockBtn("🔊", "ভলিউম +") {
                             val nv = (Math.round(a.volume * 10f) / 10f + 0.1f).coerceIn(0f, 2f)
@@ -283,6 +296,10 @@ fun EditorDock(
                             if (a.muted) "আনমিউট" else "মিউট",
                             active = a.muted,
                         ) { tl.editAudio(a.id) { it.copy(muted = !it.muted) } }
+                        DockBtn("🌅", "ফেড ইন") { onInfo("🌅 ফেড ইন পরে যোগ হবে") }
+                        DockBtn("🌇", "ফেড আউট") { onInfo("🌇 ফেড আউট পরে যোগ হবে") }
+                        DockBtn("🎙️", "নয়েজ কমান") { onInfo("🎙️ নয়েজ কমানো পরে যোগ হবে") }
+                        DockBtn("✂️", "স্প্লিট") { onInfo("✂️ অডিও স্প্লিট পরে যোগ হবে") }
                         DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(a.id, 1) }
                         DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(a.id, -1) }
                         DockBtn("📋", "ডুপ্লিকেট") { tl.duplicateLayer(a.id) }
@@ -295,7 +312,7 @@ fun EditorDock(
                         val group = tl.layers.filter { !it.isAudio }
                         val gi = group.indexOfFirst { it.id == l.id }
                         DockBtn("🔙", "মেনু") { toMenu() }
-                        DockBtn("✏️", "এডিট", active = editOpen) { editOpen = !editOpen }
+                        DockBtn("✏️", "এডিট", active = editOpen) { onToggleEdit() }
                         if (l is AdjustLayer) {
                             fun step(d: Float) {
                                 val nv = ((Math.round(l.brightness * 10f) / 10f) + d).coerceIn(-0.8f, 0.8f)
@@ -311,40 +328,57 @@ fun EditorDock(
                         DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
                     }
 
-                    // ---- কিছু বাছা নেই: লেয়ার মেনু ----
+                    // ---- কিছু বাছা নেই: লেয়ার মেনু (HTML-এর ক্রমে) ----
                     else -> {
+                        DockBtn("⬅️", "ব্যাক") { onBack() }
                         DockBtn("🖼️", "নিচের বিজ্ঞাপন") { act.add(LayerKind.AD_BOTTOM) }
                         DockBtn("🏞️", "ওপরের বিজ্ঞাপন") { act.add(LayerKind.AD_TOP) }
                         DockBtn("📜", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }
                         DockBtn("🏷️", "লোগো") { act.add(LayerKind.LOGO) }
                         DockBtn("📍", "ট্যাগ") { act.add(LayerKind.TAG) }
                         DockBtn("👤", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
-                        DockBtn("🎨", "ওভারলে") { act.add(LayerKind.OVERLAY) }
-                        DockBtn("☀️", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
-                        DockBtn("🎬", "ইন্ট্রো", active = tl.cardClip(false) != null) {
+                        DockBtn("🎬", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
                             val m = vm.addCard(false)
                             onMessage(m)
-                            if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — নিচে লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
+                            if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
                         }
-                        DockBtn("🏁", "আউট্রো", active = tl.cardClip(true) != null) {
+                        DockBtn("✨", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
                             val m = vm.addCard(true)
                             onMessage(m)
-                            if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — নিচে লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
+                            if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — লেখা/স্টাইল বদলান" else "🏁 আউট্রো বানানো হচ্ছে…")
                         }
                         DockBtn("🔤", "লেখা") { act.add(LayerKind.TEXT) }
                         DockBtn("🖼️", "ছবি") { act.add(LayerKind.IMAGE) }
                         DockBtn("🎵", "অডিও") { act.addAudioFile() }
                         DockBtn("🔔", "বিপ") { act.beep() }
+                        DockBtn("🎨", "ওভারলে") { act.add(LayerKind.OVERLAY) }
                         DockBtn(
                             "🎙️",
                             if (rec) "রেকর্ড হচ্ছে…" else "ভয়েস",
                             modifier = act.voiceModifier,
                             active = rec,
                         )
+                        DockBtn("☀️", "এডজাস্ট") { act.add(LayerKind.ADJUST) }
                     }
                 }
             }
+    }
+}
 
+/** ডকে কিছু বাছলে তার এডিট প্যানেল (ক্লিপ: ট্রিম/সময়/কার্ড; লেয়ার: তার সেটিং) — স্ক্রল অংশে বসে */
+@Composable
+fun EditorDockPanel(
+    tl: Timeline,
+    act: DockActions,
+    vm: EditorViewModel,
+    editOpen: Boolean,
+    onMessage: (String?) -> Unit,
+    onInfo: (String?) -> Unit,
+) {
+    val selClip = tl.clipById(tl.selectedId)
+    val selLayer = tl.layerById(tl.selectedLayerId)
+    EditorDarkTheme {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // ---- নিচের এডিট প্যানেল ----
             when {
                 selClip != null -> ClipEditor(tl, selClip, vm, onMessage, onInfo)
