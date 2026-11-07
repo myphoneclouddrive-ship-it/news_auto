@@ -16,6 +16,7 @@ import java.util.UUID
 object PostUtil {
     const val AI_TAG = "AI জেনারেটেড"   // ওয়েবের FC_AI_TAG
     const val RW_COST = 10              // Worker-এর RW_COST
+    const val MP_COST = 5               // নিজে পোস্ট তৈরির খরচ (Worker-এর MP_COST)
     const val SPLIT_AT = 1800           // ওয়েবের SPLIT_AT: এর চেয়ে বড় পেস্ট করা লেখা দুই ভাগে লেখা হয়
 
     /** Worker-এর sid নিয়ম: ^[a-f0-9]{16,64}$ */
@@ -144,18 +145,37 @@ object PostUtil {
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    /** Worker-এর body_html → এডিটরের লেখা */
+    private val tagRe = Regex("(?is)<[^>]+>")
+    private val urlRe = Regex("(?i)^https?://\\S+$")
+    private val olItemRe = Regex("^[0-9০-৯]+\\.\\s+(.*)$")
+
+    /** Worker-এর body_html → এডিটরের লেখা (ওয়েবের cleanHtml-এর অনুমোদিত ট্যাগ: p h3 ul ol li strong em a br blockquote) */
     fun htmlToEditable(html: String): String {
         var t = html.replace("\r", "")
         t = t.replace(Regex("(?is)<(strong|b)\\b[^>]*>(.*?)</\\1>"), "**$2**")
         t = t.replace(Regex("(?is)<(em|i)\\b[^>]*>(.*?)</\\1>"), "*$2*")
-        t = t.replace(Regex("(?is)<a\\b[^>]*>(.*?)</a>"), "$1")
+        // লিংক: [লেখা](url) — শুধু http/https থাকলে; নইলে শুধু লেখা
+        t = t.replace(Regex("(?is)<a\\b([^>]*)>(.*?)</a>")) { m ->
+            val href = unescape(Regex("(?is)href\\s*=\\s*([\"'])(.*?)\\1").find(m.groupValues[1])?.groupValues?.get(2)?.trim().orEmpty())
+            val txt = m.groupValues[2].replace(tagRe, "").replace("[", "(").replace("]", ")")
+            if (urlRe.matches(href) && txt.isNotBlank()) "[" + txt + "](" + href.replace(")", "%29").replace("\"", "%22") + ")" else m.groupValues[2]
+        }
+        // উদ্ধৃতি: প্রতি অনুচ্ছেদ "> " দিয়ে; একই উদ্ধৃতির অনুচ্ছেদের মাঝে একলা ">" লাইন
+        t = t.replace(Regex("(?is)<blockquote\\b[^>]*>(.*?)</blockquote>")) { m ->
+            val paras = m.groupValues[1].split(Regex("(?is)</p>|<br\\s*/?>|</div>")).map { it.replace(tagRe, "").replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }
+            if (paras.isEmpty()) "" else "\n\n" + paras.joinToString("\n>\n") { "> $it" } + "\n\n"
+        }
+        // নম্বর তালিকা: "1. লেখা"
+        t = t.replace(Regex("(?is)<ol\\b[^>]*>(.*?)</ol>")) { m ->
+            val items = Regex("(?is)<li\\b[^>]*>(.*?)</li>").findAll(m.groupValues[1]).map { it.groupValues[1].replace(tagRe, "").replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }.toList()
+            if (items.isEmpty()) "" else "\n\n" + items.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n") + "\n\n"
+        }
         t = t.replace(Regex("(?is)<h[1-6]\\b[^>]*>(.*?)</h[1-6]>"), "\n\n## $1\n\n")
         t = t.replace(Regex("(?is)<li\\b[^>]*>(.*?)</li>"), "\n• $1")
         t = t.replace(Regex("(?is)</?(ul|ol)\\b[^>]*>"), "\n\n")
         t = t.replace(Regex("(?is)<br\\s*/?>"), "\n")
-        t = t.replace(Regex("(?is)</p>|</div>|</blockquote>"), "\n\n")
-        t = t.replace(Regex("(?is)<[^>]+>"), "")
+        t = t.replace(Regex("(?is)</p>|</div>"), "\n\n")
+        t = t.replace(tagRe, "")
         t = unescape(t)
         t = t.replace(Regex("[ \\t]+\\n"), "\n").replace(Regex("\\n{3,}"), "\n\n")
         return t.trim()
@@ -163,6 +183,7 @@ object PostUtil {
 
     private fun inl(s: String): String {
         var r = esc(s)
+        r = r.replace(Regex("\\[([^\\]\\n]+)\\]\\((https?://[^)\\s\"]+)\\)"), "<a href=\"$2\">$1</a>")
         r = r.replace(Regex("\\*\\*(.+?)\\*\\*"), "<strong>$1</strong>")
         r = r.replace(Regex("(?<![*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![*\\w])"), "<em>$1</em>")
         return r
@@ -171,6 +192,10 @@ object PostUtil {
     /** এডিটরের লেখা → পরিষ্কার HTML (ওয়ার্ডপ্রেসে এটাই যায়; ওয়েবের cleanHtml-এর অনুমোদিত ট্যাগই ব্যবহার) */
     fun editableToHtml(text: String): String {
         val out = StringBuilder()
+        fun isH(l: String) = l.startsWith("##")
+        fun isUl(l: String) = l.startsWith("•") || l.startsWith("- ")
+        fun isOl(l: String) = olItemRe.matches(l)
+        fun isQ(l: String) = l.startsWith(">")
         text.replace("\r", "").split(Regex("\\n\\s*\\n")).forEach { blk ->
             val lines = blk.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
             if (lines.isEmpty()) return@forEach
@@ -178,17 +203,34 @@ object PostUtil {
             while (i < lines.size) {
                 val l = lines[i]
                 when {
-                    l.startsWith("## ") || l.startsWith("##") -> { out.append("<h3>").append(inl(l.trimStart('#').trim())).append("</h3>"); i++ }
-                    l.startsWith("•") || l.startsWith("- ") -> {
+                    isH(l) -> { out.append("<h3>").append(inl(l.trimStart('#').trim())).append("</h3>"); i++ }
+                    isUl(l) -> {
                         out.append("<ul>")
-                        while (i < lines.size && (lines[i].startsWith("•") || lines[i].startsWith("- "))) {
+                        while (i < lines.size && isUl(lines[i])) {
                             out.append("<li>").append(inl(lines[i].removePrefix("•").removePrefix("-").trim())).append("</li>"); i++
                         }
                         out.append("</ul>")
                     }
+                    isOl(l) -> {
+                        out.append("<ol>")
+                        while (i < lines.size && isOl(lines[i])) {
+                            out.append("<li>").append(inl(olItemRe.find(lines[i])!!.groupValues[1].trim())).append("</li>"); i++
+                        }
+                        out.append("</ol>")
+                    }
+                    isQ(l) -> {
+                        val paras = ArrayList<String>(); var cur = ArrayList<String>()
+                        while (i < lines.size && isQ(lines[i])) {
+                            val c = lines[i].removePrefix(">").trim()
+                            if (c.isEmpty()) { if (cur.isNotEmpty()) { paras.add(cur.joinToString("<br>")); cur = ArrayList() } } else cur.add(inl(c))
+                            i++
+                        }
+                        if (cur.isNotEmpty()) paras.add(cur.joinToString("<br>"))
+                        out.append("<blockquote>").append(paras.joinToString("") { "<p>$it</p>" }).append("</blockquote>")
+                    }
                     else -> {
                         val para = ArrayList<String>()
-                        while (i < lines.size && !lines[i].startsWith("##") && !lines[i].startsWith("•") && !lines[i].startsWith("- ")) { para.add(lines[i]); i++ }
+                        while (i < lines.size && !isH(lines[i]) && !isUl(lines[i]) && !isOl(lines[i]) && !isQ(lines[i])) { para.add(lines[i]); i++ }
                         out.append("<p>").append(para.joinToString("<br>") { inl(it) }).append("</p>")
                     }
                 }

@@ -67,6 +67,9 @@ class Timeline {
 
     fun newId(): Long = nextId++
 
+    /** ফোনে সেভ করা ড্রাফট ফেরানোর পর নতুন আইডি যেন পুরোনোর সাথে না মেলে */
+    fun ensureIdAbove(v: Long) { if (nextId <= v) nextId = v + 1 }
+
     /** সব খালি করে নতুন এডিট (আইডির গণনা চলতেই থাকে, তাই ড্রাফটের আইডির সাথে মিলে যাবে না) */
     fun resetAll() {
         undoStack.clear(); redoStack.clear(); lastKey = null

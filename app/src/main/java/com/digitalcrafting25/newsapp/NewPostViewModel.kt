@@ -25,6 +25,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -76,6 +79,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     var nextAdLabel by mutableStateOf("")
     var nextAdId by mutableStateOf("")
     var adTick by mutableIntStateOf(0)
+    var histTick by mutableIntStateOf(0)   // আগে লেখা ক্যাটাগরি/ট্যাগ চিপ নতুন করে আঁকার জন্য
 
     // অবস্থা
     var loaded by mutableStateOf(false)
@@ -92,6 +96,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private var procLast = 0L
     var error by mutableStateOf<String?>(null)
     var notice by mutableStateOf<String?>(null)
+    var popup by mutableStateOf<String?>(null)   // ওয়েবের alert()-এর মতো পপআপ বার্তা (ওকে চাপলে বন্ধ)
     var balance by mutableStateOf<Double?>(null)
 
     // ধাপ ৫
@@ -113,6 +118,11 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private var settling = false
     private var lastInput = ""
     private var lastNotes = ""
+    private var procPart = -1                 // বড় লেখা দুই ভাগে হলে: ০ = প্রথম, ১ = দ্বিতীয়, -১ = একভাগ (ওয়েবের evPart)
+    private var saveJob: Job? = null
+    private var savedPhoto: Bitmap? = null
+    private var savedRef: Bitmap? = null
+    private val imgLock = Mutex()
     private val prefs = app.getSharedPreferences("newpost", Context.MODE_PRIVATE)
     private val undo = ArrayDeque<String>()
     private var lastSnap = 0L
@@ -139,6 +149,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""
         undo.clear()
         prefs.edit().remove("draft").apply()
+        deleteDraftImages()
     }
 
     fun load(force: Boolean = false) {
@@ -153,7 +164,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (category.isBlank()) category = c.category
                 if (tag.isBlank()) tag = c.photoTag
                 loaded = true
-                photoVer++
+                photoVer++; histTick++
             } catch (e: Exception) {
                 error = "সাইটের তথ্য আনা যায়নি: " + (e.message ?: "")
             }
@@ -162,6 +173,33 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             settle()
         }
     }
+
+    // ───────── আগে লেখা ক্যাটাগরি/ট্যাগ মনে রাখা (ওয়েবের hist_cat / hist_tag, সর্বোচ্চ ৩০টি) ─────────
+    private fun hist(k: String): List<String> = runCatching {
+        val a = JSONArray(prefs.getString("hist_$k", "[]")); List(a.length()) { a.getString(it) }
+    }.getOrDefault(emptyList())
+
+    private fun pushHist(k: String, v: String) {
+        val t = v.trim(); if (t.isEmpty()) return
+        val l = (listOf(t) + hist(k).filter { it != t }).take(30)
+        prefs.edit().putString("hist_$k", JSONArray(l).toString()).apply()
+        histTick++
+    }
+
+    /** ক্যাটাগরি চিপ: আগে লেখাগুলো + সেটিংসের ক্যাটাগরি (সর্বোচ্চ ১২) */
+    val catChips: List<String> get() { val t = histTick; return (hist("cat") + cfg.category).filter { it.isNotBlank() }.distinct().take(12 + 0 * t) }
+
+    /** ট্যাগ চিপ: আগে লেখাগুলো + সেটিংসের ট্যাগ (সর্বোচ্চ ৬) */
+    val tagChips: List<String> get() { val t = histTick; return (hist("tag") + cfg.photoTag).filter { it.isNotBlank() }.distinct().take(6 + 0 * t) }
+
+    /** চিপে চাপলে যোগ, আবার চাপলে বাদ; দুটো থাকলে দ্বিতীয়টা বদলে যায় */
+    fun toggleCat(v: String) {
+        val c = PostUtil.catParts(category).toMutableList()
+        if (v in c) c.remove(v) else if (c.size < 2) c.add(v) else c[1] = v
+        category = c.joinToString(", "); saveDraft()
+    }
+
+    fun pickTag(v: String) { tag = v; saveDraft() }
 
     private fun rebuildAd() {
         curAd = nextAd(ads, adLast)
@@ -205,12 +243,46 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ───────── খসড়া (অ্যাপ বন্ধ করলেও লেখা থাকে; ছবি থাকে না) ─────────
+    // ───────── খসড়া (ওয়েবের saveDraft/restoreDraft-এর মতো: অ্যাপ বন্ধ করলেও লেখা ও ছবি থাকে) ─────────
+    private val photoFile get() = File(app.filesDir, "newpost_draft_photo.jpg")
+    private val refFile get() = File(app.filesDir, "newpost_draft_ref.jpg")
+
+    /** ওয়েবের queueSave: ৪০০ms থামলে সেভ */
+    fun queueSave() {
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch { delay(400); saveDraft() }
+    }
+
     fun saveDraft() {
+        val empty = title.isBlank() && body.text.isBlank() && src.isBlank() && notes.isBlank() && !hasPhoto
+        if (empty || step >= 5) { prefs.edit().remove("draft").apply(); deleteDraftImages(); return }
         val d = JSONObject().put("title", title).put("body", body.text).put("cardTitle", cardTitle)
             .put("category", category).put("tag", tag).put("src", src).put("notes", notes)
             .put("step", if (step >= 4) 3 else step).put("tpl", tplId)
+            .put("webNews", webNews).put("li", lastInput).put("ln", lastNotes)
+            .put("imgMode", imgMode).put("imgUrl", imgUrl).put("aiPrompt", aiPrompt).put("refUrl", refUrl)
         prefs.edit().putString("draft", d.toString()).apply()
+        saveDraftImages()
+    }
+
+    private fun saveDraftImages() {
+        val p = photo; val r = refBmp
+        if (p !== savedPhoto) { savedPhoto = p; writeDraftImage(photoFile, p) }
+        if (r !== savedRef) { savedRef = r; writeDraftImage(refFile, r) }
+    }
+
+    private fun writeDraftImage(f: File, b: Bitmap?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            imgLock.withLock {
+                runCatching { if (b == null) f.delete() else f.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 92, it) } }
+            }
+        }
+    }
+
+    private fun deleteDraftImages() {
+        savedPhoto = null; savedRef = null
+        val a = photoFile; val b = refFile
+        viewModelScope.launch(Dispatchers.IO) { imgLock.withLock { runCatching { a.delete(); b.delete() } } }
     }
 
     private fun restoreDraft() {
@@ -221,6 +293,14 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             category = d.optString("category"); tag = d.optString("tag"); src = d.optString("src"); notes = d.optString("notes")
             step = d.optInt("step", 1).coerceIn(1, 3); tplId = d.optString("tpl", "dark")
             if (step >= 2 && title.isBlank()) step = 1
+            webNews = d.optBoolean("webNews"); lastInput = d.optString("li"); lastNotes = d.optString("ln")
+            imgMode = d.optString("imgMode").ifBlank { "upload" }; imgUrl = d.optString("imgUrl")
+            aiPrompt = d.optString("aiPrompt"); refUrl = d.optString("refUrl")
+            if (src.isBlank() && notes.isNotBlank()) { sec = "notes"; showManual = false }
+        }
+        runCatching {
+            photoFile.takeIf { it.exists() }?.let { f -> BitmapFactory.decodeFile(f.path)?.let { b -> photo = b; savedPhoto = b; hasPhoto = true; photoVer++ } }
+            refFile.takeIf { it.exists() }?.let { f -> BitmapFactory.decodeFile(f.path)?.let { b -> refBmp = b; savedRef = b } }
         }
     }
 
@@ -262,9 +342,20 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
 
     // ───────── প্রসেসিং বার ও লাইভ লগ (ওয়েবের procStart/procEv/liveLines) ─────────
-    private fun procReset() { procRaw.setLength(0); procExpect = 4000; procCap = 8f; procLast = 0L; procPct = 0f; procSet(2f); procLines = emptyList() }
+    private fun procReset() { procPart = -1; procRaw.setLength(0); procExpect = 4000; procCap = 8f; procLast = 0L; procPct = 0f; procSet(2f); procLines = emptyList() }
     private fun procSet(p: Float) { procCap = maxOf(procCap, p); procPct = maxOf(procPct, minOf(p, 99f)) }
-    private fun procEv(ev: JSONObject) {
+    private fun procEv(ev0: JSONObject) {
+        var ev = ev0
+        if (procPart >= 0) {   // ওয়েবের evPart: দুই ধাপের প্রোগ্রেস বার আধা-আধা করে চলে
+            when (ev.optString("t")) {
+                "log" -> { ev = JSONObject(ev.toString()).put("p", (if (procPart == 1) 50.0 else 0.0) + ev.optDouble("p", 0.0) / 2) }
+                "meta" -> {
+                    if (procPart == 1) return
+                    ev = JSONObject(ev.toString()).put("expect", (if (ev.optInt("expect") > 0) ev.optInt("expect") else 4000) * 2)
+                }
+                "reset" -> { if (procPart == 1) return }
+            }
+        }
         when (ev.optString("t")) {
             "log" -> if (ev.has("p")) procSet(ev.optDouble("p").toFloat())
             "meta" -> if (ev.optInt("expect") > 0) procExpect = ev.optInt("expect")
@@ -302,14 +393,29 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun bad(d: JSONObject?) = d == null || d.optString("title").isBlank() || d.optString("body_html").isBlank()
 
+    /** ওয়েবের updateRewriteBtn: ব্যালেন্স জানা থাকলে আর ১০ টাকার কম হলে লেখার বাটন বন্ধ */
+    val rwLow: Boolean get() = balance?.let { it < PostUtil.RW_COST } == true
+
+    /** নিজে পোস্ট তৈরির বাটনের জন্য: ৫ টাকার কম হলে বন্ধ */
+    val mpLow: Boolean get() = balance?.let { it < PostUtil.MP_COST } == true
+
     fun rewrite() {
         val v = src.trim(); val n = notes.trim()
-        if (v.isEmpty() && n.isEmpty()) { error = "খবরের লিংক/লেখা দিন, অথবা মাঠ পর্যায়ের তথ্য লিখুন"; return }
+        if (v.isEmpty() && n.isEmpty()) { popup = "লিংক, খবর অথবা মাঠের তথ্য দিন"; return }
+        if (v.isEmpty() && n.length < 60) { popup = "শুধু মাঠের তথ্য দিলে একটু বিস্তারিত লিখুন (কমপক্ষে দুই-তিন লাইন)"; return }
+        if (rwLow) { popup = "ব্যালেন্স কম আছে"; return }
         runRewrite(v, n)
     }
 
+    /** "🔁 আবার লিখুন"-এর আগের পরীক্ষা (ওয়েবের s2retry); ঠিক থাকলে true, নইলে error বসে */
+    fun retryOk(): Boolean {
+        if (lastInput.isEmpty() && lastNotes.isEmpty()) { error = "আগের খবর পাওয়া যায়নি। ব্যাক করে ১ নম্বর ধাপে আবার দিন।"; return false }
+        if (rwLow) { error = "ব্যালেন্স কম আছে"; return false }
+        return true
+    }
+
     fun rewriteAgain() {
-        if (lastInput.isEmpty() && lastNotes.isEmpty()) { error = "আগের খবর পাওয়া যায়নি। ব্যাক করে ১ নম্বর ধাপে আবার দিন।"; return }
+        if (!retryOk()) return
         runRewrite(lastInput, lastNotes)
     }
 
@@ -328,6 +434,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                     val (t1, t2) = PostUtil.splitText(v)
                     val p1 = JSONObject().put("text", t1).put("split", true)
                     if (n.isNotEmpty()) { p1.put("notes", n); if (webOn) p1.put("web", true) }
+                    procPart = 0
                     d = Worker.postStream(app, "/rewrite", p1, { procEv(it) }, 360000)
                     if (bad(d)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি" + d.optString("error").let { if (it.isNotBlank()) " ($it)" else "" } + "। আবার চেষ্টা করুন।")
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
@@ -335,7 +442,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                         busyMsg = "⏳ দ্বিতীয় অংশ লেখা হচ্ছে..."
                         val hint = "[নির্দেশ: এটা একটা বড় খবরের দ্বিতীয় অংশ। আগের অংশের শিরোনাম: \"" + d.getString("title") +
                             "\"। আগের অংশে যা বলা হয়েছে তা আবার লিখবেন না, নতুন করে ভূমিকা বা সমাপনী দেবেন না। শুধু নিচের অংশের তথ্য আগের অংশের ধারাবাহিকতায় লিখুন।]\n\n"
-                        procEv(JSONObject().put("t", "reset"))
+                        procPart = 1
                         val d2 = Worker.postStream(app, "/rewrite", JSONObject().put("text", hint + t2).put("cont", d.optString("cont_token")), { procEv(it) }, 360000)
                         if (bad(d2)) throw ApiError("AI-র উত্তরে শিরোনাম বা খবর আসেনি")
                         text = PostUtil.mergeBodies(text, PostUtil.htmlToEditable(d2.getString("body_html")))
@@ -362,9 +469,9 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (d.has("balance")) balance = d.optDouble("balance")
                 step = 2; saveDraft()
                 settle(d.optString("charge_token"))
-                if (warn.isNotEmpty()) notice = "⚠️ $warn"
-                else if (d.optString("web") == "none") notice = "ℹ️ গত ৩ ঘণ্টার মধ্যে অনলাইনে এই ঘটনা নিয়ে কোনো পোস্ট পাওয়া যায়নি, তাই আপনার দেওয়া তথ্যের ওপর নির্ভর করেই খবর লেখা হয়েছে।" +
-                    d.optString("web_why").let { if (it.isNotBlank()) "\n(কারণ: $it)" else "" }
+                if (warn.isNotEmpty()) popup = "⚠️ $warn"
+                else if (d.optString("web") == "none") popup = "ℹ️ গত ৩ ঘণ্টার মধ্যে অনলাইনে এই ঘটনা নিয়ে কোনো পোস্ট পাওয়া যায়নি, তাই আপনার দেওয়া তথ্যের ওপর নির্ভর করেই খবর লেখা হয়েছে।" +
+                    d.optString("web_why").let { if (it.isNotBlank()) "\n\n(কারণ: $it)" else "" }
             } catch (e: Exception) { fail(e) } finally { endBusy() }
         }
     }
@@ -374,6 +481,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         val t = mTitle.trim()
         if (t.isEmpty()) { error = "শিরোনাম লিখুন"; return }
         if (mBody.text.isBlank()) { error = "পোস্ট লিখুন"; return }
+        if (mpLow) { error = "ব্যালেন্স কম আছে (কমপক্ষে ৳${PostUtil.bn(PostUtil.MP_COST)} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"; return }
         startBusy("⏳ অপেক্ষা করুন...")
         viewModelScope.launch {
             try {
@@ -416,7 +524,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         val le = t.indexOf('\n', pos).let { if (it < 0) t.length else it }
         var line = t.substring(ls, le)
         val had = line.startsWith(prefix) && prefix.isNotEmpty()
-        line = line.removePrefix("## ").removePrefix("##").removePrefix("• ").removePrefix("•").trim()
+        line = line.removePrefix("## ").removePrefix("##").removePrefix("• ").removePrefix("•").replace(Regex("^(>\\s?|[0-9০-৯]+\\.\\s+)"), "").trim()
         if (prefix.isEmpty()) line = line.replace("**", "")
         val nl = if (had || prefix.isEmpty()) line else prefix + line
         val nt = t.substring(0, ls) + nl + t.substring(le)
@@ -660,6 +768,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 try { Fs.addPost(app, title.trim(), link, d.optString("facebook_post"), email) }
                 catch (e: Exception) { notes.add("পোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: ${e.message}") }
                 pubLink = link; pubNotes = notes
+                PostUtil.catParts(category).forEach { pushHist("cat", it) }; pushHist("tag", tag)
                 val keepCat = category; val keepTag = tag
                 wipeAfterPost()
                 category = keepCat; tag = keepTag
@@ -694,6 +803,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; refBmp = null; refUrl = ""; imgMsg = ""; imgUrl = ""; aiPrompt = ""; promptEdited = false
         fx = 0.5f; fy = 0.5f; photoVer++; undo.clear(); lastInput = ""; lastNotes = ""
         prefs.edit().remove("draft").apply()
+        deleteDraftImages()
     }
 
     private fun decodeUri(uri: Uri, maxSide: Int): Bitmap? = runCatching {

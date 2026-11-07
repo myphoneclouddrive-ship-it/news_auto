@@ -123,7 +123,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() { super.onStart(); AppState.foreground = true; Net.recheck() }
-    override fun onStop() { super.onStop(); AppState.foreground = false }
+    override fun onStop() { super.onStop(); AppState.foreground = false; editorVm.saveDraft(sync = true) }
 }
 
 @Composable

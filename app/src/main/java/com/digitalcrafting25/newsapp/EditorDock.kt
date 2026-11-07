@@ -75,8 +75,9 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
     val pickNew = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
         val k = pendingKind
         pendingKind = null
-        if (u != null && k != null) {
-            val m = tl.addLayer(k, uri = u)
+        if (u != null && k != null) scope.launch {
+            val ku = withContext(Dispatchers.IO) { DraftStore.keep(ctx, u) }
+            val m = tl.addLayer(k, uri = ku)
             if (m == null) tl.selectedId = null
             msg(m)
         }
@@ -84,11 +85,14 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
     val pickReplace = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
         val id = replaceId
         replaceId = null
-        if (u != null && id != null) tl.updateLayer(id) {
-            when (it) {
-                is ImageLayer -> it.copy(uri = u)
-                is AdLayer -> it.copy(uri = u)
-                else -> it
+        if (u != null && id != null) scope.launch {
+            val ku = withContext(Dispatchers.IO) { DraftStore.keep(ctx, u) }
+            tl.updateLayer(id) {
+                when (it) {
+                    is ImageLayer -> it.copy(uri = ku)
+                    is AdLayer -> it.copy(uri = ku)
+                    else -> it
+                }
             }
         }
     }
@@ -97,7 +101,8 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
             val (name, dur) = withContext(Dispatchers.IO) { AudioMixer.probe(ctx, u) }
             val has = withContext(Dispatchers.IO) { AudioMixer.hasAudioTrack(ctx, u) }
             if (!has) { msg("এই ফাইলে অডিও পাওয়া যায়নি: $name"); return@launch }
-            val m = tl.addAudioLayer(LayerKind.AUDIO, u, name, if (dur > 0L) dur else 30_000L)
+            val ku = withContext(Dispatchers.IO) { DraftStore.keep(ctx, u) }
+            val m = tl.addAudioLayer(LayerKind.AUDIO, ku, name, if (dur > 0L) dur else 30_000L)
             msg(m)
             if (m == null) inf("🎵 অডিও বসেছে: $name")
         }

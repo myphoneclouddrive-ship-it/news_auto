@@ -28,17 +28,60 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     val tl = Timeline()
     val clips: List<Clip> get() = tl.clips
 
-    /** অসমাপ্ত এডিট (HTML-এর "📝 অসমাপ্ত ভিডিও এডিট"): ব্যাক করলে এখানে জমা থাকে। অ্যাপ বন্ধ করলে যায় */
+    /** অসমাপ্ত এডিট (HTML-এর "📝 অসমাপ্ত ভিডিও এডিট"): ফোনে সেভ থাকে, অ্যাপ কেটে দিলেও ফিরে আসে */
     class Draft(val id: Long, val clips: List<Clip>, val layers: List<Layer>, val savedAt: Long)
     val drafts = mutableStateListOf<Draft>()
     private var currentDraftId: Long? = null
 
-    /** চলতি এডিট ড্রাফট তালিকায় (নতুন আগে) রাখে; আগে থেকে থাকলে নতুন করে বসায় */
-    fun saveDraft() {
+    init {
+        // আগের বারের সেভ করা ড্রাফট ফেরানো; যেসব ফাইল আর খোলা যায় না সেগুলো বাদ দেওয়া হয়
+        val saved = DraftStore.load(app)
+        var maxId = 0L
+        saved.forEach { d ->
+            maxId = maxOf(maxId, d.id)
+            d.clips.forEach { maxId = maxOf(maxId, it.id) }
+            d.layers.forEach { l -> maxId = maxOf(maxId, l.id); if (l is AudioLayer) l.sourceClipId?.let { maxId = maxOf(maxId, it) } }
+        }
+        tl.ensureIdAbove(maxId)
+        drafts.addAll(saved.sortedByDescending { it.savedAt })
+        if (saved.isNotEmpty()) viewModelScope.launch {
+            val cleaned = withContext(Dispatchers.IO) {
+                saved.mapNotNull { d ->
+                    val clips = d.clips.filter { DraftStore.readable(app, it.uri) }
+                    if (clips.isEmpty()) return@mapNotNull null
+                    val layers = d.layers.filter { l ->
+                        val u = when (l) { is ImageLayer -> l.uri; is AdLayer -> l.uri; is AudioLayer -> l.uri; else -> null }
+                        u == null || DraftStore.readable(app, u)
+                    }
+                    Draft(d.id, clips, layers, d.savedAt)
+                }
+            }
+            // এর মধ্যে ব্যবহারকারী যেসব ড্রাফট বদলেছে/যোগ করেছে সেগুলো ছোঁয়া হয় না
+            val byId = cleaned.associateBy { it.id }
+            val orig = saved.associateBy { it.id }
+            drafts.removeAll { it === orig[it.id] && it.id !in byId }
+            for (i in drafts.indices) {
+                val d = drafts[i]
+                val c = byId[d.id]
+                if (c != null && d === orig[d.id]) drafts[i] = c
+            }
+            persist(sync = false)
+        }
+    }
+
+    private fun persist(sync: Boolean) {
+        val snap = drafts.toList()
+        if (sync) DraftStore.save(app, snap)
+        else viewModelScope.launch(Dispatchers.IO) { DraftStore.save(app, snap) }
+    }
+
+    /** চলতি এডিট ড্রাফট তালিকায় (নতুন আগে) রাখে; আগে থেকে থাকলে নতুন করে বসায়। ফোনেও সেভ হয় */
+    fun saveDraft(sync: Boolean = false) {
         if (tl.clips.isEmpty()) return
         val id = currentDraftId ?: tl.newId().also { currentDraftId = it }
         drafts.removeAll { it.id == id }
         drafts.add(0, Draft(id, tl.clips, tl.layers, System.currentTimeMillis()))
+        persist(sync)
     }
 
     /** "ভিডিও বাছুন": আগেরটা ড্রাফট হিসেবে রেখে একদম নতুন এডিট */
@@ -60,6 +103,12 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     fun removeDraft(id: Long) {
         drafts.removeAll { it.id == id }
         if (currentDraftId == id) { tl.resetAll(); currentDraftId = null }
+        persist(sync = false)
+        // এই ড্রাফটের জন্য কপি করা ফাইল আর কোথাও না লাগলে মুছে ফেলা
+        val inUse = HashSet<String>()
+        drafts.forEach { inUse.addAll(DraftStore.urisOf(it.clips, it.layers)) }
+        inUse.addAll(DraftStore.urisOf(tl.clips, tl.layers))
+        viewModelScope.launch(Dispatchers.IO) { DraftStore.deleteUnused(app, inUse) }
     }
     var aspect by mutableStateOf(Aspect.LANDSCAPE)
     var caption by mutableStateOf("")
@@ -91,7 +140,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                             runCatching { r.release() }
                         }
                     }
-                    Clip(tl.newId(), u, isImage, dur, displayName(u))
+                    Clip(tl.newId(), DraftStore.keep(app, u), isImage, dur, displayName(u))
                 }
                 added.add(clip)
             }
