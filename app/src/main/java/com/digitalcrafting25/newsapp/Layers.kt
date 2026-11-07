@@ -182,6 +182,8 @@ data class AudioLayer(
     val volume: Float = 1f,          // ০..২ (২ = ২০০%)
     val sourceOffsetMs: Long = 0L,   // অডিও ফাইলের কোন জায়গা থেকে বাজা শুরু
     val sourceClipId: Long? = null,
+    val muted: Boolean = false,      // এই লেয়ারের শব্দ বন্ধ
+    val sourceDurationMs: Long = 0L, // সোর্স ফাইলের পুরো দৈর্ঘ্য (০ = অজানা/বিপ)
 ) : Layer {
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)

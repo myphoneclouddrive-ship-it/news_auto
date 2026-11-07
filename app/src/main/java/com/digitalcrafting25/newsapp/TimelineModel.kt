@@ -308,4 +308,86 @@ class Timeline {
         commitAll(clips, m)
         selectedLayerId = copy.id
     }
+
+    // ================= অডিও (ধাপ ৫) =================
+
+    /** ক্লিপের আসল শব্দের ভলিউম ১০% করে বাড়ায়/কমায় (০..২০০%)। নতুন ভলিউম % ফেরত দেয় */
+    fun adjustClipVolume(id: Long, deltaPct: Int): Int? {
+        val i = clips.indexOfFirst { it.id == id }
+        if (i < 0) return null
+        val c = clips[i]
+        if (c.isImage) return null
+        val nv = (Math.round((c.volume * 100f + deltaPct) / 10f) * 10).coerceIn(0, 200)
+        val unmute = deltaPct > 0 && c.muted
+        if (nv == Math.round(c.volume * 100f) && !unmute) return nv
+        val m = clips.toMutableList()
+        m[i] = c.copy(volume = nv / 100f, muted = if (unmute) false else c.muted)
+        commit(m)
+        return nv
+    }
+
+    fun toggleClipMute(id: Long) {
+        val i = clips.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val c = clips[i]
+        if (c.isImage) return
+        val m = clips.toMutableList()
+        m[i] = c.copy(muted = !c.muted)
+        commit(m)
+    }
+
+    /**
+     * প্লেহেডের জায়গায় অডিও/ভয়েস/বিপ লেয়ার বসায়। durationMs = সোর্সের দৈর্ঘ্য (বিপ: ৬০০)।
+     * সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun addAudioLayer(
+        kind: LayerKind,
+        uri: Uri?,
+        name: String,
+        durationMs: Long,
+        startAtMs: Long = playheadMs,
+    ): String? {
+        if (!kind.isAudio) return "এটা অডিও লেয়ার নয়"
+        val total = totalMs
+        if (total <= 0L) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর অডিও দিন"
+        val start = startAtMs.coerceIn(0L, (total - MIN_LAYER_MS).coerceAtLeast(0L))
+        val len = durationMs.coerceAtLeast(MIN_LAYER_MS)
+        val end = minOf(total, start + len).coerceAtLeast(start + MIN_LAYER_MS)
+        val layer = AudioLayer(
+            id = newId(), startMs = start, endMs = end, kind = kind, uri = uri, name = name,
+            sourceDurationMs = if (kind == LayerKind.BEEP) 0L else durationMs,
+        )
+        commitAll(clips, layers + layer)
+        selectedLayerId = layer.id
+        selectedId = null
+        return null
+    }
+
+    /**
+     * ভিডিও ক্লিপ থেকে অডিও আলাদা লেয়ার করে, মূল ক্লিপ মিউট করে (একই আনডু ধাপে)।
+     * সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে null।
+     */
+    fun extractAudio(clipId: Long): String? {
+        val i = clips.indexOfFirst { it.id == clipId }
+        if (i < 0) return "ক্লিপ পাওয়া যায়নি"
+        val c = clips[i]
+        if (c.isImage) return "ছবিতে অডিও নেই"
+        val s = startOf(clipId)
+        val e = s + c.lengthMs()
+        if (e - s < MIN_LAYER_MS) return "ক্লিপ খুব ছোট"
+        val layer = AudioLayer(
+            id = newId(), startMs = s, endMs = e, kind = LayerKind.AUDIO, uri = c.uri,
+            name = "অডিও (এক্সট্রাক্ট) — ${c.name}".take(60),
+            volume = c.volume,
+            sourceOffsetMs = Math.round(c.startSec * 1000.0),
+            sourceClipId = c.id,
+            sourceDurationMs = c.durationMs,
+        )
+        val m = clips.toMutableList()
+        m[i] = c.copy(muted = true)
+        commitAll(m, layers + layer)
+        selectedLayerId = layer.id
+        selectedId = null
+        return null
+    }
 }

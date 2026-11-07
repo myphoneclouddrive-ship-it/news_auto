@@ -18,6 +18,8 @@ data class Clip(
     val startSec: Float = 0f,   // ভিডিও ট্রিম শুরু
     val endSec: Float = 0f,     // ০ = শেষ পর্যন্ত
     val imageSec: Float = 3f,   // ছবি কত সেকেন্ড দেখাবে
+    val volume: Float = 1f,     // ক্লিপের আসল শব্দের ভলিউম ০..২ (২ = ২০০%)
+    val muted: Boolean = false, // এই ক্লিপের আসল শব্দ বন্ধ
 )
 
 data class RenderSpec(
@@ -28,7 +30,7 @@ data class RenderSpec(
     val music: Uri?,
     val musicVolume: Float,
     val keepOriginalAudio: Boolean,
-    val layers: List<Layer> = emptyList(),   // ভিজ্যুয়াল লেয়ার (ধাপ ৪); অডিও লেয়ার ধাপ ৫-এ
+    val layers: List<Layer> = emptyList(),   // সব লেয়ার: ভিজ্যুয়াল (ধাপ ৪) + অডিও (ধাপ ৫)
 )
 
 sealed interface RenderStatus {

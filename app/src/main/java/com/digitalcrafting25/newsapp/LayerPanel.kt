@@ -80,7 +80,7 @@ private inline fun <reified T : Layer> Timeline.edit(id: Long, crossinline f: (T
     updateLayer(id) { if (it is T) f(it) else it }
 }
 
-private fun layerSummary(l: Layer): String = when (l) {
+internal fun layerSummary(l: Layer): String = when (l) {
     is TextLayer -> l.text.replace('\n', ' ').take(20)
     is TagLayer -> l.text.take(20)
     is ImageLayer -> if (l.uri == null) "ছবি নেই" else ""
@@ -228,158 +228,19 @@ fun LayerOverlay(tl: Timeline) {
 }
 
 // ---------------------------------------------------------------------------
-// লেয়ার ডক: যোগ করার বাটন + তালিকা + বাছা লেয়ারের এডিটর
-// ---------------------------------------------------------------------------
-
-@Composable
-fun LayerDock(tl: Timeline, onMessage: (String?) -> Unit) {
-    var pendingKind by rememberSaveable { mutableStateOf<LayerKind?>(null) }
-    var replaceId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    val pickNew = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
-        val k = pendingKind
-        pendingKind = null
-        if (u != null && k != null) {
-            val m = tl.addLayer(k, uri = u)
-            if (m == null) tl.selectedId = null
-            onMessage(m)
-        }
-    }
-    val pickReplace = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
-        val id = replaceId
-        replaceId = null
-        if (u != null && id != null) tl.updateLayer(id) {
-            when (it) {
-                is ImageLayer -> it.copy(uri = u)
-                is AdLayer -> it.copy(uri = u)
-                else -> it
-            }
-        }
-    }
-
-    fun add(kind: LayerKind) {
-        when (kind) {
-            LayerKind.IMAGE, LayerKind.LOGO, LayerKind.AD_BOTTOM, LayerKind.AD_TOP -> {
-                pendingKind = kind
-                pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }
-            else -> {
-                val m = tl.addLayer(
-                    kind,
-                    text = when (kind) {
-                        LayerKind.TAG -> "ট্যাগ"
-                        LayerKind.TICKER -> "এখানে স্ক্রলিং খবর লিখুন"
-                        LayerKind.NAME_BAR -> "আপনার নাম"
-                        else -> "আপনার লেখা"
-                    },
-                )
-                if (m == null) tl.selectedId = null
-                onMessage(m)
-            }
-        }
-    }
-
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("🧩 লেয়ার", fontWeight = FontWeight.Bold)
-            Text(
-                "লাল দাগ (প্লেহেড) যেখানে, নতুন লেয়ার সেখান থেকে বসবে। প্রিভিউতে দেখা যায়, রেন্ডার করা ভিডিওতেও একই জায়গায় বসে।",
-                color = C.Muted, fontSize = 12.sp,
-            )
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(
-                    LayerKind.TEXT, LayerKind.IMAGE, LayerKind.LOGO, LayerKind.TAG,
-                    LayerKind.TICKER, LayerKind.NAME_BAR, LayerKind.AD_BOTTOM, LayerKind.AD_TOP,
-                ).forEach { k ->
-                    OutlinedButton(
-                        onClick = { add(k) },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) { Text("➕ ${k.label}", fontSize = 13.sp) }
-                }
-            }
-
-            val visual = tl.visualLayers
-            if (visual.isEmpty()) {
-                Text("এখনো কোনো লেয়ার নেই।", color = C.Muted, fontSize = 13.sp)
-            } else {
-                val total = tl.totalMs
-                // ওপরের লেয়ার তালিকার ওপরে
-                visual.asReversed().forEach { l ->
-                    LayerRow(l, total, l.id == tl.selectedLayerId) {
-                        tl.selectedLayerId = l.id
-                        tl.selectedId = null
-                        if (tl.playheadMs !in l.startMs until l.endMs) tl.playheadMs = l.startMs
-                    }
-                }
-            }
-
-            val sel = tl.layerById(tl.selectedLayerId)
-            if (sel != null && !sel.isAudio) {
-                LayerEditor(tl, sel, onReplaceImage = {
-                    replaceId = sel.id
-                    pickReplace.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                })
-            }
-        }
-    }
-}
-
-@Composable
-private fun LayerRow(l: Layer, total: Long, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(8.dp)
-    Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .border(if (selected) 2.dp else 1.dp, if (selected) C.Red else C.Border, shape)
-            .clickable(onClick = onClick).padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(l.kind.label, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text(layerSummary(l), Modifier.weight(1f), fontSize = 13.sp, color = C.Muted, maxLines = 1)
-            Text("${fmtTime(l.startMs)} → ${fmtTime(l.endMs)}", fontSize = 11.sp, color = C.Muted)
-        }
-        TimeBar(l, total)
-    }
-}
-
-/** পুরো ভিডিওর তুলনায় লেয়ার কোন অংশে চলবে */
-@Composable
-private fun TimeBar(l: Layer, total: Long) {
-    val t = total.coerceAtLeast(1L).toFloat()
-    val s = (l.startMs / t).coerceIn(0f, 1f)
-    val e = (l.endMs / t).coerceIn(s, 1f)
-    Row(
-        Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0xFFE0E0E0)),
-    ) {
-        if (s > 0f) Spacer(Modifier.weight(s))
-        Box(Modifier.weight((e - s).coerceAtLeast(0.01f)).fillMaxHeight().background(C.Red))
-        if (e < 1f) Spacer(Modifier.weight(1f - e))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // বাছা লেয়ারের এডিটর
 // ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
-    val group = tl.layers.filter { it.isAudio == l.isAudio }
-    val gi = group.indexOfFirst { it.id == l.id }
+fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
     val total = tl.totalMs
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFF7F7F9)).padding(8.dp),
+        Modifier.edPanel(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("✏️ ${l.kind.label} লেয়ার", fontWeight = FontWeight.Bold)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-            TextButton(onClick = { tl.moveLayer(l.id, 1) }, enabled = gi in 0 until group.lastIndex) { Text("⬆ ওপরে") }
-            TextButton(onClick = { tl.moveLayer(l.id, -1) }, enabled = gi > 0) { Text("⬇ নিচে") }
-            TextButton(onClick = { tl.duplicateLayer(l.id) }) { Text("⧉ কপি") }
-            TextButton(onClick = { tl.removeLayer(l.id) }) { Text("🗑️ মুছুন") }
-        }
 
         // সময়
         if (total > LayerDefaults.MIN_LAYER_MS) {
@@ -505,7 +366,7 @@ private fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 LSlider("উচ্চতা (ফ্রেমের তুলনায়)", l.heightFrac, 0.05f..0.5f) { v -> tl.edit<AdLayer>(l.id) { it.copy(heightFrac = v) } }
             }
 
-            else -> Text("এই লেয়ারের বিস্তারিত সেটিং পরের ধাপে আসবে।", color = C.Muted, fontSize = 12.sp)
+            else -> Text("এই লেয়ারের বিস্তারিত সেটিং পরের ধাপে আসবে।", color = ED.Muted, fontSize = 12.sp)
         }
     }
 }
@@ -513,7 +374,7 @@ private fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
 @Composable
 private fun LSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
     Column {
-        Text("$label: ${(value * 100).toInt()}%", fontSize = 12.sp, color = C.Gray)
+        Text("$label: ${(value * 100).toInt()}%", fontSize = 12.sp, color = ED.Sub)
         Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onChange, valueRange = range)
     }
 }
@@ -522,7 +383,7 @@ private fun LSlider(label: String, value: Float, range: ClosedFloatingPointRange
 @Composable
 private fun ColorRow(label: String, current: Int, allowNone: Boolean, onPick: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, fontSize = 12.sp, color = C.Gray)
+        Text(label, fontSize = 12.sp, color = ED.Sub)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val options = if (allowNone) listOf(0) + PALETTE else PALETTE
             options.forEach { c ->
@@ -530,11 +391,11 @@ private fun ColorRow(label: String, current: Int, allowNone: Boolean, onPick: (I
                 Box(
                     Modifier.size(30.dp).clip(CircleShape)
                         .background(if (c == 0) Color.White else Color(c))
-                        .border(if (selected) 3.dp else 1.dp, if (selected) C.Red else C.Border, CircleShape)
+                        .border(if (selected) 3.dp else 1.dp, if (selected) ED.Amber else ED.Border2, CircleShape)
                         .clickable { onPick(c) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (c == 0) Text("✕", fontSize = 12.sp, color = C.Muted)
+                    if (c == 0) Text("✕", fontSize = 12.sp, color = ED.Muted)
                 }
             }
         }

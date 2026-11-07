@@ -1,0 +1,375 @@
+package com.digitalcrafting25.newsapp
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// ---------------------------------------------------------------------------
+// ডকের কাজ: লেয়ার/অডিও/ভয়েস/বিপ যোগ, ছবি বদল — ফাইল-পিকার ও মাইক সহ
+// (আগে LayerDock / AudioDock-এর ভেতরে ছিল; এখন এক জায়গায়, টাইমলাইনের "＋ অডিও" ও ডক দুই জায়গা থেকেই চলে)
+// ---------------------------------------------------------------------------
+
+@Stable
+class DockActions(
+    val add: (LayerKind) -> Unit,
+    val addAudioFile: () -> Unit,
+    val beep: () -> Unit,
+    val replaceImage: (Long) -> Unit,
+    /** ভয়েস বাটনে লাগানোর মডিফায়ার: চেপে ধরলে রেকর্ড, ছাড়লে লেয়ার বসে */
+    val voiceModifier: Modifier,
+    val recording: State<Boolean>,
+)
+
+@Composable
+fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (String?) -> Unit): DockActions {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val msg by rememberUpdatedState(onMessage)
+    val inf by rememberUpdatedState(onInfo)
+
+    var pendingKind by rememberSaveable { mutableStateOf<LayerKind?>(null) }
+    var replaceId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    val pickNew = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        val k = pendingKind
+        pendingKind = null
+        if (u != null && k != null) {
+            val m = tl.addLayer(k, uri = u)
+            if (m == null) tl.selectedId = null
+            msg(m)
+        }
+    }
+    val pickReplace = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        val id = replaceId
+        replaceId = null
+        if (u != null && id != null) tl.updateLayer(id) {
+            when (it) {
+                is ImageLayer -> it.copy(uri = u)
+                is AdLayer -> it.copy(uri = u)
+                else -> it
+            }
+        }
+    }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) scope.launch {
+            val (name, dur) = withContext(Dispatchers.IO) { AudioMixer.probe(ctx, u) }
+            val has = withContext(Dispatchers.IO) { AudioMixer.hasAudioTrack(ctx, u) }
+            if (!has) { msg("এই ফাইলে অডিও পাওয়া যায়নি: $name"); return@launch }
+            val m = tl.addAudioLayer(LayerKind.AUDIO, u, name, if (dur > 0L) dur else 30_000L)
+            msg(m)
+            if (m == null) inf("🎵 অডিও বসেছে: $name")
+        }
+    }
+
+    val recorder = remember { VoiceRecorder(ctx) }
+    DisposableEffect(Unit) { onDispose { recorder.cancel() } }
+    val recording = remember { mutableStateOf(false) }
+
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) inf("🎙️ মাইকের অনুমতি পেয়েছি। এবার বাটন চেপে ধরে কথা বলুন।")
+        else msg("মাইকের অনুমতি ছাড়া ভয়েস রেকর্ড করা যাবে না")
+    }
+
+    val voiceModifier = Modifier.pointerInput(Unit) {
+        detectTapGestures(onPress = {
+            if (tl.totalMs <= 0L) {
+                msg("আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর ভয়েস দিন")
+                return@detectTapGestures
+            }
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                askMic.launch(Manifest.permission.RECORD_AUDIO)
+                return@detectTapGestures
+            }
+            val startAt = tl.playheadMs
+            val err = recorder.start()
+            if (err != null) { msg(err); return@detectTapGestures }
+            recording.value = true
+            msg(null)
+            inf("🎙️ রেকর্ড হচ্ছে… কথা শেষে বাটন ছাড়ুন")
+            tryAwaitRelease()
+            recording.value = false
+            val r = recorder.stop()
+            if (r == null) {
+                inf(null)
+                msg("বাটনটা চেপে ধরে রেখে কথা বলুন (কমপক্ষে আধা সেকেন্ড)")
+            } else {
+                val (f, dur) = r
+                val m = tl.addAudioLayer(LayerKind.VOICE, Uri.fromFile(f), "ভয়েস", dur, startAt)
+                msg(m)
+                if (m == null) inf("🎙️ ভয়েস বসেছে")
+            }
+        })
+    }
+
+    return remember(tl) {
+        DockActions(
+            add = { kind ->
+                when (kind) {
+                    LayerKind.IMAGE, LayerKind.LOGO, LayerKind.AD_BOTTOM, LayerKind.AD_TOP -> {
+                        pendingKind = kind
+                        pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
+                    else -> {
+                        val m = tl.addLayer(
+                            kind,
+                            text = when (kind) {
+                                LayerKind.TAG -> "ট্যাগ"
+                                LayerKind.TICKER -> "এখানে স্ক্রলিং খবর লিখুন"
+                                LayerKind.NAME_BAR -> "আপনার নাম"
+                                else -> "আপনার লেখা"
+                            },
+                        )
+                        if (m == null) tl.selectedId = null
+                        msg(m)
+                    }
+                }
+            },
+            addAudioFile = { pickAudio.launch(arrayOf("audio/*")) },
+            beep = {
+                val m = tl.addAudioLayer(LayerKind.BEEP, null, "বিপ", 600L)
+                msg(m)
+                if (m == null) inf("🔔 বিপ বসেছে (${fmtTime(tl.layerById(tl.selectedLayerId)?.startMs ?: 0L)}); বিপ চলার সময় বাকি শব্দ বন্ধ থাকবে।")
+            },
+            replaceImage = { id ->
+                replaceId = id
+                pickReplace.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            voiceModifier = voiceModifier,
+            recording = recording,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ডক: আইকনের সারি (সবকিছু কিছু বাছা না থাকলে "লেয়ার মেনু"; ক্লিপ বাছলে ক্লিপ-টুল; লেয়ার/অডিও বাছলে তার টুল)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun EditorDock(
+    tl: Timeline,
+    act: DockActions,
+    onMessage: (String?) -> Unit,
+    onInfo: (String?) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val selClip = tl.clipById(tl.selectedId)
+    val selLayer = tl.layerById(tl.selectedLayerId)
+    // নতুন লেয়ার বাছলেই এডিট প্যানেল খোলা; ✏️ চেপে বন্ধ/চালু
+    var editOpen by remember(tl.selectedLayerId) { mutableStateOf(true) }
+    val rec by act.recording
+
+    fun toMenu() {
+        tl.selectedId = null
+        tl.selectedLayerId = null
+    }
+
+    EditorDarkTheme {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val barShape = RoundedCornerShape(12.dp)
+            Row(
+                Modifier.fillMaxWidth().clip(barShape).background(ED.Dock).border(1.dp, ED.Border, barShape)
+                    .horizontalScroll(rememberScrollState()).padding(horizontal = 2.dp, vertical = 3.dp),
+            ) {
+                when {
+                    // ---- ক্লিপ বাছা: ক্লিপ টুল ----
+                    selClip != null -> {
+                        val c = selClip
+                        val idx = tl.clips.indexOfFirst { it.id == c.id }
+                        DockBtn("🔙", "মেনু") { toMenu() }
+                        DockBtn("✂️", "স্প্লিট") {
+                            val m = tl.split()
+                            onMessage(m)
+                            if (m == null) onInfo("✂️ কাটা হয়েছে")
+                        }
+                        DockBtn("🔔", "বিপ") { act.beep() }
+                        if (!c.isImage) {
+                            DockBtn("🎵", "অডিও এক্সট্রাক্ট") {
+                                scope.launch {
+                                    val has = withContext(Dispatchers.IO) { AudioMixer.hasAudioTrack(ctx, c.uri) }
+                                    if (!has) { onMessage("এই ভিডিওতে অডিও ট্র্যাক নেই"); return@launch }
+                                    val m = tl.extractAudio(c.id)
+                                    onMessage(m)
+                                    if (m == null) onInfo("🎧 অডিও আলাদা লেয়ার হয়েছে; মূল অংশ মিউট করা হয়েছে।")
+                                }
+                            }
+                            DockBtn(
+                                if (c.muted) "🔊" else "🔇",
+                                if (c.muted) "আনমিউট" else "মিউট",
+                                active = c.muted,
+                            ) { tl.toggleClipMute(c.id) }
+                            DockBtn("🔊", "ভলিউম +") {
+                                tl.adjustClipVolume(c.id, 10)?.let { onInfo("🔊 ভলিউম $it%" + if (it == 200) " (সর্বোচ্চ)" else "") }
+                            }
+                            DockBtn("🔉", "ভলিউম −") {
+                                tl.adjustClipVolume(c.id, -10)?.let { onInfo("🔉 ভলিউম $it%") }
+                            }
+                        }
+                        DockBtn("📋", "ডুপ্লিকেট") { tl.duplicate(c.id) }
+                        DockBtn("🗑️", "মুছুন") { tl.remove(c.id) }
+                        DockBtn("⏪", "সরান", enabled = idx > 0) { tl.move(c.id, -1) }
+                        DockBtn("⏩", "সরান", enabled = idx in 0 until tl.clips.lastIndex) { tl.move(c.id, 1) }
+                    }
+
+                    // ---- অডিও লেয়ার বাছা ----
+                    selLayer is AudioLayer -> {
+                        val a = selLayer
+                        val group = tl.layers.filter { it.isAudio }
+                        val gi = group.indexOfFirst { it.id == a.id }
+                        DockBtn("🔙", "মেনু") { toMenu() }
+                        DockBtn("✏️", "এডিট", active = editOpen) { editOpen = !editOpen }
+                        DockBtn("🔔", "বিপ") { act.beep() }
+                        DockBtn("🔊", "ভলিউম +") {
+                            val nv = (Math.round(a.volume * 10f) / 10f + 0.1f).coerceIn(0f, 2f)
+                            tl.editAudio(a.id) { it.copy(volume = nv, muted = false) }
+                            onInfo("🔊 ভলিউম ${Math.round(nv * 100)}%" + if (nv >= 2f) " (সর্বোচ্চ)" else "")
+                        }
+                        DockBtn("🔉", "ভলিউম −") {
+                            val nv = (Math.round(a.volume * 10f) / 10f - 0.1f).coerceIn(0f, 2f)
+                            tl.editAudio(a.id) { it.copy(volume = nv) }
+                            onInfo("🔉 ভলিউম ${Math.round(nv * 100)}%")
+                        }
+                        DockBtn(
+                            if (a.muted) "🔊" else "🔇",
+                            if (a.muted) "আনমিউট" else "মিউট",
+                            active = a.muted,
+                        ) { tl.editAudio(a.id) { it.copy(muted = !it.muted) } }
+                        DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(a.id, 1) }
+                        DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(a.id, -1) }
+                        DockBtn("📋", "ডুপ্লিকেট") { tl.duplicateLayer(a.id) }
+                        DockBtn("🗑️", "মুছুন") { tl.removeLayer(a.id) }
+                    }
+
+                    // ---- ভিজ্যুয়াল লেয়ার বাছা ----
+                    selLayer != null -> {
+                        val l = selLayer
+                        val group = tl.layers.filter { !it.isAudio }
+                        val gi = group.indexOfFirst { it.id == l.id }
+                        DockBtn("🔙", "মেনু") { toMenu() }
+                        DockBtn("✏️", "এডিট", active = editOpen) { editOpen = !editOpen }
+                        DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
+                        DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
+                        DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
+                        DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
+                    }
+
+                    // ---- কিছু বাছা নেই: লেয়ার মেনু ----
+                    else -> {
+                        DockBtn("🖼️", "নিচের বিজ্ঞাপন") { act.add(LayerKind.AD_BOTTOM) }
+                        DockBtn("🏞️", "ওপরের বিজ্ঞাপন") { act.add(LayerKind.AD_TOP) }
+                        DockBtn("📜", "স্ক্রলিং লেখা") { act.add(LayerKind.TICKER) }
+                        DockBtn("🏷️", "লোগো") { act.add(LayerKind.LOGO) }
+                        DockBtn("📍", "ট্যাগ") { act.add(LayerKind.TAG) }
+                        DockBtn("👤", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
+                        DockBtn("🔤", "লেখা") { act.add(LayerKind.TEXT) }
+                        DockBtn("🖼️", "ছবি") { act.add(LayerKind.IMAGE) }
+                        DockBtn("🎵", "অডিও") { act.addAudioFile() }
+                        DockBtn("🔔", "বিপ") { act.beep() }
+                        DockBtn(
+                            "🎙️",
+                            if (rec) "রেকর্ড হচ্ছে…" else "ভয়েস",
+                            modifier = act.voiceModifier,
+                            active = rec,
+                        )
+                    }
+                }
+            }
+
+            // ---- নিচের এডিট প্যানেল ----
+            when {
+                selClip != null -> ClipEditor(tl, selClip)
+                selLayer != null && editOpen -> {
+                    if (selLayer is AudioLayer) AudioEditor(tl, selLayer)
+                    else LayerEditor(tl, selLayer) { act.replaceImage(selLayer.id) }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// বাছা ক্লিপের প্যানেল: ট্রিম / ছবির সময় (বাকি টুল ডকে)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClipEditor(tl: Timeline, c: Clip) {
+    val idx = tl.clips.indexOfFirst { it.id == c.id }
+    Column(Modifier.edPanel(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("✂️ ক্লিপ ${idx + 1}: ${c.name}", fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(
+            (if (c.isImage) "ছবি" else "ভিডিও") + " · টাইমলাইনে ${fmtTime(c.lengthMs())}" +
+                if (c.isImage) "" else if (c.muted) " · শব্দ মিউট 🔇" else " · শব্দ ${Math.round(c.volume * 100)}%",
+            color = ED.Muted, fontSize = 13.sp,
+        )
+        if (c.isImage) {
+            Text("ছবি দেখানোর সময়: ${"%.1f".format(c.imageSec)} সে.", fontSize = 13.sp, color = ED.Sub)
+            var v by remember(c.id, c.imageSec) { mutableStateOf(c.imageSec) }
+            Slider(
+                value = v.coerceIn(0.5f, 30f),
+                onValueChange = { v = it },
+                onValueChangeFinished = { tl.setImageSec(c.id, v) },
+                valueRange = 0.5f..30f,
+            )
+        } else if (c.durationMs > 0L) {
+            val dur = c.durationMs / 1000f
+            var r by remember(c.id, c.startSec, c.endSec) {
+                mutableStateOf(c.startSec.coerceIn(0f, dur)..c.effEndSec().coerceIn(0f, dur))
+            }
+            Text(
+                "ট্রিম: ${"%.1f".format(r.start)} সে. → ${"%.1f".format(r.endInclusive)} সে. (ভিডিও ${"%.1f".format(dur)} সে.)",
+                fontSize = 13.sp, color = ED.Sub,
+            )
+            RangeSlider(
+                value = r,
+                onValueChange = { r = it },
+                onValueChangeFinished = { tl.trim(c.id, r.start, r.endInclusive) },
+                valueRange = 0f..dur,
+            )
+        } else {
+            Text("এই ভিডিওর দৈর্ঘ্য জানা যায়নি, তাই ট্রিম/কাটা বন্ধ।", color = ED.Muted, fontSize = 13.sp)
+        }
+    }
+}

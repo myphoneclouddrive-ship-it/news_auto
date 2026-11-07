@@ -67,6 +67,9 @@ class RenderService : Service() {
         return START_NOT_STICKY
     }
 
+    @Volatile private var renderToken = 0
+    private var mixFile: File? = null
+
     private fun begin(spec: RenderSpec) {
         running = true
         RenderBus.status.value = RenderStatus.Running(0)
@@ -76,8 +79,41 @@ class RenderService : Service() {
 
         val out = File(cacheDir, "render_${System.currentTimeMillis()}.mp4")
         outFile = out
+
+        if (!AudioMixer.needsMix(spec)) {
+            startTransform(spec, null)
+            return
+        }
+
+        // ধাপ ৫: আগে ব্যাকগ্রাউন্ড থ্রেডে সব শব্দ মেশানো, তারপর Transformer
+        if (Notif.canPost(this)) {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIF_ID, buildNotification(0, "অডিও মেশানো হচ্ছে…"))
+        }
+        val token = ++renderToken
+        val wav = File(cacheDir, "mix_${System.currentTimeMillis()}.wav")
+        mixFile = wav
+        Thread {
+            try {
+                AudioMixer.mix(this, spec, wav) { token != renderToken }
+                handler.post {
+                    if (token != renderToken || !running) wav.delete()
+                    else startTransform(spec, Uri.fromFile(wav))
+                }
+            } catch (_: AudioMixer.Cancelled) {
+                wav.delete()
+            } catch (e: Throwable) {
+                wav.delete()
+                handler.post { if (token == renderToken && running) fail("অডিও মেশানো যায়নি: ${e.message}") }
+            }
+        }.start()
+    }
+
+    private fun startTransform(spec: RenderSpec, mixedAudio: Uri?) {
+        if (outFile == null) return fail("আউটপুট ফাইল পাওয়া যায়নি")
+        val out = outFile!!
         try {
-            val composition = RenderComposer.build(this, spec)
+            val composition = RenderComposer.build(this, spec, mixedAudio)
             val encoder = DefaultEncoderFactory.Builder(this)
                 .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(spec.aspect.bitrate).build())
                 .build()
@@ -171,6 +207,9 @@ class RenderService : Service() {
     }
 
     private fun finishUp() {
+        renderToken++                       // চলমান অডিও-মিক্স থাকলে সেটা বাতিল
+        runCatching { mixFile?.delete() }
+        mixFile = null
         running = false
         transformer = null
         runCatching { wake?.takeIf { it.isHeld }?.release() }

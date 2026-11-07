@@ -2,6 +2,7 @@ package com.digitalcrafting25.newsapp
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
@@ -30,7 +31,7 @@ import com.google.common.collect.ImmutableList
 @UnstableApi
 object RenderComposer {
 
-    fun build(ctx: Context, spec: RenderSpec): Composition {
+    fun build(ctx: Context, spec: RenderSpec, mixedAudio: Uri? = null): Composition {
         val w = spec.aspect.w
         val h = spec.aspect.h
 
@@ -55,7 +56,7 @@ object RenderComposer {
                 if (c.endSec > c.startSec) cc.setEndPositionMs(Math.round(c.endSec * 1000.0))
                 val mi = MediaItem.Builder().setUri(c.uri).setClippingConfiguration(cc.build()).build()
                 EditedMediaItem.Builder(mi)
-                    .setRemoveAudio(!spec.keepOriginalAudio)
+                    .setRemoveAudio(!spec.keepOriginalAudio || mixedAudio != null)
                     .setEffects(fit)
                     .build()
             }
@@ -74,6 +75,12 @@ object RenderComposer {
                 .setEffects(Effects(listOf(vol), emptyList()))
                 .build()
             sequences += EditedMediaItemSequence(listOf(mi), true)
+        }
+
+        // ধাপ ৫: ক্লিপ-শব্দ + অডিও/ভয়েস/বিপ লেয়ার আগে থেকে একটা WAV-এ মেশানো; ক্লিপের নিজের শব্দ তখন বন্ধ
+        mixedAudio?.let { u ->
+            val mi = EditedMediaItem.Builder(MediaItem.fromUri(u)).setRemoveVideo(true).build()
+            sequences += EditedMediaItemSequence(listOf(mi))
         }
 
         // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
