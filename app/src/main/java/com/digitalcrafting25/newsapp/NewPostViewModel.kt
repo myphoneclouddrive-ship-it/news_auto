@@ -79,6 +79,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     var nextAdLabel by mutableStateOf("")
     var nextAdId by mutableStateOf("")
     var adTick by mutableIntStateOf(0)
+    var tplVer by mutableIntStateOf(0)           // টেমপ্লেট তালিকা/এডিট বদলালে থাম্বনেইল আবার আঁকার জন্য
     var histTick by mutableIntStateOf(0)   // আগে লেখা ক্যাটাগরি/ট্যাগ চিপ নতুন করে আঁকার জন্য
 
     // অবস্থা
@@ -146,7 +147,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
         photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()
         busy = false; error = null; notice = null; balance = null; pubLink = ""; pubNotes = emptyList()
-        loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""
+        loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""; TplRegistry.reset()
         undo.clear()
         prefs.edit().remove("draft").apply()
         deleteDraftImages()
@@ -160,6 +161,14 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 cfg = c
                 withContext(Dispatchers.Default) { logoBmp = AdRender.decode(c.logo); iconBmp = AdRender.decode(c.icon) }
                 runCatching { Fs.adsCfg(app) }.getOrNull()?.let { (list, last) -> ads = list; adLast = last }
+                runCatching { Fs.tplCfg(app) }.getOrNull()?.let { st ->
+                    st.extraSlots = TplRegistry.store.extraSlots
+                    TplRegistry.store = st
+                    // সেটিংসে/এডিটরে বাছা ফটোকার্ড টেমপ্লেটই নতুন পোস্টের ডিফল্ট (ওয়েবের cfg.template); খসড়া থাকলে সেটাই
+                    if (step == 1 && title.isBlank() && TplRegistry.isKnownPhotoTpl(st.template)) tplId = st.template
+                    tplVer++
+                }
+                if (!TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
                 rebuildAd()
                 if (category.isBlank()) category = c.category
                 if (tag.isBlank()) tag = c.photoTag
@@ -168,7 +177,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 error = "সাইটের তথ্য আনা যায়নি: " + (e.message ?: "")
             }
-            runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let { balance = it.optDouble("balance", 0.0) }
+            runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let { balance = it.optDouble("balance", 0.0); TplRegistry.store.extraSlots = it.optInt("extra", 0) }
             if (email.isBlank()) runCatching { Worker.post(app, "/whoami", JSONObject(), 15000) }.getOrNull()?.let { email = it.optString("email") }
             settle()
         }
@@ -582,6 +591,60 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         body = TextFieldValue(t, TextRange(t.length))
     }
 
+    // ───────── টেমপ্লেট এডিটর: সেভ / মোছা (ওয়েবের cbSave) ─────────
+    var tplSaving by mutableStateOf(false)
+
+    /** এডিট করা লেআউট সেভ: ডিফল্ট হলে cfg.dtpl-এ, কাস্টম হলে cfg.customs-এ; সঙ্গে লোগো মোড (tpls) আর "নতুন পোস্টের ডিফল্ট" */
+    fun saveTpl(id: String, layout: JSONObject, ts: JSONObject?, onDone: (String?) -> Unit) {
+        if (tplSaving) return
+        tplSaving = true
+        viewModelScope.launch {
+            try {
+                val st = TplRegistry.store.copyStore()
+                if (TplRegistry.isDef(id)) st.dtpl.put(id, layout) else { layout.put("cat", "photo"); st.customs.put(id, layout) }
+                if (ts != null) st.tpls.put(id, ts)
+                st.template = id
+                Fs.saveTplCfg(app, st)
+                TplRegistry.store = st
+                tplId = id; tplVer++; photoVer++; saveDraft()
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "সেভ হয়নি") } finally { tplSaving = false }
+        }
+    }
+
+    /** কাস্টম টেমপ্লেট মুছে ফেলা */
+    fun deleteTpl(id: String, onDone: (String?) -> Unit) {
+        if (tplSaving || TplRegistry.isDef(id)) return
+        tplSaving = true
+        viewModelScope.launch {
+            try {
+                val st = TplRegistry.store.copyStore()
+                st.customs.remove(id); st.tpls.remove(id)
+                if (st.template == id) st.template = "dark"
+                Fs.saveTplCfg(app, st)
+                TplRegistry.store = st
+                if (tplId == id) tplId = "dark"
+                tplVer++; photoVer++; saveDraft()
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "মোছা যায়নি") } finally { tplSaving = false }
+        }
+    }
+
+    /** টেমপ্লেট এডিটরে "নিজের ছবি যোগ": ছোট করে data: লিংক (ওয়েবের cbImgFile) → (data, চওড়া/উচ্চতা অনুপাত); বেশি বড় হলে null */
+    fun tplImageData(uri: Uri): Pair<String, Float>? {
+        val b = decodeUri(uri, 560) ?: return null
+        val mime = runCatching { app.contentResolver.getType(uri) }.getOrNull().orEmpty()
+        val png = Regex("png|webp|gif").containsMatchIn(mime)
+        val o = java.io.ByteArrayOutputStream()
+        if (png) b.compress(Bitmap.CompressFormat.PNG, 100, o) else b.compress(Bitmap.CompressFormat.JPEG, 85, o)
+        val data = (if (png) "data:image/png;base64," else "data:image/jpeg;base64,") + android.util.Base64.encodeToString(o.toByteArray(), android.util.Base64.NO_WRAP)
+        if (data.length > 420000) return null
+        return data to (b.width.toFloat() / maxOf(1, b.height))
+    }
+
+    /** এডিটরের প্রিভিউয়ের জন্য: এখনকার শিরোনাম/ছবিসহ কার্ডের ডেটা */
+    fun editorCardData(): CardData = cardData()
+
     // ───────── ধাপ ২ → ৩ → ৪ ─────────
     fun toStep3() {
         if (title.isBlank() || body.text.isBlank()) { error = "শিরোনাম ও বডি লিখুন"; return }
@@ -751,12 +814,13 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** আঙুল তুললে: পুরো মাপের প্রিভিউ আর থাম্বনেইল একবার আঁকা */
-    fun panEnd() { dragging = false; job?.cancel(); refresh() }
+    fun panEnd() { dragging = false; dragPlan = null; job?.cancel(); refresh() }
 
     // টানার সময় হালকা প্রিভিউ: ডিবাউন্স নেই, আধা মাপে আঁকে, চলার সময় নতুন ইভেন্ট এলে শেষে সর্বশেষ অবস্থা আবার আঁকে
     private var dragging = false
     private var fastBusy = false
     private var fastDirty = false
+    private var dragPlan: CardRender.AdPlan? = null   // টানার সময় বিজ্ঞাপনের জায়গার হিসাব একবারই
     private fun refreshFast() {
         if (fastBusy) { fastDirty = true; return }
         fastBusy = true
@@ -765,7 +829,10 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 do {
                     fastDirty = false
                     val d = cardData(); val id = tplId; val ad = adNow()
-                    val pv = withContext(Dispatchers.Default) { CardRender.render(id, d, 0.5f, ad) }
+                    val pv = withContext(Dispatchers.Default) {
+                        val pl = if (ad != null) (dragPlan ?: CardRender.adPlan(id, d).also { dragPlan = it }) else null
+                        CardRender.render(id, d, 0.5f, ad, null, pl)
+                    }
                     if (dragging) preview = pv
                 } while (fastDirty && dragging)
             } finally { fastBusy = false }

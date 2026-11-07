@@ -1,7 +1,6 @@
 package com.digitalcrafting25.newsapp
 
 import android.net.Uri
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts

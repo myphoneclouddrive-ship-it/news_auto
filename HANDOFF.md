@@ -158,3 +158,12 @@
 - নাম-বারের স্লাইড ফ্রেমে ফ্রেমে বদলায়, তাই `LayerFrameRenderer` এখন নাম-বার সক্রিয় থাকলে প্রতি ফ্রেমে আবার আঁকে।
 - পার্থক্য: ট্যাগে `Typeface.DEFAULT` (HTML-এ Noto Sans Bengali/system-ui) — ডিভাইসের ফন্টের ওপর নির্ভর; "আবার দেখান" প্রথমবার আসে লেয়ারের নিজের শুরু থেকে (আগের নোটের মতো)।
 - ডিভাইসে চালানো হয়নি, শুধু ব্র্যাকেট মেলানো।
+
+## step31 (ফোটোকার্ড — নতুন পোস্ট ধাপ ৩) পুনরায় যোগ: টেমপ্লেট এডিটর + স্মুথ ড্র্যাগ
+- `news-app-ui-match-step31` আর এই রিপোর মধ্যে ভিডিও-এডিটর (step32–47) শাখা আলাদা হয়ে গিয়েছিল; step31-এর ফোটোকার্ড অংশ এখানে আবার বসানো হলো (ভিডিও-এডিটরের কোড অপরিবর্তিত)।
+- নতুন ফাইল: `TplEditor.kt` (ফুলস্ক্রিন টেমপ্লেট এডিটর), `TplModel.kt` (`TplStore`/`TplRegistry` — ওয়েবের `customs/dtpl/tpls/template`)।
+- `Backend.kt` (`Fs`): `tplCfg()` / `saveTplCfg()` (শুধু customs, dtpl, tpls, template ফিল্ড PATCH)।
+- `PhotoCard.kt`: কাস্টম/এডিট করা লেআউট আঁকা (`drawLayout`), `CardRender.adPlan()` আলাদা (টানার সময় একবারই), `render(..., ov, plan)`।
+- `NewPostViewModel.kt`: `tplVer`, `saveTpl`, `deleteTpl`, `tplImageData`, `editorCardData`, ড্র্যাগে `dragPlan`; `NewPostScreen.kt`: "✏️ এই টেমপ্লেট এডিট করুন" বাটন।
+- রেখে দেওয়া হয়েছে (step31-এর জিপে ছিল না, এই রিপোতে নতুন): বোল্ড/ইটালিক টগল, শিরোনাম এক-লাইন।
+- কম্পাইল/ডিভাইসে চালানো হয়নি, শুধু ব্র্যাকেট মেলানো। GitHub Actions-এ বিল্ড করে এরর এলে পাঠান।

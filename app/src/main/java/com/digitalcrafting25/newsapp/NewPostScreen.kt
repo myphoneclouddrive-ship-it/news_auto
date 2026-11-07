@@ -550,6 +550,7 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     var cropOpen by remember { mutableStateOf(false) }
     var collOpen by remember { mutableStateOf(false) }
+    var tplEdit by remember { mutableStateOf(false) }
 
     // প্রিভিউ (আঙুল টেনে ছবির অবস্থান)
     Box(
@@ -603,6 +604,9 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
             }
         }
     }
+
+    AppBtn("✏️ এই টেমপ্লেট এডিট করুন", Modifier.padding(top = 8.dp), color = C.Blue, small = true) { tplEdit = true }
+    if (tplEdit) TplEditorDialog(vm, vm.tplId) { tplEdit = false }
 
     FieldLabel("ক্যাটাগরি (সর্বোচ্চ ২টি, কমা দিয়ে আলাদা। WordPress-এ দুটোই যাবে, কার্ডে তারিখের পাশে প্রথমটা দেখাবে)")
     AppField(vm.category, { vm.category = it; vm.saveDraft() }, placeholder = "যেমন: বাংলাদেশ, রাজনীতি")

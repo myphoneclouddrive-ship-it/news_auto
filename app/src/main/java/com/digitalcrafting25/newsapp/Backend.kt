@@ -433,6 +433,69 @@ object Fs {
         if (r.code !in 200..299) throw fail(r)
     }
 
+    // ───────── ফোটোকার্ড টেমপ্লেটের এডিট (ওয়েবের cfg.customs / cfg.dtpl / cfg.tpls / cfg.template) ─────────
+    private fun toFsValue(v: Any?): JSONObject = when (v) {
+        null, JSONObject.NULL -> JSONObject().put("nullValue", JSONObject.NULL)
+        is Boolean -> JSONObject().put("booleanValue", v)
+        is Int, is Long -> JSONObject().put("integerValue", v.toString())
+        is Number -> {
+            val d = v.toDouble()
+            if (d == Math.rint(d) && Math.abs(d) < 1e15) JSONObject().put("integerValue", d.toLong().toString())
+            else JSONObject().put("doubleValue", d)
+        }
+        is String -> JSONObject().put("stringValue", v)
+        is JSONArray -> {
+            val a = JSONArray(); for (i in 0 until v.length()) a.put(toFsValue(v.opt(i)))
+            JSONObject().put("arrayValue", if (a.length() > 0) JSONObject().put("values", a) else JSONObject())
+        }
+        is JSONObject -> {
+            val f = JSONObject(); val it = v.keys()
+            while (it.hasNext()) { val k = it.next(); f.put(k, toFsValue(v.opt(k))) }
+            JSONObject().put("mapValue", if (f.length() > 0) JSONObject().put("fields", f) else JSONObject())
+        }
+        else -> JSONObject().put("stringValue", v.toString())
+    }
+
+    private fun fromFsValue(v: JSONObject): Any? = when {
+        v.has("stringValue") -> v.optString("stringValue")
+        v.has("integerValue") -> v.optString("integerValue").toLongOrNull() ?: 0L
+        v.has("doubleValue") -> v.optDouble("doubleValue")
+        v.has("booleanValue") -> v.optBoolean("booleanValue")
+        v.has("timestampValue") -> v.optString("timestampValue")
+        v.has("mapValue") -> {
+            val o = JSONObject(); val f = v.optJSONObject("mapValue")?.optJSONObject("fields")
+            if (f != null) { val it = f.keys(); while (it.hasNext()) { val k = it.next(); f.optJSONObject(k)?.let { x -> o.put(k, fromFsValue(x) ?: JSONObject.NULL) } } }
+            o
+        }
+        v.has("arrayValue") -> {
+            val a = JSONArray(); val vals = v.optJSONObject("arrayValue")?.optJSONArray("values")
+            if (vals != null) for (i in 0 until vals.length()) vals.optJSONObject(i)?.let { x -> a.put(fromFsValue(x) ?: JSONObject.NULL) }
+            a
+        }
+        else -> null
+    }
+
+    /** টেমপ্লেট এডিট: না থাকলে ফাঁকা */
+    suspend fun tplCfg(ctx: Context): TplStore {
+        val r = send(ctx, "GET", userUrl() + "/settings/card", null)
+        if (r.code == 404) return TplStore()
+        if (r.code !in 200..299) throw fail(r)
+        val d = JSONObject(r.text)
+        fun map(k: String): JSONObject = (d.fld(k)?.let { fromFsValue(it) } as? JSONObject) ?: JSONObject()
+        return TplStore(customs = map("customs"), dtpl = map("dtpl"), tpls = map("tpls"), template = d.str("template"))
+    }
+
+    /** শুধু customs, dtpl, tpls, template বদলায়; বাকি সেটিংস অক্ষত */
+    suspend fun saveTplCfg(ctx: Context, t: TplStore) {
+        val fields = JSONObject()
+            .put("customs", toFsValue(t.customs)).put("dtpl", toFsValue(t.dtpl)).put("tpls", toFsValue(t.tpls))
+            .put("template", JSONObject().put("stringValue", t.template))
+            .put("updatedAt", JSONObject().put("timestampValue", Instant.now().toString()))
+        val mask = fields.keys().asSequence().joinToString("&") { "updateMask.fieldPaths=$it" }
+        val r = send(ctx, "PATCH", userUrl() + "/settings/card?" + mask, JSONObject().put("fields", fields).toString())
+        if (r.code !in 200..299) throw fail(r)
+    }
+
     /** শুভ সকালের সময়/চালু-বন্ধ/ব্যানার পছন্দ; ডকুমেন্ট না থাকলে ডিফল্ট */
     suspend fun morningCfg(ctx: Context): MorningCfg {
         val r = send(ctx, "GET", userUrl() + "/settings/card", null)

@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import org.json.JSONObject
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -52,7 +53,7 @@ val QUOTE_TPLS = listOf("quote1" to "বক্তব্য কার্ড (ল�
 fun cardTpls(mode: String) = when (mode) {
     "quote" -> QUOTE_TPLS
     "morning" -> MORNING_TPLS
-    else -> CARD_TPLS
+    else -> TplRegistry.photoTpls()
 }
 
 /** ওয়েবের TPL.draw-এর হুবহু হিসাব (১০৮০×১৩৫০). scale দিলে ছোট থাম্বনেইল হয় */
@@ -61,13 +62,14 @@ object CardRender {
     const val H = 1350
 
     /** ফুটারের (নিচের পাতলা বার) শুরুর y — বিজ্ঞাপন এর ঠিক ওপরে বসে; ফুটার না থাকলে কার্ডের একদম নিচে */
-    fun hOf(id: String) = if (id == "quote1") 1080 else H
-    fun aspect(id: String) = W.toFloat() / hOf(id)
+    fun hOf(id: String) = TplRegistry.sizeOf(id)?.second ?: if (id == "quote1") 1080 else H
+    fun wOf(id: String) = TplRegistry.sizeOf(id)?.first ?: W
+    fun aspect(id: String) = wOf(id).toFloat() / hOf(id)
 
     private val FOOT = mapOf("white" to 1270, "red" to 1300, "blue" to 1290) + MN_SPECS.associate { "morning${it.k}" to 1229 }
 
     /** ছবির জায়গার মাপ (টেনে সরানোর হিসাবের জন্য) */
-    fun photoBox(id: String): Pair<Float, Float> = when (id) {
+    fun photoBox(id: String): Pair<Float, Float> = layoutPhotoBox(TplRegistry.layout(id)) ?: when (id) {
         "quote1" -> 500f to 1080f
         "white" -> 1080f to 860f
         "red" -> 1080f to 900f
@@ -77,24 +79,29 @@ object CardRender {
     }
 
     /** ad দিলে ওয়েবের renderCard-এর নিয়মে বসে: কার্ডের মাপ একই থাকে, ছবি ক্রপ হয়ে ছোট হয় (চ্যাপ্টা হয় না), ফুটার নিজের জায়গায় */
-    fun render(id: String, d: CardData, scale: Float = 1f, ad: Bitmap? = null): Bitmap {
-        val H = hOf(id)   // কার্ডের উচ্চতা (বক্তব্য কার্ড ১০৮০, বাকিগুলো ১৩৫০)
-        val bmp = Bitmap.createBitmap((W * scale).roundToInt(), (H * scale).roundToInt(), Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        c.scale(scale, scale)
-        c.drawColor(Color.WHITE)
-        if (ad == null) { CardPainter(c, d).draw(id); return bmp }
+    /** লেআউটের প্রথম "খবরের ছবি" এলিমেন্টের মাপ */
+    fun layoutPhotoBox(S: JSONObject?): Pair<Float, Float>? {
+        val a = S?.optJSONArray("els") ?: return null
+        for (i in 0 until a.length()) {
+            val e = a.optJSONObject(i) ?: continue
+            if (e.optString("type") == "photo") return e.optDouble("w", 1080.0).toFloat() to e.optDouble("h", 1350.0).toFloat()
+        }
+        return null
+    }
 
+    /** বিজ্ঞাপন বসানোর হিসাব (কোন সারিতে একটানা ফাঁকা পট্টি): টেমপ্লেট/শিরোনাম না বদলালে একবার হিসাব করে বারবার কাজে লাগানো যায় (ছবি টানার সময় ল্যাগ কমাতে) */
+    class AdPlan(val y0: Int, val rects: List<RectF>)
+
+    fun adPlan(id: String, d: CardData, ov: TplOv? = null): AdPlan {
+        val H = TplRegistry.sizeOf(id, ov)?.second ?: hOf(id)
+        val W = TplRegistry.sizeOf(id, ov)?.first ?: wOf(id)
         val adH = AD_H
         val sp0 = FOOT[id] ?: H
-        val topH = sp0 - adH
-        val wf = W.toFloat()
-
-        // ১) টেমপ্লেট আধা-মাপে স্বচ্ছ ক্যানভাসে এঁকে (ছবি বাদ) দেখা: কোন একটানা পট্টি একদম ফাঁকা
+        // টেমপ্লেট আধা-মাপে স্বচ্ছ ক্যানভাসে এঁকে (ছবি বাদ) দেখা: কোন একটানা পট্টি একদম ফাঁক
         val an = 0.5f
         val pb = Bitmap.createBitmap((W * an).toInt(), (sp0 * an).toInt(), Bitmap.Config.ARGB_8888)
         val pc = Canvas(pb); pc.scale(an, an)
-        val rec = CardPainter(pc, d).also { it.skipPhoto = true; if (!isMorningId(id)) it.draw(id) }
+        val rec = CardPainter(pc, d).also { it.ov = ov; it.skipPhoto = true; if (!isMorningId(id)) it.draw(id) }
         val rects = rec.photoRects.toList()
         var y0 = -1
         if (rects.isNotEmpty()) {
@@ -115,8 +122,28 @@ object CardRender {
             }
         }
         pb.recycle()
+        return AdPlan(y0, rects)
+    }
 
-        val p = CardPainter(c, d)
+    fun render(id: String, d: CardData, scale: Float = 1f, ad: Bitmap? = null, ov: TplOv? = null, plan: AdPlan? = null): Bitmap {
+        val H = TplRegistry.sizeOf(id, ov)?.second ?: hOf(id)   // কার্ডের উচ্চতা (বক্তব্য কার্ড ১০৮০, বাকিগুলো ১৩৫০)
+        val W = TplRegistry.sizeOf(id, ov)?.first ?: wOf(id)
+        val bmp = Bitmap.createBitmap((W * scale).roundToInt(), (H * scale).roundToInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.scale(scale, scale)
+        c.drawColor(Color.WHITE)
+        if (ad == null) { CardPainter(c, d).also { it.ov = ov }.draw(id); return bmp }
+
+        val adH = AD_H
+        val sp0 = FOOT[id] ?: H
+        val topH = sp0 - adH
+        val wf = W.toFloat()
+
+        val pl = plan ?: adPlan(id, d, ov)
+        val rects = pl.rects
+        val y0 = pl.y0
+
+        val p = CardPainter(c, d).also { it.ov = ov }
         if (y0 >= 0) {
             fun mapY(v: Float) = if (v <= y0) v else if (v >= y0 + adH) v - adH else y0.toFloat()
             rects.forEach { r -> val a = mapY(r.top); val b = mapY(r.bottom); if (b > a) p.coverPhoto(r.left, a, r.width(), b - a) }
@@ -133,6 +160,8 @@ object CardRender {
     }
 }
 
+val GLYPHS = listOf("globe", "fb", "yt", "ig", "phone", "mail", "pin")
+
 private fun hex(s: String): Int = runCatching { Color.parseColor(s) }.getOrDefault(Color.WHITE)
 private fun hexA(s: String, a: Float): Int {
     val v = hex(s)
@@ -142,10 +171,13 @@ private fun hexA(s: String, a: Float): Int {
 private class CardPainter(val c: Canvas, val d: CardData) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { typeface = Typeface.DEFAULT_BOLD }
     var skipPhoto = false
+    var ov: TplOv? = null
     private fun face(bold: Boolean) { p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
     val photoRects = ArrayList<RectF>()
     fun coverPhoto(x: Float, y: Float, w: Float, h: Float) { val sv = skipPhoto; skipPhoto = false; cover(d.photo, x, y, w, h); skipPhoto = sv }
     fun draw(id: String) {
+        val lay = ov?.s ?: TplRegistry.layout(id)
+        if (lay != null) { drawLayout(id, lay); return }
         when (id) {
             "white" -> white()
             "red" -> red()
@@ -294,6 +326,212 @@ private class CardPainter(val c: Canvas, val d: CardData) {
                 val fm = p.fontMetrics
                 c.drawText(name, at(dw), y + h / 2 - (fm.ascent + fm.descent) / 2, p)
                 p.textScaleX = 1f
+            }
+        }
+    }
+
+    // ---------- এডিট করা / কাস্টম টেমপ্লেট (ওয়েবের cbDrawEl, হুবহু হিসাব) ----------
+    private fun jd(o: JSONObject, k: String, dflt: Double = 0.0): Float = (if (o.has(k) && !o.isNull(k)) o.optDouble(k, dflt) else dflt).toFloat()
+    private fun js(o: JSONObject, k: String, dflt: String = ""): String = if (o.has(k) && !o.isNull(k)) o.optString(k, dflt) else dflt
+    private fun jc(o: JSONObject, k: String): Char = js(o, k).firstOrNull() ?: 'l'
+
+    fun drawLayout(id: String, S: JSONObject) {
+        val w = S.optInt("w", 1080).toFloat(); val h = S.optInt("h", 1350).toFloat()
+        rect(0f, 0f, w, h, hex(js(S, "bg", "#111111")))
+        val els = S.optJSONArray("els") ?: return
+        for (i in 0 until els.length()) {
+            val e = els.optJSONObject(i) ?: continue
+            c.save()
+            try { drawEl(id, e) } catch (_: Throwable) {}
+            c.restore()
+        }
+    }
+
+    private fun drawEl(id: String, e: JSONObject) {
+        val x = jd(e, "x"); val y = jd(e, "y"); val w = jd(e, "w"); val h = jd(e, "h")
+        when (js(e, "type")) {
+            "photo" -> cover(d.photo, x, y, w, h)
+            "rect" -> {
+                val al = jd(e, "alpha", 100.0) / 100f
+                val col = js(e, "color", "#000000")
+                p.style = Paint.Style.FILL; p.shader = null
+                when (js(e, "grad", "none")) {
+                    "down", "up" -> {
+                        val down = js(e, "grad") == "down"
+                        p.color = Color.BLACK
+                        p.shader = LinearGradient(0f, if (down) y else y + h, 0f, if (down) y + h else y,
+                            intArrayOf(hexA(col, 0f), hexA(col, .88f), hex(col)), floatArrayOf(0f, .45f, 1f), Shader.TileMode.CLAMP)
+                    }
+                    "two" -> {
+                        p.color = Color.BLACK
+                        p.shader = LinearGradient(0f, y, 0f, y + h, hex(col), hex(js(e, "color2", col)), Shader.TileMode.CLAMP)
+                    }
+                    else -> p.color = hex(col)
+                }
+                p.alpha = (255 * al).roundToInt().coerceIn(0, 255)
+                if (js(e, "shape") == "circle") c.drawOval(RectF(x, y, x + w, y + h), p) else c.drawRect(x, y, x + w, y + h, p)
+                p.shader = null; p.alpha = 255
+            }
+            "headline" -> headline(d.head, x, y, w, h, hex(js(e, "c1", "#ffffff")), if (e.optBoolean("two")) hex(js(e, "c2", "#ffe600")) else null, e.optInt("size", 78))
+            "logo" -> logoEl(id, x, y, w, h, jc(e, "align"), js(e, "mode"), js(e, "shape"), hex(js(e, "color", "#ffffff")))
+            "social" -> {
+                val ico = js(e, "ico").ifBlank { if (js(e, "net") == "yt") "yt" else "fb" }
+                iconLine(x, y, w, h, ico, js(e, "text").trim(), hex(js(e, "color", "#ffffff")), e.optInt("size", 30).toFloat(), jc(e, "align"), 12f, e.optBoolean("fx"))
+            }
+            "icon" -> {
+                val sz = min(w, h); val al = jc(e, "align")
+                glyph(js(e, "ico", "globe"), if (al == 'l') x else if (al == 'r') x + w - sz else x + (w - sz) / 2, y + (h - sz) / 2, sz, hex(js(e, "color", "#ffffff")))
+            }
+            "image" -> {
+                val im = TplRegistry.image(js(e, "data")) ?: return
+                p.shader = null; p.alpha = (255 * jd(e, "alpha", 100.0) / 100f).roundToInt().coerceIn(0, 255)
+                if (js(e, "fit") == "cover") {
+                    val k = max(w / im.width, h / im.height); val dw = im.width * k; val dh = im.height * k
+                    c.save(); c.clipRect(x, y, x + w, y + h)
+                    c.drawBitmap(im, null, RectF(x + (w - dw) / 2, y + (h - dh) / 2, x + (w + dw) / 2, y + (h + dh) / 2), p); c.restore()
+                } else {
+                    val k = min(w / im.width, h / im.height); val iw = im.width * k; val ih = im.height * k
+                    c.drawBitmap(im, null, RectF(x + (w - iw) / 2, y + (h - ih) / 2, x + (w + iw) / 2, y + (h + ih) / 2), p)
+                }
+                p.alpha = 255
+            }
+            "text" -> {
+                val src = js(e, "src", "catdate")
+                val s = when (src) { "catdate" -> catDate; "date" -> d.date; "cat" -> d.cat; "url" -> d.url; "tag" -> d.tag; "cta" -> d.cta; "custom" -> js(e, "text"); else -> "" }
+                if (s.isEmpty()) return
+                val icon = js(e, "icon")
+                fun box() { if (e.optBoolean("box")) rect(x, y, w, h, hexA(js(e, "bg", "#000000"), jd(e, "balpha", 100.0) / 100f)) }
+                val col = hex(js(e, "color", "#ffffff"))
+                val al0 = if (e.has("align")) jc(e, "align") else 'l'
+                if (icon in GLYPHS) { box(); iconLine(x, y, w, h, icon, s, col, e.optInt("size", 30).toFloat(), al0, 16f, e.optBoolean("fx")); return }
+                box()
+                var fs = e.optInt("size", 30).toFloat(); val pad = 16f
+                val bold = !(src == "cat" || src == "date" || src == "catdate")
+                face(bold); p.textSize = fs
+                while (!e.optBoolean("fx") && fs > 12 && p.measureText(s) > w - pad * 2) { fs -= 2; p.textSize = fs }
+                face(true)
+                val align = when (al0) { 'c' -> Paint.Align.CENTER; 'r' -> Paint.Align.RIGHT; else -> Paint.Align.LEFT }
+                val xx = when (al0) { 'c' -> x + w / 2; 'r' -> x + w - pad; else -> x + pad }
+                txt(s, xx, y + h / 2 + 1, align, col, fs, null, bold)
+            }
+        }
+    }
+
+    /** ওয়েবের logoSlot(force, shape): এলিমেন্টে বেছে নেওয়া লোগো ধরন, আর টেমপ্লেটের লোগো মোড/সাইজ (tpls[id]) */
+    private fun logoEl(id: String, x: Float, y: Float, w: Float, h: Float, align: Char, force: String, shape: String, lt: Int) {
+        val ts = ov?.ts ?: TplRegistry.store.tpls.optJSONObject(id)
+        val m = ts?.optString("mode", "auto")?.ifBlank { "auto" } ?: "auto"
+        val hasWide = d.logo != null; val hasIcon = d.icon != null
+        val pref = if (id == "white") listOf("icon", "wide") else listOf("wide", "icon")
+        val auto = when {
+            m == "none" || m == "text" -> m
+            (m == "wide" && hasWide) || (m == "icon" && hasIcon) -> m
+            else -> pref.firstOrNull { (it == "wide" && hasWide) || (it == "icon" && hasIcon) } ?: "text"
+        }
+        val mode = if (force.isNotEmpty() && auto != "none" && ((force == "wide" && hasWide) || (force == "icon" && hasIcon) || force == "text")) force else auto
+        if (mode == "none") return
+        val sc = (ts?.optInt("size", 100) ?: 100).let { if (it <= 0) 100 else it } / 100f
+        val nw = w * sc; val nh = h * sc
+        val X = when (align) { 'r' -> x + w - nw; 'c' -> x + (w - nw) / 2; else -> x }
+        val Y = y + (h - nh) / 2
+        fun at(bw: Float) = when (align) { 'r' -> X + nw - bw; 'c' -> X + (nw - bw) / 2; else -> X }
+        when (mode) {
+            "wide" -> {
+                val lg = d.logo ?: return
+                val k = min(nw / lg.width, nh / lg.height); val dw = lg.width * k; val dh = lg.height * k
+                p.shader = null
+                c.drawBitmap(lg, null, RectF(at(dw), Y + (nh - dh) / 2, at(dw) + dw, Y + (nh - dh) / 2 + dh), p)
+            }
+            "icon" -> {
+                val ic = d.icon ?: return
+                val s = min(nw, nh); val dx = at(s); val dy = Y + (nh - s) / 2
+                val sq = (shape.ifBlank { if (d.iconRound) "round" else "square" }) == "square"
+                c.save()
+                if (sq) c.clipRect(dx, dy, dx + s, dy + s) else c.clipPath(Path().apply { addCircle(dx + s / 2, dy + s / 2, s / 2, Path.Direction.CW) })
+                cover(ic, dx, dy, s, s)
+                c.restore()
+            }
+            else -> {
+                val name = d.siteName.ifBlank { Cfg.SITE }
+                face(true); p.textSize = nh * 0.5f
+                val full = p.measureText(name); val dw = min(nw, full)
+                p.shader = null; p.style = Paint.Style.FILL; p.color = lt; p.textAlign = Paint.Align.LEFT
+                if (full > nw) p.textScaleX = nw / full
+                val fm = p.fontMetrics
+                c.drawText(name, at(dw), Y + nh / 2 - (fm.ascent + fm.descent) / 2, p)
+                p.textScaleX = 1f
+            }
+        }
+    }
+
+    /** আইকন + লেখা একসাথে (ওয়েবের cbIconLine); জায়গা কম পড়লে লেখা ছোট হয় */
+    private fun iconLine(x: Float, y: Float, w: Float, h: Float, ico: String, text: String, col: Int, size: Float, align: Char, pad: Float, fixed: Boolean) {
+        var fs = size
+        face(false)
+        fun ic() = (fs * 1.35f).roundToInt().toFloat()
+        fun gap() = (fs * 0.4f).roundToInt().toFloat()
+        p.textSize = fs
+        var tw = if (text.isNotEmpty()) p.measureText(text) else 0f
+        while (!fixed && fs > 12 && ic() + (if (text.isNotEmpty()) gap() + tw else 0f) > w - pad * 2) {
+            fs -= 2; p.textSize = fs; tw = if (text.isNotEmpty()) p.measureText(text) else 0f
+        }
+        face(true)
+        val icS = ic(); val gp = gap()
+        val total = icS + (if (text.isNotEmpty()) gp + tw else 0f)
+        val sx = when (align) { 'c' -> x + (w - total) / 2; 'r' -> x + w - pad - total; else -> x + pad }
+        val cy = y + h / 2
+        glyph(ico, sx, cy - icS / 2, icS, col)
+        if (text.isNotEmpty()) txt(text, sx + icS + gp, cy + 1, Paint.Align.LEFT, col, fs, null, false)
+    }
+
+    /** ওয়েবের cbGlyph: কোডে আঁকা আইকন */
+    private fun glyph(kind: String, x: Float, y: Float, s: Float, col: Int) {
+        val lw = max(2f, s / 12f); val cx = x + s / 2; val cy = y + s / 2
+        val st = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = lw; color = col; strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
+        val fl = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = col }
+        fun rr(rx: Float, ry: Float, rw: Float, rh: Float, r: Float) { c.drawRoundRect(RectF(rx, ry, rx + rw, ry + rh), r, r, st) }
+        when (kind) {
+            "globe" -> {
+                val r = s / 2 - lw / 2; st.strokeWidth = lw * 0.85f
+                c.drawCircle(cx, cy, r, st)
+                c.drawOval(RectF(cx - r * 0.42f, cy - r, cx + r * 0.42f, cy + r), st)
+                val hw = r * 0.866f
+                c.drawLine(cx - r, cy, cx + r, cy, st); c.drawLine(cx - hw, cy - r / 2, cx + hw, cy - r / 2, st); c.drawLine(cx - hw, cy + r / 2, cx + hw, cy + r / 2, st)
+            }
+            "yt" -> {
+                val bh = s * 0.78f
+                rr(x + lw / 2, cy - bh / 2, s - lw, bh, bh * 0.28f)
+                val tri = Path().apply { moveTo(x + s * 0.40f, cy - bh * 0.26f); lineTo(x + s * 0.40f, cy + bh * 0.26f); lineTo(x + s * 0.68f, cy); close() }
+                c.drawPath(tri, fl)
+            }
+            "ig" -> {
+                rr(x + lw / 2, y + lw / 2, s - lw, s - lw, s * 0.28f)
+                c.drawCircle(cx, cy, s * 0.21f, st)
+                c.drawCircle(x + s * 0.74f, y + s * 0.26f, max(1.5f, lw * 0.55f), fl)
+            }
+            "phone" -> {
+                rr(x + s * 0.24f, y + lw / 2, s * 0.52f, s - lw, s * 0.12f)
+                c.drawLine(cx - s * 0.09f, y + s * 0.82f, cx + s * 0.09f, y + s * 0.82f, st)
+            }
+            "mail" -> {
+                rr(x + lw / 2, y + s * 0.17f, s - lw, s * 0.66f, s * 0.08f)
+                val pa = Path().apply { moveTo(x + s * 0.08f, y + s * 0.24f); lineTo(cx, y + s * 0.57f); lineTo(x + s * 0.92f, y + s * 0.24f) }
+                c.drawPath(pa, st)
+            }
+            "pin" -> {
+                val pa = Path().apply {
+                    moveTo(cx, y + s * 0.96f)
+                    cubicTo(cx - s * 0.46f, y + s * 0.6f, cx - s * 0.34f, y + s * 0.06f, cx, y + s * 0.06f)
+                    cubicTo(cx + s * 0.34f, y + s * 0.06f, cx + s * 0.46f, y + s * 0.6f, cx, y + s * 0.96f)
+                    close()
+                }
+                c.drawPath(pa, st)
+                c.drawCircle(cx, y + s * 0.38f, s * 0.11f, st)
+            }
+            else -> {
+                rr(x + lw / 2, y + lw / 2, s - lw, s - lw, s * 0.24f)
+                val tp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; typeface = Typeface.DEFAULT_BOLD; textSize = s * 0.78f; textAlign = Paint.Align.CENTER }
+                c.drawText("f", x + s * 0.55f, y + s * 0.84f, tp)
             }
         }
     }
