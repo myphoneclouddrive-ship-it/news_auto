@@ -360,7 +360,7 @@ class Timeline {
         timelineZoom = (timelineZoom * factor).coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
     }
 
-    fun setTimelineZoom(z: Float) {
+    fun changeTimelineZoom(z: Float) {
         timelineZoom = z.coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
     }
 

@@ -515,7 +515,7 @@ fun NudgeZoomBar(tl: Timeline, modifier: Modifier = Modifier) {
         SmallBtn("🔍−", fontSize = 11.sp, hPad = 6.dp, enabled = z > Timeline.TL_ZOOM_MIN + 0.001f) { tl.zoomTimeline(1f / 1.5f) }
         ZoomSlider(tl, Modifier.weight(1f))
         SmallBtn("🔍+", fontSize = 11.sp, hPad = 6.dp, enabled = z < Timeline.TL_ZOOM_MAX - 0.001f) { tl.zoomTimeline(1.5f) }
-        SmallBtn("⤢ ফিট", fontSize = 11.sp, hPad = 6.dp, enabled = tl.totalMs > 0L) { tl.setTimelineZoom(fitZoom(tl.clips, availDp)) }
+        SmallBtn("⤢ ফিট", fontSize = 11.sp, hPad = 6.dp, enabled = tl.totalMs > 0L) { tl.changeTimelineZoom(fitZoom(tl.clips, availDp)) }
         Text(
             zLabel,
             modifier = Modifier.widthIn(min = 22.dp),
@@ -544,7 +544,7 @@ private fun ZoomSlider(tl: Timeline, modifier: Modifier = Modifier) {
                     val dd = density
                     fun setFrom(xPx: Float) {
                         val f = ((xPx / dd - thumbR) / (size.width / dd - 2 * thumbR)).coerceIn(0f, 1f)
-                        tl.setTimelineZoom((lo * Math.pow((hi / lo).toDouble(), f.toDouble())).toFloat())
+                        tl.changeTimelineZoom((lo * Math.pow((hi / lo).toDouble(), f.toDouble())).toFloat())
                     }
                     setFrom(down.position.x)
                     down.consume()

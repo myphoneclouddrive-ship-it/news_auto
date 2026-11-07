@@ -13,10 +13,12 @@ import androidx.core.app.NotificationCompat
 object Notif {
     const val CH_RENDER = "render"
     const val CH_UPDATE = "update"
+    const val CH_AI = "ai"
 
     fun init(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH_RENDER, "ভিডিও রেন্ডার", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CH_AI, "AI লেখা", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "অ্যাপ আপডেট", NotificationManager.IMPORTANCE_HIGH))
     }
 

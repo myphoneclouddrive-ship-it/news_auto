@@ -4,7 +4,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -22,6 +27,28 @@ object Net {
     val refreshTick: StateFlow<Int> = _refreshTick
 
     private var started = false
+    private lateinit var cm: ConnectivityManager
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var pending: Job? = null
+
+    /**
+     * নেটওয়ার্ক গেছে মনে হলে সাথে সাথে লক করি না: স্ক্রিন অফ/অন বা ওয়াইফাই↔মোবাইল বদলের সময় সংযোগ কিছুক্ষণের জন্য ঝলক দেয়।
+     * কয়েক সেকেন্ড অপেক্ষা করে তবুও না থাকলে তবেই লক হয় — আর অ্যাপ ব্যাকগ্রাউন্ডে থাকলে, বা AI লেখা চলার সময় লক হয় না।
+     */
+    private fun lockIfStillOffline(graceMs: Long = 6000L) {
+        pending?.cancel()
+        pending = scope.launch {
+            var waited = 0L
+            while (waited < graceMs) {
+                if (check(cm)) return@launch
+                delay(500); waited += 500
+            }
+            if (!check(cm) && AppState.foreground && !AiKeepAliveService.active) _locked.value = true
+        }
+    }
+
+    /** অ্যাপ সামনে এলে (স্ক্রিন অন/অ্যাপে ফেরা) বা AI কাজ শেষে: সংযোগ সত্যিই না থাকলে তবেই লক */
+    fun recheck() { if (started && !check(cm)) lockIfStillOffline() }
 
     private fun check(cm: ConnectivityManager): Boolean = try {
         val n = cm.activeNetwork
@@ -34,14 +61,14 @@ object Net {
     fun start(ctx: Context) {
         if (started) return
         started = true
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        if (!check(cm)) _locked.value = true
+        cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        if (!check(cm)) lockIfStillOffline()
         try {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 // সংযোগ গেলে লক হয়; ফিরলে লক খোলে না — চেক বাটন চাপতে হবে
-                override fun onLost(network: Network) { if (!check(cm)) _locked.value = true }
+                override fun onLost(network: Network) { if (!check(cm)) lockIfStillOffline() }
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                    if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) _locked.value = true
+                    if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) lockIfStillOffline()
                 }
             })
         } catch (_: Exception) { /* কলব্যাক না বসলে শুরুর অবস্থাই থাকবে */ }
@@ -52,8 +79,8 @@ object Net {
      * সব ঠিক থাকলে লক খোলে ও ডেটা নতুন করে আনার সংকেত দেয়। সংযোগ না থাকলে false।
      */
     suspend fun verify(ctx: Context): Boolean {
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        if (!check(cm)) return false
+        val cmv = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        if (!check(cmv)) return false
         try {
             // আসল ইন্টারনেট আছে কিনা: Firebase-এর সার্ভারে পৌঁছানো গেলেই হলো (যে কোনো সাড়া)
             withContext(Dispatchers.IO) { httpCall("GET", "https://firestore.googleapis.com/", readMs = 8000) }

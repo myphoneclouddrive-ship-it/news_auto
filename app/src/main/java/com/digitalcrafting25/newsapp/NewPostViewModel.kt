@@ -229,6 +229,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     // ───────── চলমান কাজের ঘড়ি ─────────
     private fun startBusy(msg: String) {
         busy = true; busyMsg = msg; elapsed = 0; error = null; notice = null
+        AiKeepAliveService.start(app)   // স্ক্রিন অফ/ব্যাকগ্রাউন্ডেও চলবে
         tickJob?.cancel()
         tickJob = viewModelScope.launch {
             while (true) {
@@ -243,7 +244,11 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun endBusy() { busy = false; rewriting = false; tickJob?.cancel() }
+    private fun endBusy() {
+        busy = false; rewriting = false; tickJob?.cancel()
+        AiKeepAliveService.stop(app)
+        Net.recheck()   // কাজ চলার সময় যে নেটওয়ার্ক-ঝলক উপেক্ষা হয়েছিল, এখন আসল অবস্থা দেখা
+    }
 
     private fun fail(e: Throwable) { error = e.message ?: "সমস্যা হয়েছে" }
 

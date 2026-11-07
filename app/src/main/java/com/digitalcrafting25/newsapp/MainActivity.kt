@@ -89,6 +89,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // অ্যাপ খোলা থাকলে স্ক্রিন নিজে থেকে বন্ধ হবে না
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
@@ -118,7 +120,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); AppState.foreground = true }
+    override fun onStart() { super.onStart(); AppState.foreground = true; Net.recheck() }
     override fun onStop() { super.onStop(); AppState.foreground = false }
 }
 
