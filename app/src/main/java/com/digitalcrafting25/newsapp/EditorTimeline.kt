@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -296,9 +297,11 @@ private fun VisualLanes(tl: Timeline) {
     Divider()
     // আলাদা স্ক্রল নেই: পুরো টাইমলাইন (অডিও + মূল ভিডিও + লেয়ার) বাইরের একটাই ওপর-নিচ স্ক্রলে চলে
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp)) {
-        vis.asReversed().forEach { l ->
+        // HTML-এর lyLaneOf/laneOrder-এর মতো: নিচের সব বিজ্ঞাপন একটাই সারিতে, ওপরের সব বিজ্ঞাপন আলাদা একটাই সারিতে
+        // (পাশাপাশি বার হয়ে বসে) — প্রতিটা বিজ্ঞাপনের জন্য নতুন লেয়ার-সারি হয় না
+        Timeline.laneRows(vis).asReversed().forEach { row ->
             Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(LANE_H.dp)) {
-                LayerBar(tl, l)
+                row.forEach { l -> key(l.id) { LayerBar(tl, l) } }
             }
         }
     }
@@ -404,7 +407,10 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
         tl.clips.forEachIndexed { i, c ->
             xAcc += clipWidthDp(c, tl.timelineZoom)
             if (i < tl.clips.lastIndex) {
-                SeamButton(tl, c, Modifier.offset(x = (xAcc + GAP_DP / 2f - SEAM_HIT / 2f).dp, y = (CLIP_H - SEAM_HIT).dp))
+                // ইন্ট্রো/আউট্রো কার্ডের পাশে ট্রানজিশন-বাটন (+) থাকবে না
+                if (c.card == null && tl.clips[i + 1].card == null) {
+                    SeamButton(tl, c, Modifier.offset(x = (xAcc + GAP_DP / 2f - SEAM_HIT / 2f).dp, y = (CLIP_H - SEAM_HIT).dp))
+                }
                 xAcc += GAP_DP
             }
         }
@@ -496,48 +502,51 @@ private fun ClipBlock(tl: Timeline, c: Clip, i: Int) {
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
         )
-        // ট্রিম হাতল: আঙুল ধরা মাত্র (স্লপ ছাড়া) লাইভ বদলায়, ছাড়লে একবারে মডেলে বসে
-        val cur by rememberUpdatedState(c)
-        TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage && c.card == null, selected = selected,
-            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
-            onDrag = { dSec ->
+        // ইন্ট্রো/আউট্রো কার্ডের দৈর্ঘ্য ফিক্সড — ক্রপ/ট্রিমের তীর (◀ ▶) দেখানো হয় না
+        if (c.card == null) {
+            // ট্রিম হাতল: আঙুল ধরা মাত্র (স্লপ ছাড়া) লাইভ বদলায়, ছাড়লে একবারে মডেলে বসে
+            val cur by rememberUpdatedState(c)
+            TrimHandle("◀", Modifier.align(Alignment.CenterStart), dpPerSec, enabled = !c.isImage && c.card == null, selected = selected,
+                onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
+                onDrag = { dSec ->
+                    val k = cur
+                    val e = k.effEndSec()
+                    val minD = -k.startSec
+                    val maxD = (e - 0.3f - k.startSec).coerceAtLeast(0f)
+                    dragS = dSec.coerceIn(minD, maxD)
+                },
+                onCancel = { dragS = 0f; dragE = 0f },
+            ) { dSec ->
                 val k = cur
-                val e = k.effEndSec()
-                val minD = -k.startSec
-                val maxD = (e - 0.3f - k.startSec).coerceAtLeast(0f)
-                dragS = dSec.coerceIn(minD, maxD)
-            },
-            onCancel = { dragS = 0f; dragE = 0f },
-        ) { dSec ->
-            val k = cur
-            if (!k.isImage && k.durationMs > 0L) {
-                val e = k.effEndSec()
-                tl.trim(k.id, (k.startSec + dSec).coerceIn(0f, (e - 0.2f).coerceAtLeast(0f)), e)
-            }
-            dragS = 0f; dragE = 0f
-        }
-        TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true, selected = selected,
-            onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
-            onDrag = { dSec ->
-                val k = cur
-                if (k.isImage) {
-                    dragE = dSec.coerceIn(0.5f - k.imageSec, 600f - k.imageSec)
-                } else if (k.card == null && k.durationMs > 0L) {
-                    val dur = k.durationMs / 1000f
-                    val minD = -(k.lengthMs() / 1000f - 0.3f).coerceAtLeast(0f)
-                    val maxD = (dur - k.effEndSec()).coerceAtLeast(0f)
-                    dragE = dSec.coerceIn(minD, maxD)
+                if (!k.isImage && k.durationMs > 0L) {
+                    val e = k.effEndSec()
+                    tl.trim(k.id, (k.startSec + dSec).coerceIn(0f, (e - 0.2f).coerceAtLeast(0f)), e)
                 }
-            },
-            onCancel = { dragS = 0f; dragE = 0f },
-        ) { dSec ->
-            val k = cur
-            if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
-            else if (k.card == null && k.durationMs > 0L) {
-                val dur = k.durationMs / 1000f
-                tl.trim(k.id, k.startSec, (k.effEndSec() + dSec).coerceIn(k.startSec + 0.2f, dur))
+                dragS = 0f; dragE = 0f
             }
-            dragS = 0f; dragE = 0f
+            TrimHandle("▶", Modifier.align(Alignment.CenterEnd), dpPerSec, enabled = true, selected = selected,
+                onStart = { tl.selectedId = c.id; tl.selectedLayerId = null; dragS = 0f; dragE = 0f },
+                onDrag = { dSec ->
+                    val k = cur
+                    if (k.isImage) {
+                        dragE = dSec.coerceIn(0.5f - k.imageSec, 600f - k.imageSec)
+                    } else if (k.card == null && k.durationMs > 0L) {
+                        val dur = k.durationMs / 1000f
+                        val minD = -(k.lengthMs() / 1000f - 0.3f).coerceAtLeast(0f)
+                        val maxD = (dur - k.effEndSec()).coerceAtLeast(0f)
+                        dragE = dSec.coerceIn(minD, maxD)
+                    }
+                },
+                onCancel = { dragS = 0f; dragE = 0f },
+            ) { dSec ->
+                val k = cur
+                if (k.isImage) tl.setImageSec(k.id, (k.imageSec + dSec).coerceIn(0.5f, 600f))
+                else if (k.card == null && k.durationMs > 0L) {
+                    val dur = k.durationMs / 1000f
+                    tl.trim(k.id, k.startSec, (k.effEndSec() + dSec).coerceIn(k.startSec + 0.2f, dur))
+                }
+                dragS = 0f; dragE = 0f
+            }
         }
         if (selected) Box(Modifier.fillMaxSize().border(2.dp, ED.Amber, shape))
     }

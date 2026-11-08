@@ -60,7 +60,7 @@ import kotlin.math.min
  */
 object ClipCrop {
     /** প্রিভিউ ফ্রেমের অনুপাত (VideoEditorScreen.PREVIEW_ASPECT-এর মতো) */
-    const val FRAME_ASPECT = 1280f / 720f
+    val FRAME_ASPECT: Float get() = FrameAspect.ratio
 
     /** বাছা অংশ ফ্রেমে ফিট করতে সমান স্কেল */
     fun fitScale(w: Float, h: Float): Float = min(1f / w.coerceAtLeast(0.01f), 1f / h.coerceAtLeast(0.01f))

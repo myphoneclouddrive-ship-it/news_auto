@@ -111,7 +111,33 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         inUse.addAll(DraftStore.urisOf(tl.clips, tl.layers))
         viewModelScope.launch(Dispatchers.IO) { DraftStore.deleteUnused(app, inUse) }
     }
-    var aspect by mutableStateOf(Aspect.LANDSCAPE)
+    private var aspectState by mutableStateOf(Aspect.LANDSCAPE)
+    /** ভিডিওর মাপ: পোস্ট (১২৮০×৭২০, ডিফল্ট) বা রিলস (৭২০×১২৮০). বদলালে ফ্রেমের অনুপাতও (FrameAspect) বদলায় */
+    var aspect: Aspect
+        get() = aspectState
+        set(v) { aspectState = v; FrameAspect.set(v) }
+    init { FrameAspect.set(aspectState) }
+
+    /** পোস্ট/রিলস বদলানো: ইন্ট্রো/আউট্রো কার্ড নতুন মাপে আবার বানানো হয় (একটার পর একটা) */
+    fun changeAspect(a: Aspect) {
+        if (a == aspect) return
+        aspect = a
+        val cards = tl.clips.filter { it.card != null && !it.isImage }.map { it.id to it.card!! }
+        if (cards.isEmpty()) return
+        viewModelScope.launch {
+            for ((id, spec) in cards) {
+                while (cardBusy) delay(200)
+                val s2 = spec.copy(w = a.w, h = a.h)
+                cardBusy = true; cardProgress = 0
+                val r = withContext(Dispatchers.IO) {
+                    runCatching { CardVideoMaker.make(app, s2, a.w, a.h) { cardProgress = (it * 100f).toInt().coerceIn(0, 100) } }
+                }
+                cardBusy = false
+                if (aspect != a) return@launch   // এর মধ্যে আবার বদলানো হয়েছে
+                r.onSuccess { (uri, dur) -> tl.setCard(id, s2, uri, dur) }
+            }
+        }
+    }
     var caption by mutableStateOf("")
     var logo by mutableStateOf<Uri?>(null)
     var music by mutableStateOf<Uri?>(null)
@@ -332,6 +358,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         // ফেইসবুকে ব্যানারও ভিডিওর বাইরে এই ব্যান্ডে বসে (HTML-এর মতো), তাই ব্যানার বা লেখা — যেকোনো একটা থাকলেই ব্যান্ড চালু
         val band = if (fb && aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
         val asp = aspect
+        FrameAspect.set(asp)
         val snapClips = clips.toList()
         val snapLayers = tl.layers.toList()
         val cap = caption

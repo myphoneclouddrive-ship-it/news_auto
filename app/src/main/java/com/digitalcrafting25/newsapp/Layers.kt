@@ -206,6 +206,15 @@ const val EDITOR_AD_H = 108
 const val EDITOR_FRAME_H = 720
 const val EDITOR_AD_FRAC = EDITOR_AD_H / EDITOR_FRAME_H.toFloat()   // = ০.১৫
 
+/**
+ * বর্তমান ফ্রেমের অনুপাত (চওড়া ÷ উঁচু): পোস্ট = ১২৮০×৭২০ (১৬:৯), রিলস = ৭২০×১২৮০ (৯:১৬)।
+ * ব্যানারের উচ্চতা প্রস্থের সাথে বাঁধা (১২৮০ প্রস্থে ১০৮), তাই রিলসে ব্যানার বিকৃত না হয়ে সরু হয়।
+ */
+object FrameAspect {
+    @Volatile var ratio: Float = 1280f / 720f
+    fun set(a: Aspect) { ratio = a.w / a.h.toFloat() }
+}
+
 /** বিজ্ঞাপন ছবি: নিচে (isTop = false) বা ওপরে (isTop = true); যত খুশি যোগ করা যাবে */
 data class AdLayer(
     override val id: Long,
@@ -216,7 +225,7 @@ data class AdLayer(
     val adId: String = "",          // সেটিংসের কোন বিজ্ঞাপন (খালি = নিজের ছবি); নতুন বিজ্ঞাপনে আগে না-বসা গুলো বসে
 ) : Layer {
     /** উচ্চতা স্থির: ফ্রেমের ১৫% (১২৮০×৭২০-তে ঠিক ১০৮px); বদলানো যায় না */
-    val heightFrac: Float get() = EDITOR_AD_FRAC
+    val heightFrac: Float get() = EDITOR_AD_H / EDITOR_AD_W.toFloat() * FrameAspect.ratio
     override val kind get() = if (isTop) LayerKind.AD_TOP else LayerKind.AD_BOTTOM
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)
@@ -296,7 +305,7 @@ object LayerDefaults {
         when (kind) {
             LayerKind.TEXT -> TextLayer(id, startMs, endMs, text = text)
             LayerKind.IMAGE -> ImageLayer(id, startMs, endMs, uri)
-            LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.06f, corner = Corner.TOP_RIGHT)   // HTML: ওপরে ডানে, প্রস্থের ৬%
+            LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.09f, corner = Corner.TOP_RIGHT)   // ওপরে ডানে, প্রস্থের ৯% (HTML-এ ছিল ৬%, একটু বড় করা হয়েছে)
             LayerKind.TAG -> TagLayer(id, startMs, endMs, text = text)
             LayerKind.TICKER -> TickerLayer(id, startMs, endMs, text = text)
             LayerKind.NAME_BAR -> NameBarLayer(id, startMs, endMs, name = text, title = "আপনার পদবি")

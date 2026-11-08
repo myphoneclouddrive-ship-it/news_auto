@@ -203,6 +203,19 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                             msg(m)
                         }
                     }
+                    // ট্যাগ একটাই: আগে থাকলে নতুন লেয়ার নয়, আগেরটাই বাছা হয় (✏️ এডিটে লেখা/কোণা/রং বদলান)
+                    LayerKind.TAG -> {
+                        val ex = tl.layers.firstOrNull { it is TagLayer }
+                        if (ex != null) {
+                            tl.selectedId = null
+                            tl.selectedLayerId = ex.id
+                            inf("📌 ট্যাগ আগে থেকেই আছে — ✏️ এডিটে লেখা/কোণা/রং বদলান।")
+                        } else {
+                            val m = tl.addLayer(kind, text = "ট্যাগ")
+                            if (m == null) tl.selectedId = null
+                            msg(m)
+                        }
+                    }
                     LayerKind.IMAGE -> {
                         pendingKind = kind
                         pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -452,9 +465,9 @@ fun EditorDockBar(
                             // লোগো/স্ক্রলিং লেখা লেয়ার নয়: ওপর-নিচ/কপি নেই, শুধু এডিট ও মুছুন
                             DockBtn("🗑️", if (l is TickerLayer) "স্ক্রলিং মুছুন" else "লোগো মুছুন") { tl.removeLayer(l.id); toMenu() }
                         } else {
-                            DockBtn("⬆", "ওপরে", enabled = gi in 0 until group.lastIndex) { tl.moveLayer(l.id, 1) }
-                            DockBtn("⬇", "নিচে", enabled = gi > 0) { tl.moveLayer(l.id, -1) }
-                            DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
+                            DockBtn("⬆", "ওপরে", enabled = tl.canMoveLayer(l.id, 1)) { tl.moveLayer(l.id, 1) }
+                            DockBtn("⬇", "নিচে", enabled = tl.canMoveLayer(l.id, -1)) { tl.moveLayer(l.id, -1) }
+                            if (l !is OverlayLayer) DockBtn("📋", "কপি") { tl.duplicateLayer(l.id) }
                             DockBtn("🗑️", "লেয়ার মুছুন") { tl.removeLayer(l.id) }
                         }
                     }
@@ -489,7 +502,7 @@ fun EditorDockBar(
                                 }
                                 "brand" -> {
                                     DockBtn("logo", "লোগো", active = tl.layers.any { it.isLogoLayer() }) { act.add(LayerKind.LOGO) }
-                                    DockBtn("pin", "ট্যাগ") { act.add(LayerKind.TAG) }
+                                    DockBtn("pin", "ট্যাগ", active = tl.layers.any { it is TagLayer }) { act.add(LayerKind.TAG) }
                                     DockBtn("user", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
                                     DockBtn("ticker", "স্ক্রলিং লেখা", active = tl.layers.any { it is TickerLayer }) { act.add(LayerKind.TICKER) }
                                 }

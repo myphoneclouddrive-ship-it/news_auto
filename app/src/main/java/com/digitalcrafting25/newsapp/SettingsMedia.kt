@@ -27,7 +27,7 @@ object SettingsMedia {
             val c = Fs.cardCfg(ctx)
             buildList {
                 AdRender.decode(c.logo)?.let { add(LogoOpt("logo", "লোগো", it)) }
-                AdRender.decode(c.icon)?.let { add(LogoOpt("icon", "আইকন", it)) }
+                AdRender.decode(c.icon)?.let { add(LogoOpt("icon", "আইকন", if (c.iconShape == "square") it else circleCrop(it))) }
                 if (c.siteName.isNotBlank()) add(LogoOpt("text", "সাইটের নাম", siteNameBitmap(c.siteName.trim())))
             }
         }.getOrDefault(emptyList())
@@ -84,6 +84,21 @@ object SettingsMedia {
     /** ডিফল্ট ব্যানারের PNG Uri (সেটিংসে বিজ্ঞাপন না থাকলেও চলে) */
     suspend fun placeholderAdUri(ctx: Context): Uri = withContext(Dispatchers.IO) {
         save(File(dir(ctx), "ad_placeholder.png"), placeholderAd())
+    }
+
+    /**
+     * গোল আইকন: মাঝখান থেকে বর্গ কেটে বৃত্তে ছাঁটে, বাইরেটা স্বচ্ছ রাখে।
+     * সেটিংসের আইকন JPEG হওয়ায় কোণায় সাদা পট থাকত, লোগো হয়ে ভিডিওতে বসলে চারপাশে সাদা বর্গ দেখাত।
+     */
+    private fun circleCrop(src: Bitmap): Bitmap {
+        val d = minOf(src.width, src.height).coerceAtLeast(1)
+        val out = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(out)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        c.drawCircle(d / 2f, d / 2f, d / 2f, p)
+        p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        c.drawBitmap(src, -(src.width - d) / 2f, -(src.height - d) / 2f, p)
+        return out
     }
 
     private fun save(f: File, bmp: Bitmap): Uri {

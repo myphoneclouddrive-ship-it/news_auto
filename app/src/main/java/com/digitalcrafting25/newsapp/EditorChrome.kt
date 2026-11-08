@@ -16,7 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,16 +41,39 @@ import androidx.compose.ui.unit.sp
 
 /** ওপরের বার: পেছনে (গোল) · মাঝে ফাঁকা · রেজোলিউশন চিপ · পাবলিশ (লাল গোলাপি পিল) */
 @Composable
-fun EditorTopBar(onBack: () -> Unit, publishEnabled: Boolean, onPublish: () -> Unit, modifier: Modifier = Modifier) {
+fun EditorTopBar(
+    onBack: () -> Unit, publishEnabled: Boolean, onPublish: () -> Unit,
+    aspect: Aspect = Aspect.LANDSCAPE, onAspect: (Aspect) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconBtn("back", circle = true, size = 38.dp, iconSize = 20.dp, onClick = onBack)
         Spacer(Modifier.weight(1f))
-        // রেন্ডার সবসময় 1280×720 (PublishDialog-এ ঠিক করা), তাই চিপটা তথ্য হিসেবে স্থির
-        Box(
-            Modifier.clip(RoundedCornerShape(999.dp)).background(ED.Btn)
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text("720P", color = ED.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) }
+        // মাপ-চিপ: "পোস্ট" (ডিফল্ট, ১২৮০×৭২০ ইউটিউব মাপ) ↔ "রিলস" (৭২০×১২৮০, ৯:১৬); চাপলে দুই অপশনের মেনু
+        var sizeMenu by remember { mutableStateOf(false) }
+        Box {
+            Box(
+                Modifier.clip(RoundedCornerShape(999.dp)).background(ED.Btn)
+                    .clickable { sizeMenu = true }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    (if (aspect == Aspect.PORTRAIT) "রিলস" else "পোস্ট") + " ▾",
+                    color = ED.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false,
+                )
+            }
+            DropdownMenu(expanded = sizeMenu, onDismissRequest = { sizeMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("পোস্ট (১৬:৯ · 1280×720)" + if (aspect == Aspect.LANDSCAPE) "  ✓" else "") },
+                    onClick = { sizeMenu = false; onAspect(Aspect.LANDSCAPE) },
+                )
+                DropdownMenuItem(
+                    text = { Text("রিলস (৯:১৬ · 720×1280)" + if (aspect == Aspect.PORTRAIT) "  ✓" else "") },
+                    onClick = { sizeMenu = false; onAspect(Aspect.PORTRAIT) },
+                )
+            }
+        }
         Spacer(Modifier.width(10.dp))
         Box(
             Modifier.clip(RoundedCornerShape(999.dp)).background(ED.Publish)

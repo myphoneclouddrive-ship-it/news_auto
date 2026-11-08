@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -106,6 +107,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     var editOpen by remember(tl.selectedLayerId, tl.selectedId) { mutableStateOf(false) }
     val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().background(ED.Screen).padding(top = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -230,6 +232,51 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
             EditorDockBar(tl, act, setError, setInfo, vm, editOpen, { editOpen = !editOpen }, onBack)
         }
     }
+    // HTML-এর মতো: রেন্ডার শুরু হলে ওপরে পপ-আপ (প্রসেস বার + % + সময়); চলার সময় এডিটরের কোনো অপশন কাজ করে না
+    if (status is RenderStatus.Running) RenderProgressPopup(status) { vm.cancelRender() }
+    }
+}
+
+/** রেন্ডার চলাকালীন ওপরের পপ-আপ: পুরো পর্দা ঢেকে সব ট্যাপ/টানা আটকায় (পেছনে এডিটর কাজ করে না), ব্যাক বোতামও বন্ধ */
+@Composable
+private fun RenderProgressPopup(s: RenderStatus.Running, onCancel: () -> Unit) {
+    androidx.activity.compose.BackHandler(enabled = true) { }
+    val t0 = remember { System.currentTimeMillis() }
+    var now by remember { mutableStateOf(t0) }
+    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(500) } }
+    val all = (s.progress / 100f).coerceIn(0f, 1f)
+    val el = ((now - t0) / 1000f).coerceAtLeast(0f)
+    fun fmt(sec: Float): String { val t = sec.toInt(); return "${t / 60}:${(t % 60).toString().padStart(2, '0')}" }
+    Box(
+        Modifier.fillMaxSize().background(Color(0x99000000))
+            .pointerInput(Unit) {
+                awaitPointerEventScope { while (true) { awaitPointerEvent().changes.forEach { it.consume() } } }
+            },
+    ) {
+        Column(
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp).fillMaxWidth()
+                .background(ED.Panel, RoundedCornerShape(14.dp))
+                .border(1.dp, ED.Border, RoundedCornerShape(14.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("⏳ রেন্ডার হচ্ছে…", color = ED.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            LinearProgressIndicator(progress = { all }, modifier = Modifier.fillMaxWidth().height(10.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Text("${s.progress}%", color = ED.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(
+                    "সময়: " + fmt(el) + (if (all > 0.03f && all < 1f) " · বাকি ≈ " + fmt(el / all * (1f - all)) else ""),
+                    color = ED.Sub, fontSize = 13.sp,
+                )
+            }
+            Text(
+                if (s.passCount > 1) "${s.label} ভিডিও রেন্ডার হচ্ছে (${s.pass}/${s.passCount})" else "ভিডিও রেন্ডার হচ্ছে",
+                color = ED.Sub, fontSize = 13.sp,
+            )
+            Text("অ্যাপ ব্যাকগ্রাউন্ডে গেলেও চলবে, নোটিফিকেশনে % দেখা যাবে। রেন্ডার চলাকালীন এডিট করা যাবে না।", color = ED.Muted, fontSize = 12.sp, lineHeight = 16.sp)
+            OutlinedButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) { Text("⏹ বাতিল") }
+        }
+    }
 }
 
 /** রেন্ডারের অগ্রগতির লেখা; দুই ভিডিও হলে HTML-এর মতো "ফেইসবুক ভিডিও রেন্ডার হচ্ছে (১/২)" */
@@ -277,7 +324,13 @@ private fun StageCard(
     val clipSig = PreviewPlayer.signature(tl.clips)
     // ট্রিম টানার সময় প্রতি ধাপে পুরো প্লেলিস্ট prepare না করে একটু থেমে (১৫০ মি.সে.) একবার করে
     LaunchedEffect(clipSig) {
+        // প্লে চলার সময় ক্লিপ বদলালে প্লেলিস্ট নতুন করে সাজাতে প্লেয়ার থেমে যায়; বোতামও তাই থামে
+        // (না হলে বোতাম "চলছে" দেখায় অথচ ভিডিও চলে না)
+        if (playing) playing = false
+        // ইন্ট্রো/আউট্রো এনকোডের সময় ডিকোডার ধরা হয় না; শেষে cardBusy-র ইফেক্ট refresh করে
+        if (vm.cardBusy) return@LaunchedEffect
         if (pp.hasClips) kotlinx.coroutines.delay(150)
+        if (vm.cardBusy) return@LaunchedEffect
         pp.setClips(tl.clips); pp.seekTo(tl.playheadMs)
     }
     // ইন্ট্রো/আউট্রো এনকোড চলার সময় প্লেয়ারের ডিকোডার ছেড়ে দেয়, শেষে আবার সাজায়
@@ -310,6 +363,10 @@ private fun StageCard(
         pp.seekTo(tl.playheadMs)
         pp.play()
         var lastWritten = tl.playheadMs
+        // আটকে যাওয়া ধরা: ৪ সেকেন্ড পজিশন না এগোলে একবার প্লেলিস্ট নতুন করে সাজায়; তবুও না চললে কারণ দেখিয়ে থামে
+        var stallPos = -1L
+        var stallAt = System.nanoTime()
+        var recovered = false
         while (playing) {
             withFrameNanos { it }
             // প্লের মধ্যে ব্যবহারকারী লাল দাগ সরালে সেখান থেকে চলবে
@@ -319,17 +376,29 @@ private fun StageCard(
             lastWritten = pos
             pp.syncLayers(tl.layers, pos, true)
             if (pp.ended() || pos >= total - 30L) playing = false
+            val now = System.nanoTime()
+            if (pos != stallPos) { stallPos = pos; stallAt = now }
+            else if (playing && now - stallAt > 4_000_000_000L) {
+                if (!recovered) {
+                    recovered = true
+                    pp.refresh(tl.clips); pp.seekTo(pos); pp.play()
+                    stallAt = now
+                } else {
+                    setError("প্রিভিউ চলছে না" + (pp.lastError?.let { " ($it)" } ?: "") + " — আবার প্লে চাপুন, না হলে এডিটর বন্ধ করে খুলুন")
+                    playing = false
+                }
+            }
         }
         pp.pause()
     }
     LaunchedEffect(running) { if (running) playing = false }
     if (showPublish) PublishDialog(
         vm = vm,
+        aspect = vm.aspect,
         hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP },
         hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM },
         onDismiss = { showPublish = false },
         onRender = { fb, yt ->
-            vm.aspect = Aspect.LANDSCAPE
             showPublish = false
             val err = vm.startRender(fb = fb, yt = yt)
             setError(err)
@@ -345,7 +414,7 @@ private fun StageCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ওপরের বার: পেছনে · 720P · পাবলিশ
-        if (!compact) EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true })
+        if (!compact) EditorTopBar(onBack = onBack, publishEnabled = !running, onPublish = { playing = false; showPublish = true }, aspect = vm.aspect, onAspect = { vm.changeAspect(it) })
 
         FramePreview(tl, vm.aspect, pp, playing, Modifier.heightIn(max = previewMaxH))
 
@@ -357,7 +426,9 @@ private fun StageCard(
             }
             IconBtn("chevL", size = 36.dp, iconSize = 20.dp) { tl.playheadMs = (tl.playheadMs - 100).coerceAtLeast(0) }
             IconBtn(if (playing) "pause" else "play", circle = true, size = 46.dp, iconSize = 22.dp) {
-                if (running || tl.totalMs <= 0L) return@IconBtn
+                if (tl.totalMs <= 0L) return@IconBtn
+                if (running) { setInfo("⏳ রেন্ডার চলছে — শেষ হলে প্লে করা যাবে"); return@IconBtn }
+                if (vm.cardBusy) { setInfo("🎬 ইন্ট্রো/আউট্রো বানানো চলছে — শেষ হলে প্লে করুন"); return@IconBtn }
                 playing = !playing
             }
             IconBtn("chevR", size = 36.dp, iconSize = 20.dp) { tl.playheadMs = (tl.playheadMs + 100).coerceAtMost(tl.totalMs) }
@@ -380,17 +451,11 @@ private fun StageCard(
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
         info?.let { Text(it, color = ED.Ok, fontSize = 13.sp) }
         if (vm.seedMsg != null) SeedProgressDialog(vm, onBack)
-        if (status is RenderStatus.Running) {
-            Text(renderLabel(status), color = ED.Sub, fontSize = 13.sp)
-            LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
-        }
     }
     }
     }
 }
 
-/** প্রিভিউ ফ্রেমের অনুপাত: রেন্ডার 1280×720-এর মতোই ১৬:৯ */
-private const val PREVIEW_ASPECT = 1280f / 720f
 
 /** প্লেহেডের জায়গার ফ্রেম (ভিডিও ১৬:৯ ফ্রেমে ক্রপ করে দেখায়) */
 @Composable
@@ -421,7 +486,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
     }
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
-            Modifier.aspectRatio(PREVIEW_ASPECT)   // সবসময় ১৬:৯ (১২৮০×৭২০), HTML/ইউটিউবের মতো
+            Modifier.aspectRatio(aspect.w / aspect.h.toFloat())   // পোস্ট = ১৬:৯ (১২৮০×৭২০), রিলস = ৯:১৬ (৭২০×১২৮০)
                 .clip(RoundedCornerShape(10.dp)).background(Color.Black)
                 .border(1.dp, ED.Border, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
@@ -634,6 +699,7 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
 @Composable
 private fun PublishDialog(
     vm: EditorViewModel,
+    aspect: Aspect,
     hasTopAd: Boolean,
     hasBottomAd: Boolean,
     onDismiss: () -> Unit,
@@ -649,7 +715,7 @@ private fun PublishDialog(
     val dSub = Color(0xFF9CA3AF)
     val cbColors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = ED.Publish, uncheckedColor = dSub)
     // HTML pbInfo: দুই দিকেই ব্যানার থাকলে লেখার বক্স আসে না; যে দিকে ব্যানার আছে সে দিকের ঘরও থাকে না
-    val showTextBox = fb && !(hasTopAd && hasBottomAd)
+    val showTextBox = fb && aspect == Aspect.LANDSCAPE && !(hasTopAd && hasBottomAd)   // রিলসে সাদা ব্যান্ড নেই, তাই লেখার বক্সও নেই
 
     @Composable
     fun Opt(checked: Boolean, onChange: (Boolean) -> Unit, title: String, sub: String? = null) {
@@ -686,7 +752,7 @@ private fun PublishDialog(
             Opt(fb, { fb = it }, "১। ফেইসবুক")
             Opt(
                 yt, { yt = it; if (!it) wp = false }, "২। ইউটিউব",
-                "১৬:৯ সাইজ; শুধু নিচের ব্যানার ভিডিওর ভিতরে বসবে (ওপরের ব্যানার ইউটিউবে বসবে না, শুধু ফেইসবুকে)",
+                (if (aspect == Aspect.PORTRAIT) "৯:১৬ রিলস সাইজ; " else "১৬:৯ সাইজ; ") + "শুধু নিচের ব্যানার ভিডিওর ভিতরে বসবে (ওপরের ব্যানার ইউটিউবে বসবে না, শুধু ফেইসবুকে)",
             )
             Opt(
                 wp, { wp = it; if (it) yt = true }, "৩। ওয়ার্ডপ্রেস",
@@ -733,9 +799,10 @@ private fun PublishDialog(
             }
 
             // HTML pbInfo: দুটোর মাপ আলাদা দেখায়; ফেইসবুকে লেখা (ব্যান্ড) থাকলে উচ্চতা ৭২০ + ২×১০৮ = ৯৩৬
-            val fbHasBand = hasTopAd || hasBottomAd || vm.fbTop.isNotBlank() || vm.fbBottom.isNotBlank()
+            val fbHasBand = aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || vm.fbTop.isNotBlank() || vm.fbBottom.isNotBlank())
             Text(
-                "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + 2 * EDITOR_AD_H) else 720) +
+                if (aspect == Aspect.PORTRAIT) "রিলস মাপ: ${aspect.w}×${aspect.h} (৯:১৬); ফেইসবুক ও ইউটিউব দুটোতেই এই মাপ"
+                else "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + 2 * EDITOR_AD_H) else 720) +
                     (if (fb && fbHasBand) " (ব্যানার ও লেখা ভিডিওর বাইরে ওপরে-নিচের সাদা ব্যান্ডে)" else ""),
                 color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )

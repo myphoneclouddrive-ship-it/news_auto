@@ -63,6 +63,22 @@ class Timeline {
         const val ZOOM_MAX = 4f
         const val TL_ZOOM_MIN = 0.1f
         const val TL_ZOOM_MAX = 10f   // টাইমলাইন জুম সর্বোচ্চ ১০x (আগে ৬x)
+
+        /**
+         * টাইমলাইনের সারি (HTML lyLaneOf/laneOrder): একই দিকের (নিচে/ওপরে) সব বিজ্ঞাপন এক সারিতে,
+         * বাকি প্রতিটা লেয়ারের নিজের সারি। সারির ক্রম = প্রথম বারের জায়গা অনুযায়ী (লিস্টের ক্রমে, নিচ থেকে ওপরে)।
+         */
+        fun laneRows(list: List<Layer>): List<List<Layer>> {
+            val out = ArrayList<List<Layer>>()
+            val done = HashSet<Boolean>()
+            for (l in list) {
+                if (l is AdLayer) {
+                    if (!done.add(l.isTop)) continue
+                    out.add(list.filterIsInstance<AdLayer>().filter { it.isTop == l.isTop }.sortedBy { it.startMs })
+                } else out.add(listOf(l))
+            }
+            return out
+        }
     }
 
     fun newId(): Long = nextId++
@@ -478,6 +494,11 @@ class Timeline {
             val ex = layers.firstOrNull { it is AdjustLayer }
             if (ex != null) { selectedLayerId = ex.id; return null }
         }
+        // ওভারলেও একটাই: আগে থাকলে নতুন লেয়ার নয়, আগেরটাই বাছা হয় (এডিট করতে)
+        if (kind == LayerKind.OVERLAY) {
+            val ex = layers.firstOrNull { it is OverlayLayer }
+            if (ex != null) { selectedLayerId = ex.id; return null }
+        }
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
         var layer = LayerDefaults.create(kind, newId(), s, e, uri, text)
         if (layer is AdLayer && adId.isNotEmpty()) layer = layer.copy(adId = adId)
@@ -641,25 +662,57 @@ class Timeline {
         commitAll(clips, next)
     }
 
-    /** একই গ্রুপের (ভিজ্যুয়াল / অডিও) ভেতরে ওপরে (delta > 0) বা নিচে (delta < 0) সরায় */
+    /** ভিজ্যুয়াল লেয়ারের সারির ক্রম (অডিও বাদে); একই দিকের সব বিজ্ঞাপন এক সারি */
+    private fun visualRows(list: List<Layer>): List<List<Layer>> = laneRows(list.filterNot { it.isAudio })
+
+    /** এই লেয়ারের সারি ওপরে (delta > 0) বা নিচে (delta < 0) সরানো যাবে কিনা */
+    fun canMoveLayer(id: Long, delta: Int): Boolean {
+        val l = layers.firstOrNull { it.id == id } ?: return false
+        if (l.isAudio) {
+            val g = layers.filter { it.isAudio }
+            val gi = g.indexOfFirst { it.id == id } + delta
+            return gi in g.indices
+        }
+        val rows = visualRows(layers)
+        val k = rows.indexOfFirst { r -> r.any { it.id == id } }
+        return k >= 0 && (k + delta) in rows.indices
+    }
+
+    /**
+     * একই গ্রুপের (ভিজ্যুয়াল / অডিও) ভেতরে ওপরে (delta > 0) বা নিচে (delta < 0) সরায়।
+     * ভিজ্যুয়ালে সারি ধরে সরে: বিজ্ঞাপন সরালে (নিচের বা ওপরের) পুরো বিজ্ঞাপন-সারি একসঙ্গে সরে (HTML moveLane)।
+     */
     fun moveLayer(id: Long, delta: Int) {
         val i = layers.indexOfFirst { it.id == id }
         if (i < 0) return
         val audio = layers[i].isAudio
-        val group = layers.indices.filter { layers[it].isAudio == audio }
-        val gj = group.indexOf(i) + delta
-        if (gj !in group.indices) return
-        val j = group[gj]
+        if (audio) {
+            val group = layers.indices.filter { layers[it].isAudio }
+            val gj = group.indexOf(i) + delta
+            if (gj !in group.indices) return
+            val j = group[gj]
+            val m = layers.toMutableList()
+            val t = m[i]
+            m[i] = m[j]
+            m[j] = t
+            commitAll(clips, m)
+            return
+        }
+        val rows = visualRows(layers).toMutableList()
+        val k = rows.indexOfFirst { r -> r.any { it.id == id } }
+        val j = k + delta
+        if (k < 0 || j !in rows.indices) return
+        val t = rows[k]; rows[k] = rows[j]; rows[j] = t
+        val flat = rows.flatten().iterator()
         val m = layers.toMutableList()
-        val t = m[i]
-        m[i] = m[j]
-        m[j] = t
+        for (idx in m.indices) if (!m[idx].isAudio) m[idx] = flat.next()
         commitAll(clips, m)
     }
 
     fun duplicateLayer(id: Long) {
         val i = layers.indexOfFirst { it.id == id }
         if (i < 0) return
+        if (layers[i] is OverlayLayer) return   // ওভারলে একটাই; কপি হয় না
         val copy = layers[i].withId(newId())
         val m = layers.toMutableList()
         m.add(i + 1, copy)

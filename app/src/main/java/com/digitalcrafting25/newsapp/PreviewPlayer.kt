@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -51,17 +52,22 @@ class PreviewPlayer(private val ctx: Context) {
     var videoAspect by mutableFloatStateOf(16f / 9f)
         private set
 
+    /** প্লেয়ারের সর্বশেষ এরর (ডিকোড/সোর্স সমস্যা); READY হলে মুছে যায়। এডিটর প্লে আটকে গেলে এটা দেখায় */
+    var lastError by mutableStateOf<String?>(null)
+        private set
+
     private val main = Handler(Looper.getMainLooper())
     private var retries = 0
 
     init {
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) retries = 0
+                if (state == Player.STATE_READY) { retries = 0; lastError = null }
             }
 
             // আগে এরর ধরা হতো না: ExoPlayer চুপচাপ IDLE-এ চলে যেত, লেন্থ দেখাত (মডেল থেকে) কিন্তু ভিডিও থাকত না
             override fun onPlayerError(error: PlaybackException) {
+                lastError = error.errorCodeName + (error.message?.let { ": $it" } ?: "")
                 if (clips.isEmpty() || retries >= 3) return
                 retries++
                 val idx = player.currentMediaItemIndex.coerceAtLeast(0)

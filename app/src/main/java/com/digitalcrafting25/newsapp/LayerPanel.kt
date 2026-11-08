@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -156,7 +157,9 @@ fun LayerOverlay(tl: Timeline) {
                         fontSize = with(density) { (h * l.sizeFrac).toSp() },
                         fontWeight = if (l.bold) FontWeight.Bold else FontWeight.Normal,
                         fontFamily = BrandFont.family(l.bold),
-                        modifier = Modifier.centerAtFrac(l.x, l.y).widthIn(max = w * 0.95f).then(selMod)
+                        modifier = Modifier.centerAtFrac(l.x, l.y).widthIn(max = w * 0.95f)
+                            .rotate(l.rotation)
+                            .then(selMod)
                             .then(if (l.bgColor != 0) Modifier.background(Color(l.bgColor)) else Modifier)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     )
@@ -188,7 +191,9 @@ fun LayerOverlay(tl: Timeline) {
                             Image(
                                 b, null,
                                 Modifier.centerAtFrac(l.x, l.y).width(w * l.widthFrac)
-                                    .aspectRatio(b.width / b.height.toFloat()).then(selMod).alpha(l.opacity),
+                                    .aspectRatio(b.width / b.height.toFloat())
+                                    .rotate(l.rotation)   // রেন্ডারের মতোই কেন্দ্র ঘিরে ঘোরে (আগে প্রিভিউতে ঘুরত না)
+                                    .then(selMod).alpha(l.opacity),
                             )
                         }
                     }
