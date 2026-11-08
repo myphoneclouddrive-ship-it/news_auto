@@ -200,7 +200,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenBookmarks: () -> Unit) {
                 st.balance?.let { "৳ " + Bn.num(it) } ?: if (st.loading) "..." else "—",
                 fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp),
             )
-            AppBtn("➕ ব্যালেন্স যোগ করুন", small = true, modifier = Modifier.padding(top = 8.dp), onClick = { topup = true })
+            HBtn("➕ ব্যালেন্স যোগ করুন", Modifier.padding(top = 8.dp), padH = 12.dp, padV = 8.dp) { topup = true }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -215,7 +215,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenBookmarks: () -> Unit) {
 
         H2("🕒 শেষ পোস্ট")
         InfoCard {
-            if (st.recent.isEmpty()) Text(if (st.loaded) "এখনও কোনো পোস্ট নেই" else "...") else PostRow(st.recent.first())
+            if (st.recent.isEmpty()) Text(if (st.loaded) "এখনও কোনো পোস্ট নেই" else "...") else PostRow(st.recent.first(), Modifier.padding(vertical = 10.dp))
         }
 
         H2("📋 সর্বশেষ ৫টি পোস্ট")
@@ -247,11 +247,11 @@ fun PostRow(p: PostItem, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
         Text(
             p.title.ifBlank { "(শিরোনাম নেই)" },
-            color = C.Blue, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+            color = C.Blue, fontWeight = FontWeight.Bold, fontSize = 16.sp,
             modifier = Modifier.clickable(enabled = p.link.isNotBlank()) { openUrl(ctx, p.link) },
         )
         val meta = (p.at?.let { Bn.dateTime(it) } ?: "") + if (p.by.isNotBlank()) " • ${p.by}" else ""
-        if (meta.isNotBlank()) Text(meta, fontSize = 12.sp, color = Color(0xFF777777), modifier = Modifier.padding(top = 2.dp))
+        if (meta.isNotBlank()) Text(meta, fontSize = 13.sp, color = Color(0xFF777777), modifier = Modifier.padding(top = 2.dp))
     }
 }
 

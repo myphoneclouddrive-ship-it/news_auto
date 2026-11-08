@@ -3,7 +3,13 @@ package com.digitalcrafting25.newsapp
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -105,7 +111,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     val active = st.items.count { it.status == "pending" || it.status == "running" }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("⏰ সিডিউল পোস্ট")
-        Text("📌 সিডিউল করা: ${Bn.num(active)}/${Bn.num(st.max)}টি (একজন সর্বোচ্চ ${Bn.num(st.max)}টি)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text("📌 সিডিউল করা: ${Bn.num(active)}/${Bn.num(st.max)}টি (একজন সর্বোচ্চ ${Bn.num(st.max)}টি)", fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         Text(
             "সময় হলে Worker নিজেই পোস্ট করে দেবে। অ্যাপ বা ফোন বন্ধ থাকলেও চলবে।",
             fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 4.dp),
@@ -133,7 +139,7 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
 
         AppBtn(
             if (st.refreshing || st.loading) "অপেক্ষা করুন..." else "🔄 রিফ্রেশ", color = C.Gray,
-            enabled = !st.refreshing && !st.loading, modifier = Modifier.padding(top = 14.dp),
+            enabled = !st.refreshing && !st.loading, modifier = Modifier.padding(top = 10.dp),
         ) { vm.refresh() }
         Spacer(Modifier.height(16.dp))
     }
@@ -157,7 +163,6 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ScheduleCard(
     item: SchedItem,
@@ -173,85 +178,79 @@ private fun ScheduleCard(
     val stuck = item.status == "running" && nowMs - item.ra > 240000
     val running = item.status == "running" || item.at <= nowMs
     var editing by remember(item.id) { mutableStateOf(false) }
+    var askDel by remember(item.id) { mutableStateOf(false) }
     var picked by remember(item.id, item.at) { mutableLongStateOf(item.at) }
 
-    val cdText: String
-    val cdColor: Color
-    var cdBig = true
-    when {
-        failed -> { cdText = "⚠️ পোস্ট হয়নি: " + item.error.ifBlank { "কারণ অজানা" }; cdColor = C.Red; cdBig = false }
-        stuck -> { cdText = "⚠️ ফেইসবুক পেজে পোস্টটি গেছে কিনা দেখুন। পোস্ট হলে মুছে ফেলুন।"; cdColor = Orange; cdBig = false }
-        item.status != "running" && item.tries > 0 -> {
-            cdText = "🔁 আবার চেষ্টা হবে (${Bn.num(item.tries)} বার হয়েছে)" +
+    val runClass = item.status == "running" || item.at <= nowMs   // ওয়েবের .sch-item.run
+    val cdText: String = when {
+        failed -> "⚠️ পোস্ট হয়নি: " + item.error.ifBlank { "কারণ অজানা" }
+        stuck -> "⚠️ ফেইসবুক পেজে পোস্টটি গেছে কিনা দেখুন। পোস্ট হলে মুছে ফেলুন।"
+        item.status != "running" && item.tries > 0 ->
+            "🔁 আবার চেষ্টা হবে (${Bn.num(item.tries)} বার হয়েছে)" +
                 (if (item.rt > nowMs) " • পরের চেষ্টা ${leftText(item.rt - nowMs)} পরে" else "") +
                 (if (item.error.isNotBlank()) " — ${item.error}" else "")
-            cdColor = Orange; cdBig = false
-        }
-        running -> {
-            cdText = "⏳ পোস্ট হচ্ছে..." + (if (item.tries > 1) " (চেষ্টা ${Bn.num(item.tries)})" else "") +
+        item.status == "running" || item.at - nowMs <= 0 ->
+            "⏳ পোস্ট হচ্ছে..." + (if (item.tries > 1) " (চেষ্টা ${Bn.num(item.tries)})" else "") +
                 (if (item.error.isNotBlank()) " — আগের ত্রুটি: ${item.error}" else "")
-            cdColor = Orange; cdBig = false
-        }
-        else -> { cdText = "⏱ ${leftText(item.at - nowMs)} বাকি"; cdColor = C.Blue }
+        else -> "⏱ ${leftText(item.at - nowMs)} বাকি"
     }
+    // .sch-cd: নীল ২২px বোল্ড; চলমান হলে কমলা; ফেইল হলে লাল ১৪px সাধারণ
+    val cdColor = if (failed) C.Red else if (runClass) Orange else C.Blue
 
-    InfoCard(Modifier.padding(top = 10.dp)) {
-        Text((if (item.kind == "card") "🖼️ " else "") + item.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    Column(
+        Modifier.padding(top = 10.dp).fillMaxWidth().shadow(1.dp, RoundedCornerShape(12.dp)).background(Color.White, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text((if (item.kind == "card") "🖼️ " else "") + item.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 22.sp)
         Text("🗓 " + Bn.dateTime(item.at), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 4.dp))
         Text(
             cdText, color = cdColor,
-            fontSize = if (cdBig) 22.sp else 14.sp, fontWeight = if (cdBig) FontWeight.Bold else FontWeight.Normal,
+            fontSize = if (failed) 14.sp else 22.sp, fontWeight = if (failed) FontWeight.Normal else FontWeight.Bold,
             modifier = Modifier.padding(top = 6.dp),
         )
 
         if (item.status == "pending") {
-            AppBtn(
-                if (busy) "অপেক্ষা করুন..." else "🚀 এখনই পোস্ট করুন", color = C.Green, enabled = !busy,
-                modifier = Modifier.padding(top = 8.dp), onClick = onPostNow,
+            HBtn(
+                if (busy) "অপেক্ষা করুন..." else "🚀 এখনই পোস্ট করুন", Modifier.fillMaxWidth().padding(top = 8.dp),
+                color = C.Green, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy, onClick = onPostNow,
             )
         }
         if (item.status != "running" || stuck) {
             if (failed || stuck) {
-                AppBtn("🗑️ মুছে ফেলুন", color = C.Gray, enabled = !busy, modifier = Modifier.padding(top = 8.dp), onClick = onCancel)
+                HBtn("🗑️ মুছে ফেলুন", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Gray, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy, onClick = onCancel)
             } else {
-                AppBtn(
-                    if (editing) "✕ বন্ধ করুন" else "⏰ সময় বদলান", color = C.Gray, enabled = !busy,
-                    modifier = Modifier.padding(top = 8.dp),
-                ) { editing = !editing; if (editing) picked = item.at }
+                HBtn("⏰ সময় বদলান", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Gray, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy) {
+                    editing = !editing; if (editing) picked = item.at
+                }
                 if (editing) {
-                    FlowRow(
-                        Modifier.padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf("৩০ মিনিট পরে" to 30, "১ ঘণ্টা পরে" to 60, "৩ ঘণ্টা পরে" to 180, "আগামীকাল সকাল ৮টা" to -1).forEach { (label, m) ->
-                            Surface(
-                                shape = RoundedCornerShape(16.dp), color = Color(0xFFE3F2FD),
-                                modifier = Modifier.clickable {
-                                    picked = if (m == -1) {
-                                        Calendar.getInstance().apply {
-                                            add(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 8)
-                                            set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-                                        }.timeInMillis
-                                    } else System.currentTimeMillis() + m * 60000L
-                                },
-                            ) { Text(label, fontSize = 13.sp, color = Color(0xFF0D47A1), modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
-                        }
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Box(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White)
+                                .border(1.dp, C.Border, RoundedCornerShape(8.dp))
+                                .clickable { pickDateTime(ctx, picked) { picked = it } }.padding(10.dp),
+                        ) { Text(Bn.dateTime(picked), fontSize = 16.sp) }
+                        val tooSoon = picked < nowMs + 60000
+                        HSmall(
+                            if (tooSoon) "⚠️ অন্তত ১ মিনিট পরের সময় দিন" else Bn.dateTime(picked) + " • " + leftText(picked - nowMs) + " পরে",
+                            Modifier.padding(top = 2.dp),
+                        )
+                        HBtn(
+                            if (busy) "অপেক্ষা করুন..." else "✅ নতুন সময় সংরক্ষণ", Modifier.fillMaxWidth().padding(top = 8.dp),
+                            color = C.Green, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy && !tooSoon,
+                        ) { onReschedule(picked); editing = false }
                     }
-                    AppBtn("🗓 তারিখ ও সময় বেছে নিন", color = C.Blue, modifier = Modifier.padding(top = 8.dp)) {
-                        pickDateTime(ctx, picked) { picked = it }
-                    }
-                    val tooSoon = picked < nowMs + 60000
-                    Text(
-                        if (tooSoon) "⚠️ অন্তত ১ মিনিট পরের সময় দিন" else Bn.dateTime(picked) + " • " + leftText(picked - nowMs) + " পরে",
-                        fontSize = 13.sp, color = if (tooSoon) C.Red else C.Label, modifier = Modifier.padding(top = 6.dp),
-                    )
-                    AppBtn(
-                        if (busy) "অপেক্ষা করুন..." else "✅ নতুন সময় সংরক্ষণ", color = C.Green,
-                        enabled = !busy && !tooSoon, modifier = Modifier.padding(top = 8.dp),
-                    ) { onReschedule(picked); editing = false }
+                }
+                if (item.status == "pending") {   // অপেক্ষমাণ সিডিউল পোস্ট মুছে ফেলার বাটন
+                    HBtn("🗑️ মুছে ফেলুন", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Red, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy) { askDel = true }
                 }
             }
         }
     }
+    if (askDel) AlertDialog(
+        onDismissRequest = { askDel = false },
+        containerColor = Color.White,
+        text = { Text("এই সিডিউল পোস্টটি মুছে ফেলবেন? এটা আর পোস্ট হবে না।") },
+        confirmButton = { TextButton(onClick = { askDel = false; onCancel() }) { Text("হ্যাঁ, মুছুন", color = C.Red, fontWeight = FontWeight.Bold) } },
+        dismissButton = { TextButton(onClick = { askDel = false }) { Text("বাতিল", color = C.Gray) } },
+    )
 }

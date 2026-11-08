@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -74,34 +77,60 @@ import java.util.Date
 import java.util.Locale
 
 /** সিডিউলের সময় বাছাই: দ্রুত চিপ (৩০ মিনিট, ১ ঘণ্টা, ৩ ঘণ্টা, কাল সকাল ৮টা) + নিজে তারিখ/সময় বাছা (ওয়েবের schDrawer) */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SchedulePickDialog(busy: Boolean, error: String? = null, onConfirm: (Long) -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var at by remember { mutableLongStateOf(System.currentTimeMillis() + 3600_000L) }
-    val fmt = remember { SimpleDateFormat("d MMM yyyy, h:mm a", Locale("bn", "BD")) }
-    AlertDialog(
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("⏰ সিডিউল পোস্ট") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("সময় হলে Worker নিজেই পোস্ট করে দেবে। অ্যাপ বা ফোন বন্ধ থাকলেও চলবে।", fontSize = 13.sp, color = C.Label)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("৩০ মিনিট" to 30, "১ ঘণ্টা" to 60, "৩ ঘণ্টা" to 180).forEach { (l, m) ->
-                        FilterChip(selected = false, onClick = { at = System.currentTimeMillis() + m * 60_000L }, label = { Text(l) })
-                    }
-                    FilterChip(selected = false, onClick = {
-                        val c = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 8); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }
-                        at = c.timeInMillis
-                    }, label = { Text("কাল সকাল ৮টা") })
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // ওয়েবের #schDrawer: ডান পাশে সাদা প্যানেল (৩৪০ বা ৯২% চওড়া), প্যাডিং ১৬
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+            Column(
+                Modifier.fillMaxHeight().fillMaxWidth(0.92f).widthIn(max = 340.dp).background(Color.White)
+                    .verticalScroll(rememberScrollState()).padding(16.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("⏰ সিডিউল মেনু", fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    Box(
+                        Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFEEEEEE))
+                            .clickable(enabled = !busy) { onDismiss() },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("✕", fontSize = 16.sp) }
                 }
-                AppBtn("📅 " + fmt.format(Date(at)) + " — বদলান", color = C.Blue) { pickDateTime(ctx, at) { at = it } }
-                if (at < System.currentTimeMillis() + 60_000L) Text("⚠️ অন্তত ১ মিনিট পরের সময় দিন", color = C.Red, fontSize = 13.sp)
-                error?.let { Text(if (it.startsWith("❌") || it.startsWith("⚠️")) it else "⚠️ $it", color = C.Red, fontSize = 13.sp) }
+                Text("কখন পোস্ট হবে?", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("৩০ মিনিট পরে" to 30, "১ ঘণ্টা পরে" to 60, "৩ ঘণ্টা পরে" to 180, "আগামীকাল সকাল ৮টা" to -1).forEach { (l, m) ->
+                        Text(
+                            l, fontSize = 13.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color.White).border(1.dp, Color(0xFFCCCCCC), RoundedCornerShape(14.dp))
+                                .clickable {
+                                    at = if (m == -1) java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 8); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis
+                                    else System.currentTimeMillis() + m * 60_000L
+                                }.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                FieldLabel("অথবা নিজে সময় দিন")
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White).border(1.dp, C.Border, RoundedCornerShape(8.dp))
+                        .clickable { pickDateTime(ctx, at) { at = it } }.padding(10.dp),
+                ) { Text(Bn.dateTime(at), fontSize = 16.sp) }
+                val left = if (at < now + 60_000L) "⚠️ অন্তত ১ মিনিট পরের সময় দিন" else Bn.dateTime(at) + " • " + leftText(at - now) + " পরে"
+                Text(
+                    left, color = Color(0xFF0D47A1), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFE3F2FD)).padding(10.dp),
+                )
+                error?.let { Text(if (it.startsWith("❌") || it.startsWith("⚠️")) it else "⚠️ $it", color = C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
+                HBtn(if (busy) "অপেক্ষা করুন…" else "✅ সিডিউল নিশ্চিত করুন", Modifier.fillMaxWidth().padding(top = 10.dp), color = C.Green, enabled = !busy) { onConfirm(at) }
+                HSmall("নিশ্চিত করলে পোস্টটি \"সিডিউল\" ট্যাবে চলে যাবে এবং বাকি সময় সেখানে দেখাবে।", Modifier.padding(top = 8.dp))
             }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(at) }, enabled = !busy) { Text(if (busy) "অপেক্ষা করুন…" else "✅ সিডিউল করুন") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("বাতিল") } },
-    )
+        }
+    }
 }
 
 @Composable

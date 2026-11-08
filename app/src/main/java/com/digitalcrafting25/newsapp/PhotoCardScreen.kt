@@ -119,21 +119,23 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             }
         }
 
-        // ক্যাটাগরি বার (.fccats): ফটোকার্ড / বক্তব্য কার্ড / শুভ সকাল
-        FlowRow(
+        // ক্যাটাগরি বার (.fccats): তিনটা বাটন এক সারিতে সমান চওড়া; জায়গা না হলে তিনটারই লেখার ফন্ট একসাথে ছোট হয়
+        var pillSp by remember { mutableStateOf(14f) }
+        Row(
             Modifier.fillMaxWidth().padding(top = 10.dp).alpha(if (locked) 0.6f else 1f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             listOf(CAT_PHOTO to "🖼️ ফটোকার্ড", CAT_QUOTE to "💬 বক্তব্য কার্ড", CAT_MORNING to "🌅 শুভ সকাল").forEach { (k, t) ->
                 val on = vm.mode == k
                 Text(
-                    t, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
+                    t, fontWeight = FontWeight.Bold, fontSize = pillSp.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center,
                     color = if (on) Color.White else C.Text,
+                    onTextLayout = { if (it.hasVisualOverflow && pillSp > 8f) pillSp -= 0.5f },
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
                         .background(if (on) PillBlue else Color.White)
                         .border(1.dp, if (on) PillBlue else C.Border, RoundedCornerShape(20.dp))
                         .clickable(enabled = !locked && !on) { vm.switchMode(k) }
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                        .padding(horizontal = 6.dp, vertical = 9.dp),
                 )
             }
         }
