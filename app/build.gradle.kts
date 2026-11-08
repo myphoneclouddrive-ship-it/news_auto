@@ -34,7 +34,7 @@ android {
             applicationIdSuffix = ".admin"
             versionNameSuffix = "-admin"
             buildConfigField("boolean", "IS_ADMIN", "true")
-            buildConfigField("String", "APK_NAME", "\"NewsAdmin.apk\"")
+            buildConfigField("String", "APK_NAME", "\"NewsPublisherAdmin.apk\"")
         }
     }
 
