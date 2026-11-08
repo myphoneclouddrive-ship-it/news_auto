@@ -193,7 +193,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let {
-                mnBalance = it.optDouble("balance", 0.0); mnOwner = it.optBoolean("owner", false); TplRegistry.store.extraSlots = it.optInt("extra", 0); photoVer++
+                mnBalance = it.optDouble("balance", 0.0); mnOwner = it.optBoolean("owner", false) && BuildConfig.IS_ADMIN; TplRegistry.store.extraSlots = it.optInt("extra", 0); photoVer++
             }
             if (!mnLoaded) {
                 runCatching { Fs.morningCfg(app) }.getOrNull()?.let { m ->

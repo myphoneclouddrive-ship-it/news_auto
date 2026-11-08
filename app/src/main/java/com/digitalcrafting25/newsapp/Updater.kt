@@ -126,10 +126,11 @@ object Updater {
             var url: String? = null
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.getString("name").endsWith(".apk")) { url = a.getString("browser_download_url"); break }
+                if (a.getString("name") == BuildConfig.APK_NAME) { url = a.getString("browser_download_url"); break }   // রিলিজে ইউজার ও অ্যাডমিন দুটো APK; নিজেরটা
             }
             val body = j.optString("body", "")
-            val sha = Regex("sha256:\\s*([0-9a-fA-F]{64})").find(body)?.groupValues?.get(1)
+            val shaLabel = if (BuildConfig.IS_ADMIN) "sha256-admin" else "sha256"   // রিলিজ-নোটে দুই APK-র আলাদা লাইন
+            val sha = Regex(shaLabel + ":\\s*([0-9a-fA-F]{64})").find(body)?.groupValues?.get(1)
             // একাধিক ভার্সন বাদ পড়ে থাকলে সবগুলোর "নতুন কী" একসাথে; না পারলে শুধু সর্বশেষটার নোট
             val notes = runCatching { notesSince(repo, BuildConfig.VERSION_CODE) }.getOrNull().orEmpty()
                 .ifBlank { cleanNotes(body) }
@@ -218,7 +219,7 @@ object Updater {
         if (tag.isEmpty()) return null   // রিলিজ নেই (/releases-এ রিডাইরেক্ট)
         val code = tag.trim().removePrefix("v").toIntOrNull() ?: return null
 
-        var url = "https://github.com/$repo/releases/download/$tag/NewsPublisher.apk"   // build.yml-এর ফাইলের নাম
+        var url = "https://github.com/$repo/releases/download/$tag/${BuildConfig.APK_NAME}"   // build.yml-এর ফাইলের নাম
         var sha: String? = null
         runCatching {
             val h = URL("https://github.com/$repo/releases/expanded_assets/$tag").openConnection() as HttpURLConnection
@@ -228,10 +229,11 @@ object Updater {
             try {
                 if (h.responseCode in 200..299) {
                     val html = h.inputStream.bufferedReader().use { it.readText() }
-                    Regex("href=\"(/[^\"]+/releases/download/[^\"]+\\.apk)\"").find(html)?.groupValues?.get(1)
+                    val nm = Regex.escape(BuildConfig.APK_NAME)
+                    Regex("href=\"(/[^\"]+/releases/download/[^\"]+/" + nm + ")\"").find(html)?.groupValues?.get(1)
                         ?.let { url = "https://github.com$it" }
-                    // নতুন GitHub অ্যাসেটের পাশে sha256 ডাইজেস্ট দেখায়; না থাকলে যাচাই ছাড়াই (SHA null)
-                    sha = Regex("sha256:([0-9a-fA-F]{64})").find(html)?.groupValues?.get(1)
+                    // নতুন GitHub অ্যাসেটের পাশে sha256 ডাইজেস্ট দেখায় (এই APK-র লিংকের ঠিক পরেরটা); না থাকলে যাচাই ছাড়াই (SHA null)
+                    sha = Regex("href=\"/[^\"]+/releases/download/[^\"]+/" + nm + "\"[\\s\\S]{0,900}?sha256:([0-9a-fA-F]{64})").find(html)?.groupValues?.get(1)
                 }
             } finally {
                 h.disconnect()

@@ -107,7 +107,8 @@ class MainActivity : ComponentActivity() {
                 var offMsg by remember { mutableStateOf("") }
                 Box(Modifier.fillMaxSize()) {
                     // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); ইন্টারনেট গেলে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
-                    AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, newPostVm, autoVm, !locked)
+                    if (BuildConfig.IS_ADMIN) AdminRoot(authVm, updateVm, setVm, autoVm, !locked)   // অ্যাডমিন অ্যাপ: শুধু হিসাব/ব্যালেন্স/কন্ট্রোল
+                    else AppRoot(editorVm, updateVm, authVm, dashVm, bmVm, setVm, siteVm, adsVm, schedVm, cardVm, newPostVm, autoVm, !locked)
                     if (locked) {
                         OfflineScreen(checking = checking, message = offMsg) {
                             if (checking) return@OfflineScreen
@@ -125,7 +126,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() { super.onStart(); AppState.foreground = true; Net.recheck() }
-    override fun onStop() { super.onStop(); AppState.foreground = false; editorVm.saveDraft(sync = true) }
+    override fun onStop() { super.onStop(); AppState.foreground = false; if (!BuildConfig.IS_ADMIN) editorVm.saveDraft(sync = true) }
 }
 
 @Composable

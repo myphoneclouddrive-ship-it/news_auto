@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- ক্যামেরায় তোলা পেমেন্টের ছবি (ব্যালেন্স যোগের ফর্ম): cache/payshots -->
+    <cache-path name="payshots" path="payshots/" />
+</paths>

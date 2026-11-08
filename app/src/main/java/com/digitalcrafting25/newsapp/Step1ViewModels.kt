@@ -119,13 +119,41 @@ class DashboardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 📷 Send Money-এর স্ক্রিনশট থেকে TrxID ও টাকা পড়া — Worker /pay-ocr (ঘণ্টায় ৩, দিনে ৬ বার)। ফেরত JSON: trx, amount, to, time */
+    suspend fun readPayShot(uri: android.net.Uri): JSONObject {
+        val img = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            app.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+            var ss = 1
+            while (maxOf(o.outWidth, o.outHeight) / ss > 3000) ss *= 2
+            val bmp = app.contentResolver.openInputStream(uri)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = ss })
+            } ?: throw ApiError("ছবিটা খোলা যায়নি, হাতে লিখুন")
+            // ক্যামেরার ছবি প্রায়ই EXIF-এ ঘোরানো থাকে; সোজা না করলে লেখা পড়া কঠিন
+            val deg = runCatching {
+                app.contentResolver.openInputStream(uri)?.use {
+                    when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                }
+            }.getOrNull() ?: 0f
+            val upright = if (deg == 0f) bmp else android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, android.graphics.Matrix().apply { postRotate(deg) }, true)
+            PostUtil.toDataUrl(PostUtil.shrink(upright, 1600), 85)
+        }
+        return Worker.post(app, "/pay-ocr", JSONObject().put("image", img), 70000)
+    }
+
     /** ব্যালেন্স যোগের অনুরোধ (অ্যাডমিন অনুমোদন দিলে যোগ হয়) — Worker /wallet-request */
     suspend fun walletRequest(amount: String, phone: String, trx: String): String {
-        Worker.post(
+        val r = Worker.post(
             app, "/wallet-request",
             JSONObject().put("amount", amount).put("phone", phone).put("trx", trx), 20000,
         )
         load()
+        if (r.optBoolean("auto")) return "✅ টাকা পাওয়া গেছে, ব্যালেন্সে যোগ হয়ে গেছে।"   // অ্যাডমিনের ফোনের বিকাশ SMS মিলে গেছে
         return "✅ অনুরোধ পাঠানো হয়েছে। অ্যাডমিন টাকা পাওয়া যাচাই করে অনুমোদন দিলে ব্যালেন্সে যোগ হবে (পরে ড্যাশবোর্ড রিফ্রেশ করে দেখুন)।"
     }
 }

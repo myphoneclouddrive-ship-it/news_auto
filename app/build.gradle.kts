@@ -21,6 +21,23 @@ android {
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 
+    // দুটো অ্যাপ: user = সাধারণ ইউজারের অ্যাপ, admin = অ্যাডমিনের কন্ট্রোল অ্যাপ (আলাদা applicationId, তাই একই ফোনে দুটোই থাকতে পারে)
+    flavorDimensions += "role"
+    productFlavors {
+        create("user") {
+            dimension = "role"
+            buildConfigField("boolean", "IS_ADMIN", "false")
+            buildConfigField("String", "APK_NAME", "\"NewsPublisher.apk\"")
+        }
+        create("admin") {
+            dimension = "role"
+            applicationIdSuffix = ".admin"
+            versionNameSuffix = "-admin"
+            buildConfigField("boolean", "IS_ADMIN", "true")
+            buildConfigField("String", "APK_NAME", "\"NewsAdmin.apk\"")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

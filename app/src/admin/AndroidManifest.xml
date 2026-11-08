@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.READ_SMS" />      <!-- ছুটে-যাওয়া বিকাশ/নগদ SMS ইনবক্স থেকে পরে ধরতে -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />   <!-- বিকাশ/নগদের টাকা-পাওয়া ও ক্যাশ-ইন SMS ধরে অটো কনফার্ম -->
+
+    <application>
+        <receiver
+            android:name=".BkashSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +30,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +110,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
     LaunchedEffect(Unit) {
         vm.loadCreds()
         vm.loadAi()
-        auto.load()
+        if (BuildConfig.IS_ADMIN) auto.load()
         site.load()
         ads.load()
         vm.loadWallet()
@@ -138,7 +143,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
             AccCard("🤖 AI কী (সবার জন্য)", open == "ai", { toggle("ai") }) { AiBody(vm) { ask = it } }
         }
         AccCard("🔑 WordPress ও Facebook সংযোগ", open == "conn", { toggle("conn") }) { ConnBody(vm) { ask = it } }
-        if (auto.allowed != false) {
+        if (BuildConfig.IS_ADMIN && auto.allowed != false) {
             AccCard("🌅 অটো \"শুভ সকাল\" পোস্ট", open == "auto", { toggle("auto") }) { AutoPostBody(auto) }
         }
         // শুধু অ্যাডমিনের জন্য (ওয়েবের #csOwner)
@@ -188,6 +193,28 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
 /** ওয়েবের `#csOwner`: ইউজার টাকা পাঠিয়ে TrxID দিলে এখানে আসে; অ্যাডমিন পরিমাণ মিলিয়ে অনুমোদন/বাতিল করে */
 @Composable
 private fun WalletReqBody(vm: SettingsViewModel) {
+    // 📩 বিকাশ/নগদের "টাকা পেয়েছেন" বা ক্যাশ-ইন SMS এলে TrxID + পরিমাণ (+ সেন্ড মানিতে নম্বর) মিললে ৳৫০০০ পর্যন্ত নিজে অনুমোদন (Worker-এ মেলানো হয়)
+    val ctx = LocalContext.current
+    fun granted(p: String) = ContextCompat.checkSelfPermission(ctx, p) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var smsOk by remember { mutableStateOf(granted(android.Manifest.permission.RECEIVE_SMS)) }
+    var readOk by remember { mutableStateOf(granted(android.Manifest.permission.READ_SMS)) }
+    val askSms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        smsOk = r[android.Manifest.permission.RECEIVE_SMS] == true || granted(android.Manifest.permission.RECEIVE_SMS)
+        readOk = r[android.Manifest.permission.READ_SMS] == true || granted(android.Manifest.permission.READ_SMS)
+        vm.setBkAuto(smsOk)
+    }
+    LaunchedEffect(vm.csLoading) { vm.refreshBk() }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("📩 SMS দিয়ে অটো কনফার্ম", fontWeight = FontWeight.Bold)
+            Small("এই ফোনে বিকাশ/নগদের \"টাকা পেয়েছেন\" বা \"Cash In\" SMS এলে TrxID ও টাকার পরিমাণ (সেন্ড মানিতে পাঠানো নম্বরও) মিললে ৳৫০০০ পর্যন্ত নিজে অনুমোদন হয়ে যাবে। মিলল না বা বেশি টাকা হলে নিচে হাতে অনুমোদনের জন্য থাকবে।")
+        }
+        Switch(checked = vm.bkAuto && smsOk, onCheckedChange = { on -> if (on && !smsOk) askSms.launch(arrayOf(android.Manifest.permission.RECEIVE_SMS, android.Manifest.permission.READ_SMS)) else vm.setBkAuto(on) })
+    }
+    if (vm.bkAuto && !smsOk) Small("⚠️ SMS পড়ার অনুমতি নেই। ফোনের অ্যাপ সেটিংস থেকে অনুমতি দিন।", Modifier.padding(top = 4.dp), color = C.Red)
+    if (vm.bkAuto && smsOk && !readOk) Small("ℹ️ \"SMS পড়ার\" অনুমতিও দিলে অ্যাপ/ফোন বন্ধ থাকার সময় আসা SMS পরে নিজে খুঁজে ধরবে। (সুইচ বন্ধ করে আবার চালু করলে অনুমতি চাইবে।)", Modifier.padding(top = 4.dp))
+    if (vm.bkLast.isNotBlank()) Small("শেষ SMS: " + vm.bkLast, Modifier.padding(top = 4.dp))
+    Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(1.dp).background(Color(0xFFEEEEEE)))
     Small("ইউজার টাকা পাঠিয়ে TrxID দিলে এখানে আসে। টাকা পেয়ে থাকলে পরিমাণ মিলিয়ে (দরকারে বদলে) অনুমোদন দিন, ইউজারের ব্যালেন্সে যোগ হবে।")
     vm.csMsg?.let { (ok, t) -> Text(t, fontSize = 13.sp, color = if (ok) C.Green else C.Red, modifier = Modifier.padding(top = 8.dp)) }
     if (vm.csItems.isEmpty()) {
@@ -528,5 +555,56 @@ private fun AiBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
                 })
             }
         }
+    }
+}
+
+// ───────────────────────── অ্যাডমিন অ্যাপের পাতা (শুধু অ্যাডমিন ফ্লেভারে ব্যবহার হয়) ─────────────────────────
+
+/** "ব্যালেন্স" ট্যাব: SMS অটো কনফার্মের সুইচ + হাতে অনুমোদনের অপেক্ষায় থাকা অনুরোধ */
+@Composable
+fun AdminWalletScreen(vm: SettingsViewModel) {
+    LaunchedEffect(Unit) { vm.loadWallet() }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        H1("💳 ব্যালেন্স ও অনুরোধ")
+        vm.notice?.let { n -> NoticeBar(n) { vm.notice = null } }
+        InfoCard { WalletReqBody(vm) }
+        Spacer(Modifier.height(20.dp))
+    }
+}
+
+/** "সেটিংস" ট্যাব: AI কী (সবার জন্য), অটো "শুভ সকাল" পোস্ট, অ্যাপ আপডেট */
+@Composable
+fun AdminSettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel) {
+    var open by rememberSaveable { mutableStateOf("") }
+    var ask by remember { mutableStateOf<Ask?>(null) }
+    LaunchedEffect(Unit) { vm.loadAi(); auto.load() }
+    fun toggle(id: String) { open = if (open == id) "" else id }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        H1("⚙️ অ্যাডমিন সেটিংস")
+        vm.notice?.let { n -> NoticeBar(n) { vm.notice = null } }
+        if (vm.aiOwner == true) {
+            AccCard("🤖 AI কী (সবার জন্য)", open == "ai", { toggle("ai") }) { AiBody(vm) { ask = it } }
+        } else if (vm.aiOwner == null) {
+            Text("AI কী লোড হচ্ছে...", fontSize = 14.sp, color = C.Muted)
+        }
+        if (auto.allowed != false) {
+            AccCard("🌅 অটো \"শুভ সকাল\" পোস্ট", open == "auto", { toggle("auto") }) { AutoPostBody(auto) }
+        }
+        AccCard("🔄 অ্যাপ আপডেট", open == "update", { toggle("update") }) { UpdateScreen(uv, embedded = true) }
+        Spacer(Modifier.height(20.dp))
+    }
+    ask?.let { a ->
+        AlertDialog(
+            onDismissRequest = { ask = null },
+            text = { Text(a.text) },
+            confirmButton = { TextButton(onClick = { ask = null; a.onYes() }) { Text("হ্যাঁ", color = C.Red, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { ask = null }) { Text("না") } },
+        )
     }
 }

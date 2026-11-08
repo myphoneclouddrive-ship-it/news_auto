@@ -213,7 +213,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val d = Worker.post(app, "/ai-get", JSONObject(), 20000)
-                val owner = d.optBoolean("owner")
+                val owner = d.optBoolean("owner") && BuildConfig.IS_ADMIN
                 aiOwner = owner
                 if (!owner) return@launch
                 val f = d.optJSONObject("fields") ?: JSONObject()
@@ -313,6 +313,14 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         loadAi()
     }
 
+    // ───────── 📩 বিকাশ SMS অটো কনফার্ম (অ্যাডমিনের ফোন) ─────────
+    var bkAuto by mutableStateOf(BkashPrefs.enabled(app))
+        private set
+    var bkLast by mutableStateOf(BkashPrefs.last(app))
+        private set
+    fun setBkAuto(on: Boolean) { BkashPrefs.setEnabled(app, on); bkAuto = on; BkashPrefs.syncSchedule(app) }
+    fun refreshBk() { bkLast = BkashPrefs.last(app) }
+
     // ───────── 💳 ব্যালেন্স যোগের অনুরোধ (শুধু অ্যাডমিন; ওয়েবের csOwner / loadCsList) ─────────
     var csOwner by mutableStateOf(false)
         private set
@@ -330,7 +338,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     fun loadWallet() {
         viewModelScope.launch {
             val d = runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull() ?: return@launch
-            csOwner = d.optBoolean("owner", false)
+            csOwner = d.optBoolean("owner", false) && BuildConfig.IS_ADMIN
             if (csOwner) loadCsList()
         }
     }

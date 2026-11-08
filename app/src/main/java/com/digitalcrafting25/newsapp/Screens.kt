@@ -267,7 +267,42 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var ok by remember { mutableStateOf(true) }
+    var reading by remember { mutableStateOf(false) }
+    var shotMsg by remember { mutableStateOf("") }
+    var shotOk by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
+    // 📷 Send Money-এর স্ক্রিনশট বা USSD-র পর্দার ছবি (গ্যালারি/ক্যামেরা) দিলে TrxID ও টাকা নিজে বসে; পাঠানো নম্বর ছবিতে থাকে না, ওটা নিজে লিখতে হয়
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val readShot: (android.net.Uri) -> Unit = { uri ->
+            reading = true; shotMsg = "⏳ ছবি থেকে পড়া হচ্ছে..."; shotOk = true
+            scope.launch {
+                try {
+                    val d = vm.readPayShot(uri)
+                    val t = d.optString("trx"); val a = d.optDouble("amount", 0.0); val to = d.optString("to")
+                    if (t.isBlank()) { shotMsg = "⚠️ পড়া যায়নি, হাতে লিখুন"; shotOk = false }
+                    else {
+                        trx = t
+                        if (a > 0) amt = a.toLong().toString()
+                        val mine = Regex("01\\d{9}").find(Cfg.PAY_INFO)?.value
+                        val wrongTo = mine != null && to.length >= 10 && to.takeLast(10) != mine.takeLast(10)
+                        shotMsg = "✅ TrxID ও টাকা বসেছে। অক্ষর/সংখ্যা (O-0, I-1) মিলিয়ে দেখুন। পাঠানো নম্বর ছবিতে থাকে না, নিচে নিজে লিখুন।" +
+                            (if (wrongTo) "\n⚠️ ছবির প্রাপক নম্বর ($to) আমাদের নম্বর নয়, ঠিক নম্বরে পাঠিয়েছেন তো?" else "")
+                        shotOk = !wrongTo
+                    }
+                } catch (e: Exception) { shotMsg = "⚠️ " + (e.message ?: "পড়া যায়নি, হাতে লিখুন"); shotOk = false }
+                finally { reading = false }
+            }
+    }
+    val pickShot = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri -> if (uri != null) readShot(uri) }
+    var camUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val takeShot = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { done -> if (done) camUri?.let { readShot(it) } }
+    fun openCamera() {
+        runCatching {
+            val f = java.io.File(ctx.cacheDir, "payshots").apply { mkdirs() }.let { java.io.File(it, "pay_" + System.currentTimeMillis() + ".jpg") }
+            val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
+            camUri = u; takeShot.launch(u)
+        }.onFailure { shotMsg = "⚠️ ক্যামেরা খোলা যায়নি, গ্যালারি থেকে ছবি বাছুন বা হাতে লিখুন"; shotOk = false }
+    }
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -295,6 +330,12 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                         Text("টাকা পাঠিয়ে নিচের ঘরগুলো পূরণ করুন। অ্যাডমিন যাচাই করে অনুমোদন দিলে ব্যালেন্সে যোগ হবে।", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
+                Text("📷 Send Money বা USSD-র ছবি দিলে TrxID ও টাকা নিজে বসবে", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 10.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppBtn(if (reading) "অপেক্ষা..." else "📷 ছবি তুলুন", Modifier.weight(1f), color = C.Blue, small = true, enabled = !reading && !busy) { openCamera() }
+                    AppBtn(if (reading) "অপেক্ষা..." else "🖼️ গ্যালারি থেকে", Modifier.weight(1f), color = C.Blue, small = true, enabled = !reading && !busy) { pickShot.launch("image/*") }
+                }
+                if (shotMsg.isNotEmpty()) Text(shotMsg, fontSize = 13.sp, color = if (shotOk) C.Green else C.Red, modifier = Modifier.padding(top = 6.dp))
                 FieldLabel("কত টাকা পাঠিয়েছেন")
                 AppField(amt, { amt = it.filter(Char::isDigit) }, placeholder = "যেমন ৫০০", keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
                 FieldLabel("যে নম্বর থেকে টাকা পাঠিয়েছেন")

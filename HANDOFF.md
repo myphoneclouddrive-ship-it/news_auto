@@ -315,3 +315,50 @@
 - `NewPostScreen`: এডিটে ধাপ ২/৩/৪-এর 🗑️ ক্লিয়ার → লাল 🗑️ ডিলিট (কনফার্মসহ); ধাপ ২-এর ব্যাক = সিডিউলে ফেরা; 🔁 আবার লিখুন বন্ধ; সিডিউল পিকারে আগের সময় ডিফল্ট; বাটন "⏰ সিডিউল আপডেট করুন"।
 - `MainActivity`: এডিট/ডিলিটের যোগাযোগ; নতুন পোস্টে লেখা থাকলে এডিটের আগে কনফার্ম।
 - কম্পাইল করে দেখা হয়নি (এখানে Android SDK নেই); Worker ফাইলের `node --check` পাস।
+
+## step72: বিকাশ SMS দিয়ে অটো কনফার্ম
+- **Worker**: নতুন `/bkash-sms` (শুধু অ্যাডমিন; `USER_PATHS`-এ যোগ)। পাঠক "bKash" না হলে ত্রুটি; "received Tk X from NUMBER ... TrxID T" ছাড়া অন্য SMS `ignored`। রেকর্ড `bksms:<TrxID>` (১৪ দিন)। `bkAutoMatch`: অপেক্ষমাণ অনুরোধের TrxID + পরিমাণ + পাঠানো নম্বরের শেষ ১০ অঙ্ক মিললে এবং ≤ `BK_AUTO_MAX` (৫০০) হলে `cslotCredit` দিয়ে যোগ (`rec.auto = true`)। না মিললে কিছু বদলায় না, কারণ ফেরত আসে।
+- `cslotApprove`-এর ব্যালেন্স যোগের অংশ `cslotCredit`-এ আলাদা করা হয়েছে; হাতে ও অটো — দুই পথেই একই দুবার-যোগ-ঠেকানো চিহ্ন (`capd:` + `ap:`)।
+- `walletRequest`: `ctrx:<TrxID>`-এর মান এখন অনুরোধের চাবি (আগে `'1'`; পুরনোগুলোর জন্য তালিকা ঘেঁটে খোঁজা আছে)। অনুরোধ জমার সময়ও SMS মেলানো হয় (SMS আগে এলে সঙ্গে সঙ্গে অটো), ফেরত `{ ok, auto }`।
+- **অ্যাপ**: `BkashSms.kt` — `BkashSmsReceiver` (RECEIVE_SMS; শুধু "bKash" নামের SMS) → WorkManager `BkashSmsWorker` (নেট লাগে, ব্যর্থ হলে ৬ বার চেষ্টা) → `/bkash-sms`। অটো হলে নোটিফিকেশন। সেটিংসে সুইচ (অনুমতি চায়) ও "শেষ SMS"-এর ফল।
+- সীমা বদলাতে Worker-এর `BK_AUTO_MAX` বদলান। অনুমান: SMS-এর ইংরেজি ফরম্যাট "You have received Tk 500.00 from 01XXXXXXXXX ... TrxID ABC123"; বাংলা SMS চিনবে না (তখন হাতে অনুমোদন)। কম্পাইল করে দেখা হয়নি।
+
+## step73: নগদ SMS + ছুটে-যাওয়া SMS ধরা
+- **Worker `bkashSms`**: পাঠক `bKash` বা `Nagad`। বিকাশ: `received Tk X from NUMBER ... TrxID T` (আসল SMS দিয়ে যাচাই)। নগদ: `Money Received. Amount: Tk X  Sender: NUMBER  TxnID: T` — **এটা স্মৃতি থেকে ধরা ফরম্যাট, আসল নগদ SMS দিয়ে যাচাই হয়নি**। ফেরত JSON-এ `provider`, `dup` যোগ (`dup` = এই TrxID-র SMS আগেও এসেছে)। "Cash In" SMS-এ "received" নেই, তাই `ignored`।
+- **অ্যাপ `BkashSms.kt`**: `BkashSend.push` (রিসিভার ও স্ক্যান দুই পথের একই পাঠানো-কোড; `dup` হলে "শেষ SMS" লেখে না)। `BkashCatchUpWorker`: ইনবক্সে `date > শেষ স্ক্যান` (সর্বোচ্চ ৩ দিন আগে থেকে, ১০০টা) বিকাশ/নগদ SMS পড়ে পাঠায়; `PeriodicWork` প্রতি ১৫ মিনিট (`bk-catchup`), `NewsApp.onCreate` ও সুইচ বদলালে `BkashPrefs.syncSchedule`। READ_SMS না থাকলে শুধু রিসিভার চলে।
+- সুইচ চালু করলে RECEIVE_SMS + READ_SMS একসাথে চায়; READ_SMS না দিলেও সুইচ চলে (নোট দেখায়)।
+
+## step74: স্ক্রিনশট থেকে TrxID
+- **Worker** নতুন `/pay-ocr` (`payOcr`, `USER_PATHS`-এও): Gemini ছবি পড়ে `{ trx, amount, to, time, provider }`; TrxID ৬–২০ অক্ষর A-Z/0-9 না হলে খালি। কোনো টাকা কাটে না। সীমা `PAYOCR_HOUR = 3`, `PAYOCR_DAY = 6` (দিন = বাংলাদেশের মধ্যরাত থেকে; KV `pocr:<uid>:h|d…`), ব্যর্থ চেষ্টাও গোনা হয়।
+- **অ্যাপ**: `DashboardViewModel.readPayShot(uri)` (ছবি ১৬০০px-এ ছোট করে পাঠায়) + `TopupDialog`-এ "📷 স্ক্রিনশট দিয়ে ভরুন"। TrxID ও টাকা বসে; **পাঠানো নম্বর ছবিতে থাকে না, ইউজার নিজে লেখে**। ছবির প্রাপক নম্বর `Cfg.PAY_INFO`-র নম্বরের সঙ্গে না মিললে শুধু সতর্কবার্তা (আটকায় না)।
+- নিরাপত্তা: ছবি শুধু ঘর ভরে; টাকা যোগ হয় অ্যাডমিনের ফোনের আসল SMS মিললেই (step72-73)।
+
+## step75: ক্যামেরা + USSD-র ছবি
+- `TopupDialog`: "📷 ছবি তুলুন" (`ActivityResultContracts.TakePicture` + নতুন `FileProvider` — manifest `provider`, `res/xml/file_paths.xml`, ছবি `cache/payshots`; CAMERA অনুমতি লাগে না) ও "🖼️ গ্যালারি থেকে"। দুটোই `readShot` → `readPayShot`।
+- `readPayShot`: ক্যামেরার ছবির EXIF ঘোরানো সোজা করে পাঠায়।
+- Worker `/pay-ocr`-এর নির্দেশনায় USSD পপ-আপের লেখা ("Send Money Tk X to NUMBER successful ... TrxID ...") ও পর্দার ক্যামেরা-ছবি যোগ। প্রাপক = ছবির উপরে বা USSD-তে "to"-র পরের নম্বর।
+- গ্রহণকারী (অ্যাডমিন) দিকে SMS একই ফরম্যাটে আসে — পাঠানো অ্যাপ থেকে হোক বা USSD থেকে — তাই SMS অটো কনফার্মে বদল লাগেনি।
+
+## step76: বাংলা লেখাও ধরা (শুধু Worker বদলেছে)
+- `toEn()`: বাংলা সংখ্যা → ইংরেজি। `walletRequest`-এ টাকা/নম্বর/TrxID এখন বাংলা সংখ্যায় লিখলেও চলে (আগে `Number("৩০০")` = NaN ও `\d` বাংলা অঙ্ক ফেলে দিত, তাই ফর্ম ভুল দেখাত)।
+- `bkParse()`: SMS পার্সার নতুন করে — ইংরেজি ও বাংলা শব্দ ("পেয়েছেন", "গ্রহণ", "জমা হয়েছে"; "ট্রানজেকশন আইডি"; "টাকা"/"৳"; "পরিমাণ"), বাংলা সংখ্যাসহ। ক্যাশ-ইন/আউট (বাংলায়ও), সেন্ড মানি বাদ। প্রেরক = টেক্সটের প্রথম ০১X নম্বর; পরিমাণ = প্রথম টাকার ঘর।
+- **বাংলা SMS-এর ফরম্যাট অনুমানে ধরা — আসল বাংলা SMS দিয়ে যাচাই হয়নি।** আসল ইংরেজি বিকাশ SMS ও ক্যাশ-ইন দিয়ে যাচাই হয়েছে।
+- ছবির OCR আগে থেকেই বাংলা লেবেল পড়ে ও বাংলা সংখ্যা ইংরেজি করে।
+
+## step77: অনলাইনের নমুনা দিয়ে SMS পার্সার মেলানো
+- যাচাই: GitHub gist-এর আসল বিকাশ SMS (`from 019…​.Ref XYZ.` — নম্বরের পরেই "Ref", ব্যাংক ডিপোজিট "received deposit from iBanking of Tk…", ক্যাশ-ইন) ও `mfs-sms-gateway` প্যাকেজের নগদ নমুনা ("Money Received. Amount: Tk … Sender: … TxnID: …") — সব `bkParse` ঠিক চেনে/বাদ দেয় (ব্যাংক ডিপোজিটে নম্বর নেই বলে বাদ)।
+- যোগ: বাংলা অ্যাপের লেবেল `লেনদেন আইডি` / `লেনদেন নম্বর` (পার্সার + `/pay-ocr` নির্দেশনা)। OCR নির্দেশনায় বাংলা লেবেল ও ইংরেজি-বাংলা সংখ্যার মিশ্রণ স্পষ্ট করা।
+- **এখনো অযাচাইকৃত**: আসল বাংলা SMS (অনলাইনে পাওয়া যায়নি; বিকাশ সাধারণত ইংরেজি SMS-ই পাঠায়) ও আসল নগদ SMS (নমুনাটা প্যাকেজ-লেখকের উদাহরণ)।
+
+
+---
+
+## দুই APK: ইউজার ও অ্যাডমিন (flavor)
+
+- `app/build.gradle.kts`-এ `role` ডাইমেনশনে দুটো ফ্লেভার: `user` (`NewsPublisher.apk`, `IS_ADMIN=false`) ও `admin` (`NewsAdmin.apk`, `IS_ADMIN=true`, applicationId-এর শেষে `.admin`)। বিল্ড: `gradle assembleUserRelease assembleAdminRelease` (আউটপুট `app/build/outputs/apk/{user,admin}/release/`)।
+- `MainActivity`: `IS_ADMIN` হলে `AdminRoot` (AdminScreens.kt: 📊 হিসাব / 💳 ব্যালেন্স / ⚙️ সেটিংস), নইলে আগের `AppRoot`।
+- SMS অনুমতি (`READ_SMS`/`RECEIVE_SMS`) ও `BkashSmsReceiver` শুধু `app/src/admin/AndroidManifest.xml`-এ। ইউজার APK-তে নেই।
+- ইউজার ফ্লেভারে অ্যাডমিন-ফ্ল্যাগ (`aiOwner`, `csOwner`, `mnOwner`) সবসময় `false` ধরা হয় ও অটো-পোস্ট কার্ড লুকানো, তাই অ্যাডমিন ইউজার APK-তে লগইন করলেও সাধারণ ইউজারের মতো চলে।
+- আপডেটার (`Updater.kt`) `BuildConfig.APK_NAME` দিয়ে নিজের APK বেছে নেয়; রিলিজ-নোটে `sha256:` (ইউজার) ও `sha256-admin:` (অ্যাডমিন) দুই লাইন।
+- Worker: `/admin-stats` (শুধু OWNER_EMAIL) — ইউজারভিত্তিক হিসাব `stat:u:<uid>` চাবির মেটাডাটা থেকে (পোস্টে `statTouch` বাড়ায়), টপ-আপ `creq:` রেকর্ড (অনুমোদিতগুলো এখন ৪০০ দিন থাকে) থেকে, ব্যালেন্স `wal:` মেটাডাটা থেকে।
+- অটো কনফার্ম: `BK_AUTO_MAX = 5000`; "Cash In ... from" SMS-ও ধরে (`kind: 'cashin'`, এতে পাঠানো নম্বর মেলানো হয় না, কারণ প্রেরক এজেন্ট)।
