@@ -233,7 +233,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         }
     }
     // HTML-এর মতো: রেন্ডার শুরু হলে ওপরে পপ-আপ (প্রসেস বার + % + সময়); চলার সময় এডিটরের কোনো অপশন কাজ করে না
-    if (status is RenderStatus.Running) RenderProgressPopup(status) { vm.cancelRender() }
+    (status as? RenderStatus.Running)?.let { run -> RenderProgressPopup(run) { vm.cancelRender() } }
     }
 }
 
