@@ -35,33 +35,41 @@ jobs:
           echo "VC=$((100 + GITHUB_RUN_NUMBER))" >> $GITHUB_ENV
           echo "VN=2.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
 
-      - name: Release APK বিল্ড
+      - name: Release APK বিল্ড (ইউজার + অ্যাডমিন)
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: >
-          gradle assembleRelease --no-daemon
+          gradle assembleUserRelease assembleAdminRelease --no-daemon
           -PappVersionCode=$VC
           -PappVersionName=$VN
           -PupdateRepo=${{ github.repository }}
 
       - name: APK প্রস্তুত
         run: |
-          cp app/build/outputs/apk/release/app-release.apk NewsPublisher.apk
+          cp app/build/outputs/apk/user/release/app-user-release.apk NewsPublisher.apk
+          cp app/build/outputs/apk/admin/release/app-admin-release.apk NewsAdmin.apk
           echo "SHA=$(sha256sum NewsPublisher.apk | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA_ADMIN=$(sha256sum NewsAdmin.apk | cut -d' ' -f1)" >> $GITHUB_ENV
+
+      - name: রিলিজ নোট প্রস্তুত
+        run: |
+          if [ -s RELEASE_NOTES.md ]; then cp RELEASE_NOTES.md release-body.md; else echo "সংস্করণ $VN" > release-body.md; fi
+          printf '\nsha256: %s\nsha256-admin: %s\n' "$SHA" "$SHA_ADMIN" >> release-body.md
 
       - uses: actions/upload-artifact@v4
         with:
           name: news-app-apk
-          path: NewsPublisher.apk
+          path: |
+            NewsPublisher.apk
+            NewsAdmin.apk
 
       - name: GitHub Release প্রকাশ (অ্যাপ এখান থেকেই আপডেট নেয়)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VC" NewsPublisher.apk \
+          gh release create "v$VC" NewsPublisher.apk NewsAdmin.apk \
             --target "$GITHUB_SHA" \
             --title "$VN" \
-            --notes "সংস্করণ $VN
-          sha256: $SHA"
+            --notes-file release-body.md
