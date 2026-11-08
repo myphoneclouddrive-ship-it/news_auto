@@ -49,9 +49,9 @@ jobs:
       - name: APK প্রস্তুত
         run: |
           cp app/build/outputs/apk/user/release/app-user-release.apk NewsPublisher.apk
-          cp app/build/outputs/apk/admin/release/app-admin-release.apk NewsAdmin.apk
+          cp app/build/outputs/apk/admin/release/app-admin-release.apk NewsPublisherAdmin.apk
           echo "SHA=$(sha256sum NewsPublisher.apk | cut -d' ' -f1)" >> $GITHUB_ENV
-          echo "SHA_ADMIN=$(sha256sum NewsAdmin.apk | cut -d' ' -f1)" >> $GITHUB_ENV
+          echo "SHA_ADMIN=$(sha256sum NewsPublisherAdmin.apk | cut -d' ' -f1)" >> $GITHUB_ENV
 
       - name: রিলিজ নোট প্রস্তুত
         run: |
@@ -63,13 +63,13 @@ jobs:
           name: news-app-apk
           path: |
             NewsPublisher.apk
-            NewsAdmin.apk
+            NewsPublisherAdmin.apk
 
       - name: GitHub Release প্রকাশ (অ্যাপ এখান থেকেই আপডেট নেয়)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VC" NewsPublisher.apk NewsAdmin.apk \
+          gh release create "v$VC" NewsPublisher.apk NewsPublisherAdmin.apk \
             --target "$GITHUB_SHA" \
             --title "$VN" \
             --notes-file release-body.md
