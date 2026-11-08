@@ -224,7 +224,7 @@ private object RichVT : VisualTransformation {
 }
 
 /** ওয়েবের ctRender: কার্ড শিরোনামের ৮৫ অক্ষরের পরের অংশ লাল দেখায় */
-private object CardTitleVT : VisualTransformation {
+object CardTitleVT : VisualTransformation {
     private const val MAX = 85
     override fun filter(text: AnnotatedString): TransformedText {
         val t = text.text
@@ -454,7 +454,7 @@ private fun SecArea(value: String, onChange: (String) -> Unit, placeholder: Stri
 
 /** ওয়েবের .chk: ছোট চেকবক্স + হালকা (non-bold) লেখা */
 @Composable
-private fun CheckRow(checked: Boolean, label: String, hint: String, onChange: (Boolean) -> Unit) {
+fun CheckRow(checked: Boolean, label: String, hint: String, onChange: (Boolean) -> Unit) {
     Column(Modifier.padding(top = 8.dp)) {
         Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
@@ -471,7 +471,7 @@ private fun CheckRow(checked: Boolean, label: String, hint: String, onChange: (B
 
 /** ওয়েবের .navrow .btn: প্যাডিং ১০/৬, ফন্ট ১৪ */
 @Composable
-private fun NavBtn(text: String, modifier: Modifier, color: Color = C.Red, enabled: Boolean = true, onClick: () -> Unit) {
+fun NavBtn(text: String, modifier: Modifier, color: Color = C.Red, enabled: Boolean = true, onClick: () -> Unit) {
     androidx.compose.material3.Button(
         onClick = onClick, enabled = enabled, modifier = modifier,
         shape = RoundedCornerShape(8.dp),

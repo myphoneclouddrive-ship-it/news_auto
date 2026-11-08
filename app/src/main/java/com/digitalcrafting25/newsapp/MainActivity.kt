@@ -179,7 +179,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
                     Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE })
-                    Page.CARD -> PhotoCardScreen(card, adsVm)
+                    Page.CARD -> PhotoCardScreen(card, adsVm, np)
                     Page.SCHEDULE -> ScheduleScreen(sched)
                     Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm)
                 }

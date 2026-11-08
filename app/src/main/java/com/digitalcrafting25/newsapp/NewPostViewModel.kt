@@ -612,6 +612,22 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** এডিট করা ডিফল্ট টেমপ্লেট এক ক্লিকে আসল ডিজাইনে ফেরানো (ওয়েবের ↺) */
+    fun resetDefTpl(id: String, onDone: (String?) -> Unit) {
+        if (tplSaving || !TplRegistry.isDef(id)) return
+        tplSaving = true
+        viewModelScope.launch {
+            try {
+                val st = TplRegistry.store.copyStore()
+                st.dtpl.remove(id); st.tpls.remove(id)
+                Fs.saveTplCfg(app, st)
+                TplRegistry.store = st
+                tplVer++; photoVer++; saveDraft()
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "সেভ হয়নি") } finally { tplSaving = false }
+        }
+    }
+
     /** কাস্টম টেমপ্লেট মুছে ফেলা */
     fun deleteTpl(id: String, onDone: (String?) -> Unit) {
         if (tplSaving || TplRegistry.isDef(id)) return

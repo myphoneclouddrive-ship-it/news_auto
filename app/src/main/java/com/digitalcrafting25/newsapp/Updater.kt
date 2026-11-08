@@ -140,8 +140,11 @@ object Updater {
     }
 
     /** রিলিজ নোটের লেখা থেকে `sha256:` লাইন বাদ */
-    private fun cleanNotes(body: String): String =
-        body.lines().filterNot { it.trim().startsWith("sha256:") }.joinToString("\n").trim()
+    private fun cleanNotes(body: String): String {
+        val t = body.lines().filterNot { it.trim().startsWith("sha256:") }.joinToString("\n").trim()
+        // build.yml-এর ফলব্যাক ("সংস্করণ 2.0.53") আসল নোট নয় — দেখাবো না
+        return if (Regex("^সংস্করণ\\s+\\S+$").matches(t)) "" else t
+    }
 
     /**
      * ইন্সটল করা ভার্সনের (installed) পরের সব রিলিজের নোট, নতুন থেকে পুরোনো। একটাই রিলিজ হলে শুধু তার নোট;
@@ -167,8 +170,12 @@ object Updater {
                 if (body.isNotBlank()) items += Triple(code, r.optString("name", tag), body)
             }
             items.sortByDescending { it.first }
-            val seen = HashSet<String>()
-            val uniq = items.filter { seen.add(it.third) }
+            // একই লাইন একাধিক রিলিজের নোটে থাকলে (নোট জমা হয়ে গেলে) নতুনটাতেই একবার দেখায়
+            val seenLines = HashSet<String>()
+            val uniq = items.mapNotNull { (code, name, body) ->
+                val kept = body.lines().filter { l -> val k = l.trim(); k.isEmpty() || seenLines.add(k) }.joinToString("\n").trim()
+                if (kept.lines().none { it.trim().isNotEmpty() && !it.trim().startsWith("#") }) null else Triple(code, name, kept)
+            }
             return when {
                 uniq.isEmpty() -> ""
                 uniq.size == 1 -> uniq[0].third

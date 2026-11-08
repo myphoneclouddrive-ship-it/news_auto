@@ -9,6 +9,8 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
+import android.graphics.Typeface
+import android.content.Context
 import android.util.Base64
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -31,6 +33,9 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+const val FC_FILE_HINT = "১টি ছবি দিলে সরাসরি যোগ হবে। একাধিক (সর্বোচ্চ ৬টি) একসাথে বাছলে সব মিলিয়ে একটা কোলাজ ছবি হবে, তারপর টেনে পজিশন ঠিক করা যাবে।"
+const val FC_CTA_DEFAULT = "এইমাত্র পাওয়া"   // ওয়েবের FC_CTA_DEFAULT: ফোটোকার্ড মেনুর নিচের লেখার ডিফল্ট
 
 /** ফোটোকার্ড ট্যাব (ধাপ ১): ছবি + শিরোনাম + ৫টি ডিফল্ট টেমপ্লেট, গ্যালারিতে সেভ ও শেয়ার */
 class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
@@ -117,8 +122,15 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** ওয়েবের fcCta/fcCat: বদলালে সেভ থাকে (পরের বার এটাই), নইলে ডিফল্ট; ট্যাগ শুধু এই সেশনে */
+    fun setCta(v: String) { cta = v; ctaTouched = true; sp.edit().putString("fcCta", v).apply() }
+    fun setCategory(v: String) { category = v; catTouched = true; sp.edit().putString("fcCat", v).apply() }
+    fun setTag(v: String) { tag = v; tagTouched = true; tagAi = false }
+
     fun reset() {
         job?.cancel()
+        tplReady = false; sp.edit().clear().apply(); ctaTouched = false; catTouched = false; tagTouched = false; tagAi = false
+        collItems = emptyList(); fileMsg = FC_FILE_HINT; fcFbUrl = null; ocrAsk = null
         loaded = false; loadError = null; busy = false; notice = null
         title = ""; category = ""; tag = ""; cta = ""; tplId = "dark"; mode = "photo"; name = ""; role = ""; rashi = ""; fx = 0.5f; fy = 0.5f; useAd = true
         mnTime = "06:30"; mnOn = false; mnAd = "auto"; mnSite = ""; mnBalance = null; mnBusy = false; mnMsg = null; mnChoices = emptyList()
@@ -144,10 +156,13 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 // বিজ্ঞাপন না আনা গেলেও কার্ড বানানো চলবে
                 runCatching { Fs.adsCfg(app) }.getOrNull()?.let { (list, last) -> ads = list; adLast = last }
+                // কাস্টম/এডিট করা টেমপ্লেট (ওয়েবের cfg.customs/dtpl): ফোটোকার্ড মেনুতেও দেখায়
+                runCatching { Fs.tplCfg(app) }.getOrNull()?.let { st -> st.extraSlots = TplRegistry.store.extraSlots; TplRegistry.store = st; tplReady = true }
+                if (mode == "photo" && !TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
                 rebuildAd()
-                if (category.isBlank()) category = c.category
-                if (tag.isBlank()) tag = c.photoTag
-                if (cta.isBlank()) cta = c.ctaText
+                if (!ctaTouched) cta = if (sp.contains("fcCta")) sp.getString("fcCta", "").orEmpty() else FC_CTA_DEFAULT
+                if (!catTouched) category = if (sp.contains("fcCat")) sp.getString("fcCat", "").orEmpty() else c.category
+                if (!tagTouched) tag = c.photoTag
                 if (mnSite.isBlank()) mnSite = c.siteName
                 refreshMnChoices()
                 loaded = true; loadError = null
@@ -178,7 +193,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let {
-                mnBalance = it.optDouble("balance", 0.0); mnOwner = it.optBoolean("owner", false)
+                mnBalance = it.optDouble("balance", 0.0); mnOwner = it.optBoolean("owner", false); TplRegistry.store.extraSlots = it.optInt("extra", 0); photoVer++
             }
             if (!mnLoaded) {
                 runCatching { Fs.morningCfg(app) }.getOrNull()?.let { m ->
@@ -268,8 +283,10 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setPhoto(uri: Uri) {
         viewModelScope.launch {
             val bmp = withContext(Dispatchers.IO) { decodePhoto(uri) }
-            if (bmp == null) { notice = "❌ ছবিটা খোলা যায়নি"; return@launch }
-            photo = bmp; hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f
+            if (bmp == null) { fileMsg = "⚠️ ছবিটি পড়া যায়নি, অন্য ছবি দিন"; return@launch }
+            collItems = emptyList(); fileMsg = FC_FILE_HINT
+            photo = PostUtil.shrink(bmp, 1600); hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f
+            if (tagAi) { tagAi = false; tagTouched = false; tag = cfg.photoTag }
             photoVer++
         }
     }
@@ -280,7 +297,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         mode = m; tplId = cardTpls(m).first().first; fx = 0.5f; fy = 0.5f
     }
 
-    fun clearPhoto() { photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++ }
+    fun clearPhoto() { collItems = emptyList(); fileMsg = FC_FILE_HINT; photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++ }
 
     /** প্রিভিউতে আঙুল টানলে ছবি সরে (dx, dy = কার্ডের ১০৮০×১৩৫০ মাপের হিসাবে পিক্সেল) */
     fun pan(dx: Float, dy: Float) {
@@ -295,8 +312,8 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun refreshMnChoices() {
         val ok = ads.filter { it.ok }
         val l = ArrayList<Pair<String, String>>()
-        if (ok.isNotEmpty()) l.add("auto" to "🔁 অটো")
-        l.add("none" to "🏷️ ব্যানার ছাড়া")
+        if (ok.isNotEmpty()) l.add("auto" to "🔁 অটো (বিজ্ঞাপন একটির পর একটি)")
+        l.add("none" to if (mnOwner) "🏷️ লোগো (আগের মতো, ব্যানার নয়)" else "🏷️ ব্যানার ছাড়া (শুধু সাইটের নাম)")
         ads.forEachIndexed { i, a -> if (a.ok) l.add(a.id to "📢 বিজ্ঞাপন " + MnCal.n(i + 1)) }
         mnChoices = l
         // পছন্দ করা বিজ্ঞাপন আর নেই / ঠিক নেই হলে ওয়েবের mbMode()-এর নিয়মে
@@ -367,6 +384,22 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun adNow(): Bitmap? = if (useAd) adBmp else null
 
+    /** ওয়েবের fcWM: প্রিভিউ/থাম্বনেইলের ওপর বড় ওয়াটারমার্ক (সেভ/পোস্টের কার্ডে থাকে না) */
+    private fun wm(src: Bitmap): Bitmap {
+        val b = if (src.isMutable) src else src.copy(Bitmap.Config.ARGB_8888, true)
+        val w = b.width.toFloat(); val h = b.height.toFloat(); val fs = Math.round(w * 0.115f).toFloat()
+        val c = Canvas(b)
+        c.save(); c.translate(w / 2f, h / 2f); c.rotate(-30f)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = fs; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.CENTER; strokeJoin = Paint.Join.ROUND }
+        val y = -(p.ascent() + p.descent()) / 2f
+        p.style = Paint.Style.STROKE; p.strokeWidth = maxOf(2f, fs * 0.07f); p.color = Color.argb(97, 0, 0, 0)
+        c.drawText("auto-post.site", 0f, y, p)
+        p.style = Paint.Style.FILL; p.color = Color.argb(140, 255, 255, 255)
+        c.drawText("auto-post.site", 0f, y, p)
+        c.restore()
+        return b
+    }
+
     /** প্রিভিউ ও থাম্বনেইল নতুন করে আঁকে (টাইপ করার সময় বারবার না আঁকতে সামান্য অপেক্ষা) */
     fun refresh() {
         job?.cancel()
@@ -374,7 +407,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
             delay(60)
             val d = data(); val id = tplId; val ad = adNow(); val list = cardTpls(mode)
             val (pv, th) = withContext(Dispatchers.Default) {
-                CardRender.render(id, d, 1f, ad) to list.associate { it.first to CardRender.render(it.first, d, 0.25f, ad) }
+                wm(CardRender.render(id, d, 1f, ad)) to list.associate { it.first to wm(CardRender.render(it.first, d, 0.25f, ad)) }
             }
             preview = pv; thumbs = th
         }
@@ -394,8 +427,31 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     var ocrText by mutableStateOf("")
     var ocrBusy by mutableStateOf(false)
     var collVertical by mutableStateOf(false)
+    var fcFbUrl by mutableStateOf<String?>(null)   // পোস্টের পর "ফেসবুক পোস্ট দেখুন" লিংক
+    var fileMsg by mutableStateOf(FC_FILE_HINT)
+    /** কোলাজের প্রতিটি ছবি নিজের জুম/পজিশনসহ (কোলাজ না হলে ফাঁকা) */
+    var collItems by mutableStateOf<List<PostUtil.CollageItem>>(emptyList())
+        private set
+    val canEditCollage: Boolean get() = collItems.size >= 2
+    /** ছবি থেকে লেখা: ঘরে আগে লেখা থাকলে বদলাবে কিনা জিজ্ঞেস (বক্তব্য, নাম, পদবি) */
+    var ocrAsk by mutableStateOf<Triple<String, String, String>?>(null)
+    val mnIsOwner: Boolean get() = mnOwner
+    /** টেমপ্লেটের তালিকা সার্ভার থেকে এসেছে (না এলে এডিট/➕ বন্ধ, নইলে সেভে কাস্টমগুলো মুছে যেত) */
+    var tplReady by mutableStateOf(false)
+        private set
+    fun tplChanged(select: String?) {
+        if (select != null && mode == "photo" && TplRegistry.isKnownPhotoTpl(select)) tplId = select
+        if (mode == "photo" && !TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
+        photoVer++
+    }
+    private val sp by lazy { app.getSharedPreferences("photocard", Context.MODE_PRIVATE) }
+    private var ctaTouched = false
+    private var catTouched = false
+    private var tagTouched = false
+    private var tagAi = false
     private var sid = PostUtil.newSid()       // একটা কার্ডের জন্য মোট ১ টাকা: একই sid-এ আর কাটে না
-    private var paid = false
+    var paid by mutableStateOf(false)         // এই কার্ডের ১ টাকা কাটা হয়ে গেছে; ফর্ম লক (ওয়েবের fcPaid)
+        private set
     private var email = ""
     private var picked: List<Bitmap> = emptyList()
 
@@ -413,6 +469,8 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         if (mode != "morning" && !hasPhoto) return "ছবি আপলোড করুন"
         if (!skipLink && mode == "photo" && link.isNotBlank() && !Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(link.trim()))
             return "লিংকটি http:// বা https:// দিয়ে শুরু হতে হবে"
+        val b = balance
+        if (!paid && b != null && b < 1.0) return "ব্যালেন্স কম আছে (কমপক্ষে ৳১ লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"
         return null
     }
 
@@ -437,7 +495,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun task(block: suspend () -> Unit) {
         if (fcBusy) return
-        fcBusy = true; fcOut = null
+        fcBusy = true; fcOut = null; fcFbUrl = null
         viewModelScope.launch {
             try { block() } catch (e: Exception) { fcOut = "❌ " + (e.message ?: "সমস্যা হয়েছে") } finally { fcBusy = false }
         }
@@ -457,7 +515,8 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
             if (d.optBoolean("comment_ok")) "✅ ফোটোকার্ড পোস্ট হয়েছে আর কমেন্টে লিংক দেওয়া হয়েছে। "
             else "⚠️ ফোটোকার্ড পোস্ট হয়েছে, কিন্তু কমেন্টে লিংক যায়নি (" + d.optString("comment_error").ifBlank { "কারণ অজানা" } + ")। হাতে কমেন্ট করুন। "
         } else "✅ ফোটোকার্ড পোস্ট হয়েছে। "
-        fcOut = head + if (fb.isNotBlank()) "https://www.facebook.com/$fb" else ""
+        fcOut = head
+        fcFbUrl = if (fb.isNotBlank()) "https://www.facebook.com/$fb" else null
         ensureEmail()
         runCatching { Fs.addPost(app, postTitle(), link.trim(), fb, email) }.onFailure { fcOut += "\nপোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: " + (it.message ?: "") }
     }
@@ -478,23 +537,24 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** সেভ/শেয়ারের আগে: এই কার্ডের ১ টাকা কাটা (একবারই, একই sid-এ)। ব্যর্থ হলে false */
     suspend fun chargeSave(): Boolean {
-        problem(skipLink = true)?.let { notice = "❌ $it"; return false }
+        problem(skipLink = true)?.let { fcOut = "❌ $it"; return false }
         if (paid) return true
         return try {
             val d = Worker.post(app, "/card-save", JSONObject().put("sid", sid), 30000)
             paid = true
             if (d.has("balance")) balance = d.optDouble("balance")
             true
-        } catch (e: Exception) { notice = "❌ " + (e.message ?: "সমস্যা হয়েছে"); false }
+        } catch (e: Exception) { fcOut = "❌ " + (e.message ?: "সমস্যা হয়েছে"); false }
     }
 
     /** 🧹 ক্লিয়ার (নতুন করে শুরু): সব খালি, নতুন সেশন */
     fun clearAll() {
         title = ""; name = ""; role = ""; rashi = ""; link = ""; photo = null; hasPhoto = false; picked = emptyList()
+        collItems = emptyList(); fileMsg = FC_FILE_HINT; fcFbUrl = null; ocrAsk = null; cropUndo = null
         fx = 0.5f; fy = 0.5f; photoVer++; savedUri = null; savedSig = ""
         sid = PostUtil.newSid(); paid = false; used = false; fcOut = null; notice = null
         aiMsg = ""; aiPrompt = ""; ocrMsg = ""; ocrText = ""
-        if (mode == "photo") { category = cfg.category; tag = cfg.photoTag; cta = cfg.ctaText }
+        tagTouched = false; tagAi = false; tag = cfg.photoTag   // ক্যাটাগরি ও নিচের লেখা আগের মতোই থাকে (ওয়েবের fcReset)
     }
 
     /** ✨ AI দিয়ে ছবি তৈরী (বাংলাদেশের প্রেক্ষাপট, বাস্তব ধাঁচ); ছবির ট্যাগে "AI জেনারেটেড" বসে */
@@ -508,8 +568,9 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 val img = d.optString("image")
                 if (img.length < 500) throw ApiError("Worker ছবি পাঠায়নি। worker_dashboard.js নতুন করে ডিপ্লয় করেছেন কি না দেখুন, তারপর আবার চেষ্টা করুন")
                 val b = PostUtil.fromDataUrl(img) ?: throw ApiError("ছবি এসেছে কিন্তু খোলা যায়নি। প্রম্পট একটু বদলে আবার চেষ্টা করুন")
+                collItems = emptyList(); fileMsg = FC_FILE_HINT
                 photo = PostUtil.shrink(b, 1600); hasPhoto = true; fx = 0.5f; fy = 0.5f; picked = emptyList()
-                tag = PostUtil.AI_TAG; photoVer++
+                tag = PostUtil.AI_TAG; tagTouched = true; tagAi = true; photoVer++
                 if (d.optString("prompt").isNotBlank()) aiPrompt = d.getString("prompt")
                 aiMsg = "✅ ছবি তৈরি হয়েছে, ছবির ট্যাগে \"AI জেনারেটেড\" বসেছে। পছন্দ না হলে আবার \"ছবি বানাও\" চাপুন।"
             } catch (e: Exception) { aiMsg = "⚠️ " + (e.message ?: "ছবি বানানো যায়নি") } finally { aiBusy = false }
@@ -521,6 +582,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         val src = title.trim()
         if (mode != "photo") return
         if (src.isEmpty()) { fcOut = "❌ আগে ফোটোকার্ড টাইটেলে কিছু লিখুন, তারপর জেনারেট চাপুন"; return }
+        balance?.let { if (it < 1.0) { fcOut = "❌ ব্যালেন্স কম আছে (কমপক্ষে ৳১ লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"; return } }
         task {
             val d = Worker.post(app, "/title-gen", JSONObject().put("title", src).put("kind", "title"), 60000)
             d.optString("title").takeIf { it.isNotBlank() }?.let { title = it }
@@ -539,43 +601,79 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 ocrText = d.optString("text")
                 if (ocrText.isBlank()) ocrMsg = "⚠️ ছবিতে পড়ার মতো কোনো লেখা পাওয়া যায়নি"
                 else {
-                    val filled = ArrayList<String>()
-                    d.optString("quote").takeIf { it.isNotBlank() }?.let { title = it; filled.add("বক্তব্য") }
-                    d.optString("name").takeIf { it.isNotBlank() }?.let { name = it; filled.add("নাম") }
-                    d.optString("role").takeIf { it.isNotBlank() }?.let { role = it; filled.add("পদবি") }
-                    ocrMsg = "✅ লেখা পাওয়া গেছে। " + if (filled.isNotEmpty()) filled.joinToString(", ") + " ওপরের ঘরে বসে গেছে।" else ""
+                    val q = d.optString("quote"); val n = d.optString("name"); val r = d.optString("role")
+                    if (paid || (q.isBlank() && n.isBlank() && r.isBlank())) ocrMsg = "✅ লেখা পাওয়া গেছে। "
+                    else {
+                        val clash = (q.isNotBlank() && title.isNotBlank() && title.trim() != q) || (n.isNotBlank() && name.isNotBlank() && name.trim() != n) || (r.isNotBlank() && role.isNotBlank() && role.trim() != r)
+                        if (clash) { ocrMsg = "✅ লেখা পাওয়া গেছে। "; ocrAsk = Triple(q, n, r) } else applyOcr(q, n, r)
+                    }
                 }
                 if (d.has("balance")) balance = d.optDouble("balance")
             } catch (e: Exception) { ocrMsg = "⚠️ " + (e.message ?: "লেখা পড়া যায়নি") + " — আবার চেষ্টা করুন" } finally { ocrBusy = false }
         }
     }
 
+    private fun applyOcr(q: String, n: String, r: String) {
+        val filled = ArrayList<String>()
+        if (q.isNotBlank()) { title = q; filled.add("বক্তব্য") }
+        if (n.isNotBlank()) { name = n; filled.add("নাম") }
+        if (r.isNotBlank()) { role = r; filled.add("পদবি") }
+        ocrMsg = "✅ লেখা পাওয়া গেছে। " + if (filled.isNotEmpty()) filled.joinToString(", ") + " ওপরের ঘরে বসে গেছে।" else ""
+    }
+
+    fun resolveOcr(yes: Boolean) {
+        val a = ocrAsk ?: return
+        ocrAsk = null
+        if (yes) applyOcr(a.first, a.second, a.third)
+    }
+
     /** গ্যালারি: ১টি হলে সরাসরি, ২–৬টি হলে কোলাজ */
     fun setPhotos(uris: List<Uri>) {
         if (uris.isEmpty()) return
         if (uris.size == 1) { setPhoto(uris[0]); return }
+        fileMsg = "⏳ ছবি প্রসেস হচ্ছে..."
         viewModelScope.launch {
-            val bmps = withContext(Dispatchers.IO) { uris.take(6).mapNotNull { decodePhoto(it) } }
-            if (bmps.isEmpty()) { notice = "❌ ছবিটা খোলা যায়নি"; return@launch }
-            picked = bmps
-            photo = withContext(Dispatchers.Default) { PostUtil.collage(bmps, collVertical) }
-            hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f; photoVer++
+            try {
+                val bmps = withContext(Dispatchers.IO) { uris.take(6).mapNotNull { decodePhoto(it) } }
+                if (bmps.isEmpty()) { fileMsg = "⚠️ ছবি যোগ করা যায়নি — আবার চেষ্টা করুন"; return@launch }
+                picked = bmps
+                val items = bmps.map { PostUtil.CollageItem(it) }
+                collItems = items
+                photo = withContext(Dispatchers.Default) { PostUtil.collageItems(items, collVertical) }
+                hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f
+                if (tagAi) { tagAi = false; tagTouched = false; tag = cfg.photoTag }
+                photoVer++
+                fileMsg = "✅ " + PostUtil.bn(bmps.size) + "টি ছবির কোলাজ হয়েছে — ছবি টেনে পজিশন ঠিক করুন"
+            } catch (e: Exception) { fileMsg = "⚠️ " + (e.message ?: "ছবি যোগ করা যায়নি") + " — আবার চেষ্টা করুন" }
         }
     }
 
     @JvmName("applyCollVertical")
     fun setCollVertical(v: Boolean) {
         collVertical = v
-        if (picked.size == 2) viewModelScope.launch {
-            photo = withContext(Dispatchers.Default) { PostUtil.collage(picked, v) }; photoVer++
+        val items = collItems
+        if (items.size == 2) viewModelScope.launch {
+            photo = withContext(Dispatchers.Default) { PostUtil.collageItems(items, v) }; fx = 0.5f; fy = 0.5f; photoVer++
+            fileMsg = "✅ " + (if (v) "উপর-নিচ" else "পাশাপাশি") + " সাজানো হয়েছে"
+        }
+    }
+
+    /** 🧩 কোলাজ এডিট: প্রতিটি ছবির জুম/পজিশন আলাদা রেখে আবার কোলাজ বানানো */
+    fun applyCollage(items: List<PostUtil.CollageItem>, vertical: Boolean) {
+        if (items.size < 2) return
+        collItems = items; collVertical = vertical
+        viewModelScope.launch {
+            photo = withContext(Dispatchers.Default) { PostUtil.collageItems(items, vertical) }; fx = 0.5f; fy = 0.5f; photoVer++
+            fileMsg = "✅ কোলাজ হালনাগাদ হয়েছে"
         }
     }
 
     /** ↔️ ছবি ফ্লিপ (ডান-বাম উল্টান) */
-    fun flipPhoto() { photo?.let { photo = PostUtil.flipH(it); photoVer++ } }
+    fun flipPhoto() { photo?.let { collItems = emptyList(); photo = PostUtil.flipH(it); photoVer++ } }
 
     // ✂️ ক্রপ: ছবির ০–১ অনুপাতে নেওয়া অংশ কেটে নেয়; আগের ছবি রাখা থাকে, ↩️ দিয়ে ফেরানো যায়
     private var cropUndo: Bitmap? = null
+    private var cropUndoItems: List<PostUtil.CollageItem> = emptyList()
     private var cropUndoVer = -1
     val canUndoCrop: Boolean get() = cropUndo != null && cropUndoVer == photoVer
     fun photoForCrop(): Bitmap? = photo
@@ -590,7 +688,8 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         if (w < 16 || h < 16) { notice = "❌ ক্রপের অংশ খুব ছোট"; return }
         if (w == im.width && h == im.height) return
         val out = Bitmap.createBitmap(im, x, y, w, h)
-        cropUndo = im
+        cropUndo = im; cropUndoItems = collItems
+        collItems = emptyList()          // ক্রপের পর কোলাজ আর আলাদা করে সরানো যাবে না (↩️ দিলে ফিরবে)
         photo = out; fx = 0.5f; fy = 0.5f; notice = null
         photoVer++
         cropUndoVer = photoVer
@@ -599,7 +698,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     fun undoCrop() {
         val old = cropUndo ?: return
         if (cropUndoVer != photoVer) return
-        photo = old; cropUndo = null; fx = 0.5f; fy = 0.5f
+        photo = old; cropUndo = null; collItems = cropUndoItems; cropUndoItems = emptyList(); fx = 0.5f; fy = 0.5f
         photoVer++
     }
 

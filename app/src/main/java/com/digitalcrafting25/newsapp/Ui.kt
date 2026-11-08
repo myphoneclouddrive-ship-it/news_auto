@@ -1,5 +1,24 @@
 package com.digitalcrafting25.newsapp
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -124,5 +143,80 @@ fun AppField(
             focusedBorderColor = C.Red, unfocusedBorderColor = C.Border,
             focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
         ),
+    )
+}
+
+// ───────── ওয়েবের CSS-এর হুবহু উপাদান (ফোটোকার্ড মেনু): input/textarea, .btn, .pnl, small ─────────
+
+/** ওয়েবের `textarea,input`: প্যাডিং ১০, ১px #ccc বর্ডার, ৮ ব্যাসার্ধ, ১৬px লেখা */
+@Composable
+fun HtmlField(
+    value: String,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    readOnly: Boolean = false,
+    keyboard: KeyboardOptions = KeyboardOptions.Default,
+    visual: VisualTransformation = VisualTransformation.None,
+) {
+    var focus by remember { mutableStateOf(false) }
+    BasicTextField(
+        value = value,
+        onValueChange = { if (!readOnly) onChange(it) },
+        readOnly = readOnly,
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else minLines,
+        textStyle = TextStyle(fontSize = 16.sp, color = C.Text),
+        keyboardOptions = keyboard,
+        visualTransformation = visual,
+        cursorBrush = SolidColor(C.Text),
+        modifier = modifier.fillMaxWidth().onFocusChanged { focus = it.isFocused },
+        decorationBox = { inner ->
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White)
+                    .border(if (focus) 2.dp else 1.dp, if (focus) C.Blue else C.Border, RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+            ) {
+                if (value.isEmpty() && placeholder.isNotEmpty()) Text(placeholder, color = Color(0xFF757575), fontSize = 16.sp)
+                inner()
+            }
+        },
+    )
+}
+
+/** ওয়েবের `.btn` (ছোট সংস্করণসহ): প্যাডিং ও ফন্ট মাপ বদলানো যায়, ডিসেবল হলে ৫০% */
+@Composable
+fun HBtn(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = C.Red,
+    enabled: Boolean = true,
+    padH: Dp = 16.dp,
+    padV: Dp = 12.dp,
+    size: TextUnit = 16.sp,
+    radius: Dp = 8.dp,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier.alpha(if (enabled) 1f else 0.5f).clip(RoundedCornerShape(radius)).background(color)
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = padH, vertical = padV),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = size, textAlign = TextAlign.Center) }
+}
+
+/** ওয়েবের `small`: ১৩px, #666 */
+@Composable
+fun HSmall(text: String, modifier: Modifier = Modifier, color: Color = C.Label, center: Boolean = false) =
+    Text(text, modifier = modifier, color = color, fontSize = 13.sp, textAlign = if (center) TextAlign.Center else null)
+
+/** ওয়েবের `.pnl`: সাদা, ১px #e3e3e3 বর্ডার, ৮ ব্যাসার্ধ, প্যাডিং ১২ */
+@Composable
+fun HPnl(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White)
+            .border(BorderStroke(1.dp, Color(0xFFE3E3E3)), RoundedCornerShape(8.dp)).padding(12.dp),
+        content = content,
     )
 }
