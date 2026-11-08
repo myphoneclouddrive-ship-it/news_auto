@@ -318,7 +318,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         private set
     var bkLast by mutableStateOf(BkashPrefs.last(app))
         private set
-    fun setBkAuto(on: Boolean) { BkashPrefs.setEnabled(app, on); bkAuto = on; BkashPrefs.syncSchedule(app) }
+    fun updateBkAuto(on: Boolean) { BkashPrefs.setEnabled(app, on); bkAuto = on; BkashPrefs.syncSchedule(app) }
     fun refreshBk() { bkLast = BkashPrefs.last(app) }
 
     // ───────── 💳 ব্যালেন্স যোগের অনুরোধ (শুধু অ্যাডমিন; ওয়েবের csOwner / loadCsList) ─────────

@@ -201,7 +201,7 @@ private fun WalletReqBody(vm: SettingsViewModel) {
     val askSms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         smsOk = r[android.Manifest.permission.RECEIVE_SMS] == true || granted(android.Manifest.permission.RECEIVE_SMS)
         readOk = r[android.Manifest.permission.READ_SMS] == true || granted(android.Manifest.permission.READ_SMS)
-        vm.setBkAuto(smsOk)
+        vm.updateBkAuto(smsOk)
     }
     LaunchedEffect(vm.csLoading) { vm.refreshBk() }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -209,7 +209,7 @@ private fun WalletReqBody(vm: SettingsViewModel) {
             Text("📩 SMS দিয়ে অটো কনফার্ম", fontWeight = FontWeight.Bold)
             Small("এই ফোনে বিকাশ/নগদের \"টাকা পেয়েছেন\" বা \"Cash In\" SMS এলে TrxID ও টাকার পরিমাণ (সেন্ড মানিতে পাঠানো নম্বরও) মিললে ৳৫০০০ পর্যন্ত নিজে অনুমোদন হয়ে যাবে। মিলল না বা বেশি টাকা হলে নিচে হাতে অনুমোদনের জন্য থাকবে।")
         }
-        Switch(checked = vm.bkAuto && smsOk, onCheckedChange = { on -> if (on && !smsOk) askSms.launch(arrayOf(android.Manifest.permission.RECEIVE_SMS, android.Manifest.permission.READ_SMS)) else vm.setBkAuto(on) })
+        Switch(checked = vm.bkAuto && smsOk, onCheckedChange = { on -> if (on && !smsOk) askSms.launch(arrayOf(android.Manifest.permission.RECEIVE_SMS, android.Manifest.permission.READ_SMS)) else vm.updateBkAuto(on) })
     }
     if (vm.bkAuto && !smsOk) Small("⚠️ SMS পড়ার অনুমতি নেই। ফোনের অ্যাপ সেটিংস থেকে অনুমতি দিন।", Modifier.padding(top = 4.dp), color = C.Red)
     if (vm.bkAuto && smsOk && !readOk) Small("ℹ️ \"SMS পড়ার\" অনুমতিও দিলে অ্যাপ/ফোন বন্ধ থাকার সময় আসা SMS পরে নিজে খুঁজে ধরবে। (সুইচ বন্ধ করে আবার চালু করলে অনুমতি চাইবে।)", Modifier.padding(top = 4.dp))
