@@ -124,13 +124,19 @@ object Updater {
             val code = tag.trim().removePrefix("v").toIntOrNull() ?: return null
             val assets = j.getJSONArray("assets")
             var url: String? = null
+            var assetSha: String? = null
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.getString("name") == BuildConfig.APK_NAME) { url = a.getString("browser_download_url"); break }   // রিলিজে ইউজার ও অ্যাডমিন দুটো APK; নিজেরটা
+                if (a.getString("name") == BuildConfig.APK_NAME) {
+                    url = a.getString("browser_download_url")
+                    // GitHub প্রতিটা ফাইলের নিজের sha256 দেয় ("sha256:<hex>") — এটাই সবচেয়ে নির্ভরযোগ্য
+                    assetSha = Regex("^sha256:([0-9a-fA-F]{64})$").find(a.optString("digest", ""))?.groupValues?.get(1)
+                    break
+                }   // রিলিজে ইউজার ও অ্যাডমিন দুটো APK; নিজেরটা
             }
             val body = j.optString("body", "")
             val shaLabel = if (BuildConfig.IS_ADMIN) "sha256-admin" else "sha256"   // রিলিজ-নোটে দুই APK-র আলাদা লাইন
-            val sha = Regex(shaLabel + ":\\s*([0-9a-fA-F]{64})").find(body)?.groupValues?.get(1)
+            val sha = assetSha ?: Regex("(?m)^\\s*" + shaLabel + ":\\s*([0-9a-fA-F]{64})\\s*$").find(body)?.groupValues?.get(1)
             // একাধিক ভার্সন বাদ পড়ে থাকলে সবগুলোর "নতুন কী" একসাথে; না পারলে শুধু সর্বশেষটার নোট
             val notes = runCatching { notesSince(repo, BuildConfig.VERSION_CODE) }.getOrNull().orEmpty()
                 .ifBlank { cleanNotes(body) }
@@ -142,7 +148,7 @@ object Updater {
 
     /** রিলিজ নোটের লেখা থেকে `sha256:` লাইন বাদ */
     private fun cleanNotes(body: String): String {
-        val t = body.lines().filterNot { it.trim().startsWith("sha256:") }.joinToString("\n").trim()
+        val t = body.lines().filterNot { val l = it.trim(); l.startsWith("sha256:") || l.startsWith("sha256-admin:") }.joinToString("\n").trim()
         // build.yml-এর ফলব্যাক ("সংস্করণ 2.0.53") আসল নোট নয় — দেখাবো না
         return if (Regex("^সংস্করণ\\s+\\S+$").matches(t)) "" else t
     }
