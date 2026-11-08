@@ -353,6 +353,10 @@ private fun StageCard(
         // বার্তা / রেন্ডারের অগ্রগতি
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
         info?.let { Text(it, color = ED.Ok, fontSize = 13.sp) }
+        vm.seedMsg?.let { m ->
+            Text(m + if (vm.cardBusy) " ${vm.cardProgress}%" else "", color = ED.Sub, fontSize = 13.sp)
+            if (vm.cardBusy) LinearProgressIndicator(progress = { vm.cardProgress / 100f }, modifier = Modifier.fillMaxWidth())
+        }
         if (status is RenderStatus.Running) {
             Text(renderLabel(status), color = ED.Sub, fontSize = 13.sp)
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
@@ -442,6 +446,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                     },
                 ),
             ) {
+            CropFrame(c) {   // ক্রপ থাকলে শুধু বাছা অংশ ফ্রেমে ফিট হয়ে দেখায় (রেন্ডারের Crop + Presentation-এর একই হিসাব)
             bmp?.let {
                 Image(
                     it, null,
@@ -473,6 +478,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                             translationY = -py * (z - 1f) * size.height / 2f
                         },
                 )
+            }
             }
             }
             if (trMode != null && trMode != "slide") {

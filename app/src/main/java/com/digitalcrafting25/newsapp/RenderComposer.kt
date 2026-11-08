@@ -20,6 +20,7 @@ import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.Crop
 import androidx.media3.effect.RgbMatrix
 import androidx.media3.effect.TimestampWrapper
 import androidx.media3.effect.MatrixTransformation
@@ -69,6 +70,15 @@ object RenderComposer {
             } else {
                 fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
                 if (c.hasTransform()) fxList += clipTransform(c)
+                // ক্রপ: বাছা অংশ কেটে নিয়ে অনুপাত না বদলে আবার পুরো w×h ফ্রেমে ফিট (আউটপুটের মাপ একই; অনুপাত অন্যরকম হলে কালো জায়গা)
+                if (c.hasCrop()) {
+                    val cx = c.cropX.coerceIn(0f, 0.95f)
+                    val cy = c.cropY.coerceIn(0f, 0.95f)
+                    val cw = c.cropW.coerceIn(0.05f, 1f - cx)
+                    val ch = c.cropH.coerceIn(0.05f, 1f - cy)
+                    fxList += Crop(-1f + 2f * cx, -1f + 2f * (cx + cw), 1f - 2f * (cy + ch), 1f - 2f * cy)
+                    fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT)
+                }
                 // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
                 if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
             }

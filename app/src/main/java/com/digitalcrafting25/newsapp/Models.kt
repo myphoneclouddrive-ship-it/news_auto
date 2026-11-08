@@ -26,12 +26,19 @@ data class Clip(
     val zoom: Float = 1f,       // ১..৪ (১ = জুম নেই); ফ্রেমের কেন্দ্র থেকে বড় করে
     val panX: Float = 0f,       // -১..১; জুম করা ছবির ভেতরে দেখার জানালা বাঁ(-১) ↔ ডান(+১)
     val panY: Float = 0f,       // -১..১; ওপর(-১) ↔ নিচ(+১)
+    val cropX: Float = 0f,      // ক্রপ: ফ্রেমের (জুম-পজিশনের পরের) ০..১ ভগ্নাংশে বাঁ-ওপরের কোণা
+    val cropY: Float = 0f,
+    val cropW: Float = 1f,      // ক্রপের চওড়া/উচ্চতা (১ = ক্রপ নেই); ফ্রেমের মাপ একই থাকে, বাছা অংশ ফ্রেমে ফিট হয়
+    val cropH: Float = 1f,
     val trans: String = "",   // এই ক্লিপ ও পরের ক্লিপের জোড়ার ট্রানজিশন (ClipTr.LIST-এর কী; খালি = নেই)
     val card: CardSpec? = null, // ধাপ ৭: রেডি ইন্ট্রো/আউট্রো কার্ড হলে তার লেখা/স্টাইল (ছবি-ক্লিপ হিসেবেই চলে)
 )
 
 /** ফ্লিপ বা জুম আছে কিনা (না থাকলে রেন্ডারে কোনো বাড়তি ইফেক্ট বসে না) */
 fun Clip.hasTransform(): Boolean = flipH || flipV || zoom > 1.001f
+
+/** ক্রপ করা আছে কিনা (না থাকলে রেন্ডারে/প্রিভিউতে কিছু বসে না) */
+fun Clip.hasCrop(): Boolean = cropW < 0.995f || cropH < 0.995f
 
 data class RenderSpec(
     val clips: List<Clip>,

@@ -375,6 +375,17 @@ class Timeline {
         }
     }
 
+    /** ক্রপ বসায় (ফ্রেমের ০..১ ভগ্নাংশে); পুরো ফ্রেম (w,h ≈ ১) দিলে ক্রপ উঠে যায় */
+    fun setClipCrop(id: Long, x: Float, y: Float, w: Float, h: Float) {
+        val cw = w.coerceIn(0.05f, 1f)
+        val ch = h.coerceIn(0.05f, 1f)
+        val full = cw >= 0.995f && ch >= 0.995f
+        updateClipTx(id, null) {
+            if (full) it.copy(cropX = 0f, cropY = 0f, cropW = 1f, cropH = 1f)
+            else it.copy(cropX = x.coerceIn(0f, 1f - cw), cropY = y.coerceIn(0f, 1f - ch), cropW = cw, cropH = ch)
+        }
+    }
+
     /** জুম/অবস্থান/ফ্লিপ সব আগের অবস্থায় ফেরায় */
     fun resetClipTransform(id: Long) {
         updateClipTx(id, null) { it.copy(flipH = false, flipV = false, zoom = 1f, panX = 0f, panY = 0f) }

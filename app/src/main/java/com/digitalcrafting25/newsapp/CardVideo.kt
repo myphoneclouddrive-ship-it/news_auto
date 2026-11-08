@@ -88,6 +88,21 @@ object CardVideoMaker {
         }
     }
 
+    /**
+     * বাছাইয়ের সময় দেখানোর স্থির প্রিভিউ: আসল কার্ড-দৃশ্যের একটা ফ্রেম (লেখা/লোগোসহ সব এসে গেছে এমন মুহূর্তে)।
+     * ভিডিও বানানো হয় না, তাই খুব দ্রুত। ব্যর্থ হলে Exception ছোড়ে।
+     */
+    fun preview(ctx: Context, spec: CardSpec, w: Int, h: Int): Bitmap {
+        val logo: Bitmap? = spec.logo?.let { loadLogo(ctx, it, 320) }
+        try {
+            val bmp = Bitmap.createBitmap(max(2, w), max(2, h), Bitmap.Config.ARGB_8888)
+            CardScene(bmp.width, bmp.height, spec, logo).draw(Canvas(bmp), if (spec.outro) 3.9f else 2.8f)
+            return bmp
+        } finally {
+            logo?.recycle()
+        }
+    }
+
     private fun loadLogo(ctx: Context, uri: Uri, maxSide: Int): Bitmap? =
         if (uri.scheme == "file") {
             runCatching {

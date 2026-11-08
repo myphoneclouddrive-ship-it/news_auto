@@ -269,7 +269,7 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
     ) { u ->
         if (u != null) {
             ev.startNew()   // আগের এডিট ড্রাফটে থাকে; নতুন ভিডিও নতুন করে শুরু (আগেরটার সাথে জোড়া লাগবে না)
-            ev.addUris(listOf(u))
+            ev.addUris(listOf(u), seed = true)   // ইন্ট্রো-আউট্রো, নিচের বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা নিজে বসবে (পরে মোছা/এডিট করা যায়)
             pendingOpen = true
         }
     }

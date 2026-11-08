@@ -117,6 +117,7 @@ object DraftStore {
         put("flipH", c.flipH); put("flipV", c.flipV)
         put("zoom", c.zoom.toDouble()); put("panX", c.panX.toDouble()); put("panY", c.panY.toDouble())
         if (c.trans.isNotEmpty()) put("tr", c.trans)
+        if (c.hasCrop()) { put("cx", c.cropX.toDouble()); put("cy", c.cropY.toDouble()); put("cw", c.cropW.toDouble()); put("ch", c.cropH.toDouble()) }
         c.card?.let {
             put("card", JSONObject().apply {
                 put("outro", it.outro); put("style", it.style.name)
@@ -147,6 +148,7 @@ object DraftStore {
             volume = o.f("volume", 1f), muted = o.optBoolean("muted"),
             flipH = o.optBoolean("flipH"), flipV = o.optBoolean("flipV"),
             zoom = o.f("zoom", 1f), panX = o.f("panX", 0f), panY = o.f("panY", 0f),
+            cropX = o.f("cx", 0f), cropY = o.f("cy", 0f), cropW = o.f("cw", 1f), cropH = o.f("ch", 1f),
             trans = o.optString("tr").takeIf { ClipTr.valid(it) } ?: "",
             card = card,
         )

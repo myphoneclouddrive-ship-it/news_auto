@@ -30,8 +30,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,6 +91,7 @@ private const val TRACK_H = 62
 private const val CLIP_H = 48
 private const val ADD_W = 48f
 private const val LANE_H = 24
+private const val SEAM_HIT = 26f   // দুই ক্লিপের মাঝের + বাটনের ট্যাপ-এলাকা (দেখতে ২০dp)
 
 /** রুলারের দাগ (ms) ও লেবেলের (ms) ধাপ; প্রতিটা লেবেল-ধাপ দাগ-ধাপের গুণিতক */
 private val TICK_STEPS_MS = listOf(500L, 1000L, 5000L, 10_000L, 30_000L, 60_000L, 300_000L, 600_000L)
@@ -394,6 +398,43 @@ private fun Track(tl: Timeline, onAddMedia: () -> Unit) {
                     .clickable(onClick = onAddMedia),
                 contentAlignment = Alignment.Center,
             ) { LineIcon("plus", Color(0xFF111114), iconSize = 22.dp, stroke = 2.2f) }
+        }
+        // দুই ক্লিপের মাঝের ছোট + বাটন (HTML-এর .vcseam): চাপলে ট্রানজিশন বাছার মেনু; বসানো থাকলে সোনালি আইকন
+        var xAcc = 0f
+        tl.clips.forEachIndexed { i, c ->
+            xAcc += clipWidthDp(c, tl.timelineZoom)
+            if (i < tl.clips.lastIndex) {
+                SeamButton(tl, c, Modifier.offset(x = (xAcc + GAP_DP / 2f - SEAM_HIT / 2f).dp, y = (CLIP_H - SEAM_HIT).dp))
+                xAcc += GAP_DP
+            }
+        }
+    }
+}
+
+/** ক্লিপ c ও তার পরের ক্লিপের জোড়ার ট্রানজিশন বাটন (+) ও বাছাইয়ের মেনু */
+@Composable
+private fun SeamButton(tl: Timeline, c: Clip, modifier: Modifier) {
+    var open by remember { mutableStateOf(false) }
+    val has = c.trans.isNotEmpty() && ClipTr.valid(c.trans)
+    Box(modifier.size(SEAM_HIT.dp).clickable { open = true }, contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(20.dp).clip(CircleShape).background(if (has) Color(0xFFFBBF24) else Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (has) Text(ClipTr.LIST.first { it.first == c.trans }.second, fontSize = 11.sp, maxLines = 1, softWrap = false)
+            else Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111114), maxLines = 1, softWrap = false)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("🎞️ কোনোটি নয়" + if (!has) "  ✓" else "") },
+                onClick = { tl.setClipTransition(c.id, ""); open = false },
+            )
+            ClipTr.LIST.forEach { (k, ic, nm) ->
+                DropdownMenuItem(
+                    text = { Text("$ic $nm" + if (c.trans == k) "  ✓" else "") },
+                    onClick = { tl.setClipTransition(c.id, k); open = false },
+                )
+            }
         }
     }
 }

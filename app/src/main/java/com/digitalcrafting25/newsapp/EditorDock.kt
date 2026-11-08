@@ -266,6 +266,27 @@ fun EditorDockBar(
         group = null
     }
 
+    // রেডি ইন্ট্রো/আউট্রো: কার্ড না থাকলে আগে বাছাইয়ের পর্দা (false = ইন্ট্রো, true = আউট্রো); বানানো শুরু হয় তার "বানান" বাটনে
+    var cardDlg by remember { mutableStateOf<Boolean?>(null) }
+    cardDlg?.let { o -> CardMakeDialog(vm, o, onInfo) { cardDlg = null } }
+
+    // ✂️ ভিডিও ক্রপ ডায়ালগ: খোলার সময়ের ফ্রেমের সময় (ক্লিপের সোর্সে ms) মনে রাখা হয়
+    var cropOpen by remember { mutableStateOf(false) }
+    var cropMs by remember { mutableStateOf(0L) }
+    val cropClip = selClip
+    if (cropOpen && cropClip != null && cropClip.card == null) {
+        ClipCropDialog(
+            clip = cropClip,
+            srcMs = cropMs,
+            onApply = { x, y, w, h ->
+                tl.setClipCrop(cropClip.id, x, y, w, h)
+                cropOpen = false
+                onInfo(if (w >= 0.995f && h >= 0.995f) "✂️ ক্রপ বাদ" else "✂️ ক্রপ হয়েছে (ফ্রেমের মাপ একই)")
+            },
+            onCancel = { cropOpen = false },
+        )
+    }
+
     EditorDarkTheme {
             Column(Modifier.fillMaxWidth().background(ED.Dock)) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(ED.Border))
@@ -319,6 +340,12 @@ fun EditorDockBar(
                         }
                         DockBtn("↺", "জুম রিসেট", enabled = c.zoom > 1.001f || c.panX != 0f || c.panY != 0f) {
                             tl.setClipZoomPan(c.id, zoom = 1f, panX = 0f, panY = 0f)
+                        }
+                        if (c.card == null) DockBtn("crop", "ক্রপ", active = c.hasCrop()) {
+                            val loc = tl.locate(tl.playheadMs)
+                            cropMs = if (loc != null && loc.first.id == c.id) loc.second
+                            else if (c.isImage) 0L else (c.startSec * 1000f).toLong()
+                            cropOpen = true
                         }
                         DockBtn("↔️", "ফ্লিপ", active = c.flipH) {
                             tl.toggleFlip(c.id, true)?.let { onInfo(if (it) "↔️ ডান-বাম ফ্লিপ চালু" else "↔️ ডান-বাম ফ্লিপ বন্ধ") }
@@ -453,11 +480,13 @@ fun EditorDockBar(
                                 }
                                 "card" -> {
                                     DockBtn("clapper", "রেডি ইন্ট্রো", active = tl.cardClip(false) != null) {
+                                        if (tl.cardClip(false) == null && tl.clips.isNotEmpty()) { onMessage(null); cardDlg = false; return@DockBtn }
                                         val m = vm.addCard(false, onInfo)
                                         onMessage(m)
                                         if (m == null) onInfo(if (tl.cardClip(false) != null) "🎬 ইন্ট্রো বাছা হয়েছে — লেখা/স্টাইল বদলাতে ✏️ এডিট চাপুন" else "🎬 ইন্ট্রো বানানো হচ্ছে…")
                                     }
                                     DockBtn("flag", "রেডি আউট্রো", active = tl.cardClip(true) != null) {
+                                        if (tl.cardClip(true) == null && tl.clips.isNotEmpty()) { onMessage(null); cardDlg = true; return@DockBtn }
                                         val m = vm.addCard(true, onInfo)
                                         onMessage(m)
                                         if (m == null) onInfo(if (tl.cardClip(true) != null) "🏁 আউট্রো বাছা হয়েছে — স্টাইল বদলাতে ✏️ এডিট চাপুন" else "🏁 আউট্রো বানানো হচ্ছে…")
@@ -654,11 +683,10 @@ private fun CardEditor(vm: EditorViewModel, c: Clip, spec: CardSpec, onInfo: (St
         (vm.logo != spec.logo)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(if (spec.outro) "🏁 আউট্রো কার্ড" else "🎬 ইন্ট্রো কার্ড", fontWeight = FontWeight.Bold, color = ED.Amber, fontSize = 13.sp)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CardStyle.values().forEach { st ->
-                OptionTile(label = st.label, selected = style == st) { style = st }
-            }
-        }
+        // বাছা স্টাইল/লেখা/লোগো দিয়ে কার্ড ঠিক কেমন হবে তার প্রিভিউ + প্রতিটা স্টাইলের থাম্বনেইল (HTML-এর মতো)
+        val live = spec.copy(style = style, title = if (spec.outro) spec.title else title, subtitle = if (spec.outro) spec.subtitle else sub, logo = vm.logo)
+        CardPreviewBox(live, vm.aspect, maxHeight = 150.dp)
+        CardStyleStrip(live, vm.aspect) { style = it }
         if (!spec.outro) {
             androidx.compose.material3.OutlinedTextField(
                 value = title, onValueChange = { title = it.take(40) },

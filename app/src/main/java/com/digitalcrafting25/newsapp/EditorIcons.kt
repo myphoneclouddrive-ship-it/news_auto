@@ -59,6 +59,7 @@ object EdIcons {
         "pencil" to EdIconSpec("M4 20l1-5L16 4l4 4L9 19z M14 6l4 4", false),
         "zoom" to EdIconSpec("M18 10.5a7.5 7.5 0 1 1-15 0a7.5 7.5 0 1 1 15 0 M16 16l5 5", false),
         "flipH" to EdIconSpec("M12 3v18 M8 7l-5 5 5 5z M16 7l5 5-5 5z", false),
+        "crop" to EdIconSpec("M6 2v14a2 2 0 0 0 2 2h14 M18 22V8a2 2 0 0 0-2-2H2", false),
         "flipV" to EdIconSpec("M3 12h18 M7 8l5-5 5 5z M7 16l5 5 5-5z", false),
         "up" to EdIconSpec("M12 19V5 M6 11l6-6 6 6", false),
         "down" to EdIconSpec("M12 5v14 M6 13l6 6 6-6", false),

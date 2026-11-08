@@ -144,7 +144,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     }.getOrNull() ?: "ফাইল"
 
     /** front/back = null: সাধারণ যোগ (শেষে); true = টাইমলাইনের একদম সামনে, false = একদম পিছনে ("➕ সামনে/পিছনে ভিডিও") */
-    fun addUris(uris: List<Uri>, front: Boolean? = null) {
+    fun addUris(uris: List<Uri>, front: Boolean? = null, seed: Boolean = false) {
         viewModelScope.launch {
             val added = mutableListOf<Clip>()
             for (u in uris) {
@@ -166,7 +166,67 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 added.add(clip)
             }
             if (front == null) tl.addAll(added) else tl.addAtEdge(added, front)
+            if (seed && added.isNotEmpty()) seedDefaults(added.first().id)
         }
+    }
+
+    /** নতুন ভিডিওর ডিফল্ট বসানোর অবস্থা (এডিটরে দেখানোর বার্তা); null = কিছু চলছে না */
+    var seedMsg by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * "নতুন পোস্ট → ভিডিও বাছুন" (HTML-এর vcSeed): ইন্ট্রো + আউট্রো, নিচের একটা বিজ্ঞাপন, লোগো, ট্যাগ ও স্ক্রলিং লেখা নিজে বসে।
+     * সবই সাধারণ ক্লিপ/লেয়ার, তাই পরে একটা একটা করে মোছা/এডিট করা যায়। মাঝে ভিডিও বদলে/মুছে গেলে থেমে যায়।
+     */
+    private suspend fun seedDefaults(firstClipId: Long) {
+        fun alive() = tl.clips.any { it.id == firstClipId }
+        try {
+            seedMsg = "⏳ ডিফল্ট ইন্ট্রো-আউট্রো, বিজ্ঞাপন, লোগো, ট্যাগ বসানো হচ্ছে…"
+            val logoOpt = SettingsMedia.logos(app).firstOrNull()
+            val logoU = logoOpt?.let { SettingsMedia.logoUri(app, it) }
+            val cardLogo = logo ?: logoU
+            // ইন্ট্রো-আউট্রো আগে: তারপর লেয়ারগুলো পুরো দৈর্ঘ্য জুড়ে বসে (ইন্ট্রো-আউট্রোর অংশে লেয়ার দেখায় না)
+            if (alive()) { seedMsg = "🎬 ডিফল্ট ইন্ট্রো বানানো হচ্ছে…"; makeCardNow(false, cardLogo) }
+            if (alive()) { seedMsg = "🏁 ডিফল্ট আউট্রো বানানো হচ্ছে…"; makeCardNow(true, cardLogo) }
+            if (!alive()) return
+            seedMsg = "⏳ বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা বসানো হচ্ছে…"
+            // লোগো (ওপরে ডানে)
+            if (logoU != null && tl.layers.none { it.isLogoLayer() }) tl.addLayer(LayerKind.LOGO, uri = logoU)
+            // নিচের বিজ্ঞাপন: সেটিংসের প্রথমটা, না থাকলে "বিজ্ঞাপন এরিয়া" ডিফল্ট ব্যানার
+            if (tl.layers.none { it is AdLayer }) {
+                val ad = SettingsMedia.ads(app).firstOrNull()
+                if (ad != null) tl.addLayer(LayerKind.AD_BOTTOM, uri = SettingsMedia.adUri(app, ad), adId = ad.id)
+                else tl.addLayer(LayerKind.AD_BOTTOM, uri = SettingsMedia.placeholderAdUri(app))
+            }
+            // ট্যাগ (পুরো ভিডিও জুড়ে) ও স্ক্রলিং লেখা
+            if (tl.layers.none { it is TagLayer }) {
+                tl.addLayer(LayerKind.TAG, text = SEED_TAG)
+                tl.selectedLayerId?.let { id -> tl.updateLayer(id) { it.withTime(0L, tl.totalMs) } }
+            }
+            if (tl.layers.none { it is TickerLayer }) tl.addLayer(LayerKind.TICKER, text = SEED_TICKER)
+            tl.selectedId = null
+            tl.selectedLayerId = null
+            tl.playheadMs = 0L
+        } catch (_: Throwable) {
+            // ডিফল্ট বসানো ব্যর্থ হলেও ভিডিও যেমন ছিল তেমনই থাকে; দরকারি জিনিস নিজে যোগ করা যাবে
+        } finally {
+            seedMsg = null
+        }
+    }
+
+    /** একটা কার্ড (ইন্ট্রো/আউট্রো) বানিয়ে টাইমলাইনে বসায়; চলমান আরেকটা কার্ড বানানো শেষ হওয়া পর্যন্ত অপেক্ষা করে */
+    private suspend fun makeCardNow(outro: Boolean, cardLogo: Uri?): Boolean {
+        if (tl.cardClip(outro) != null) return true
+        while (cardBusy) delay(200)
+        val (w, h) = aspect.w to aspect.h
+        val spec = (if (outro) CardDefaults.outro(cardLogo) else CardDefaults.intro(caption, cardLogo)).copy(w = w, h = h)
+        cardBusy = true
+        cardProgress = 0
+        val r = withContext(Dispatchers.IO) {
+            runCatching { CardVideoMaker.make(app, spec, w, h) { cardProgress = (it * 100f).toInt().coerceIn(0, 100) } }
+        }
+        cardBusy = false
+        return r.fold({ (uri, dur) -> tl.addCard(spec, uri, dur) == null }, { false })
     }
 
     /** ইন্ট্রো/আউট্রো ভিডিও বানানোর সময় true (একসাথে দুটো বানানো ঠেকাতে) */
@@ -180,7 +240,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
      * রেডি ইন্ট্রো/আউট্রো: অ্যানিমেটেড ভিডিও-কার্ড (সাউন্ডসহ) বানিয়ে বসায়; আগে থেকে থাকলে সেটাই বাছে।
      * সমস্যা থাকলে বার্তা ফেরত দেয়। বানাতে কয়েক সেকেন্ড লাগে, শেষে onResult-এ খবর আসে।
      */
-    fun addCard(outro: Boolean, onResult: (String?) -> Unit = {}): String? {
+    fun addCard(outro: Boolean, onResult: (String?) -> Unit = {}, base: CardSpec? = null): String? {
         if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন, তারপর ইন্ট্রো/আউট্রো দিন"
         tl.cardClip(outro)?.let {
             tl.selectedId = it.id
@@ -189,7 +249,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         if (cardBusy) return "একটু অপেক্ষা করুন, আগের কার্ড বানানো চলছে"
         val (w, h) = aspect.w to aspect.h
-        val spec = (if (outro) CardDefaults.outro(logo) else CardDefaults.intro(caption, logo)).copy(w = w, h = h)
+        val spec = (base ?: (if (outro) CardDefaults.outro(logo) else CardDefaults.intro(caption, logo))).copy(w = w, h = h)
         buildCard(spec, w, h, onResult) { uri, dur ->
             val m = tl.addCard(spec, uri, dur)
             onResult(m ?: if (outro) "🏁 আউট্রো বসেছে" else "🎬 ইন্ট্রো বসেছে — লেখা/স্টাইল নিচে বদলান")
@@ -414,3 +474,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private companion object { var autoChecked = false }
 }
+
+/** নতুন ভিডিওতে নিজে বসা ট্যাগ ও স্ক্রলিং লেখা (HTML VC_DEF_TAG / VC_DEF_TICKER) */
+private const val SEED_TAG = "সংগৃহীত"
+private const val SEED_TICKER = "আপনার ব্যবসার/পণ্যের বিজ্ঞাপন দিতে যোগাযোগ করুন:"
