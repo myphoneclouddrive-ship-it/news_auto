@@ -23,6 +23,8 @@ internal class NoiseReducer(private val sr: Int, private val ch: Int) {
     private var energy = 0.0
     private var floor = -1.0
     private var gain = 1.0
+    /** নয়েজ কমানোর পরিমাণ ০..১ (১ = আগের পুরো জোর; ০ = প্রায় কিছুই না)। লাইভ বদলানো যায় */
+    @Volatile var amount: Double = 1.0
     private var target = 1.0
     private val out = ShortArray(ch)
     private val y = DoubleArray(ch)
@@ -63,12 +65,14 @@ internal class NoiseReducer(private val sr: Int, private val ch: Int) {
         if (++cnt >= frameLen) {
             val e = Math.sqrt(energy / cnt)
             floor = if (floor < 0.0) e else if (e < floor) e else floor + (e - floor) * 0.002
-            val thr = max(floor * 2.5, 0.004)
+            val amt = amount.coerceIn(0.0, 1.0)
+            val thr = max(floor * (1.0 + 1.5 * amt), 0.004)   // amt = ১ হলে আগের মতোই floor × ২.৫
             val lo = thr * 0.6
+            val minG = 1.0 - 0.92 * amt                       // চুপ অংশে সর্বনিম্ন গেইন: amt = ১ হলে ০.০৮
             target = when {
                 e >= thr -> 1.0
-                e <= lo -> 0.08
-                else -> 0.08 + 0.92 * (e - lo) / (thr - lo)
+                e <= lo -> minG
+                else -> minG + (1.0 - minG) * (e - lo) / (thr - lo)
             }
             cnt = 0; energy = 0.0
         }

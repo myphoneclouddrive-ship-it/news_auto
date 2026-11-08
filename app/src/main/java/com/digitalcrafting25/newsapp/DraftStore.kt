@@ -114,6 +114,7 @@ object DraftStore {
         put("dur", c.durationMs); put("name", c.name)
         put("startSec", c.startSec.toDouble()); put("endSec", c.endSec.toDouble())
         put("imageSec", c.imageSec.toDouble()); put("volume", c.volume.toDouble()); put("muted", c.muted)
+        if (c.noise > 0.001f) put("noise", c.noise.toDouble())
         put("flipH", c.flipH); put("flipV", c.flipV)
         put("zoom", c.zoom.toDouble()); put("panX", c.panX.toDouble()); put("panY", c.panY.toDouble())
         if (c.trans.isNotEmpty()) put("tr", c.trans)
@@ -145,7 +146,7 @@ object DraftStore {
             id = o.getLong("id"), uri = Uri.parse(o.getString("uri")), isImage = o.optBoolean("isImage"),
             durationMs = o.optLong("dur"), name = o.optString("name"),
             startSec = o.f("startSec", 0f), endSec = o.f("endSec", 0f), imageSec = o.f("imageSec", 3f),
-            volume = o.f("volume", 1f), muted = o.optBoolean("muted"),
+            volume = o.f("volume", 1f), muted = o.optBoolean("muted"), noise = o.f("noise", 0f),
             flipH = o.optBoolean("flipH"), flipV = o.optBoolean("flipV"),
             zoom = o.f("zoom", 1f), panX = o.f("panX", 0f), panY = o.f("panY", 0f),
             cropX = o.f("cx", 0f), cropY = o.f("cy", 0f), cropW = o.f("cw", 1f), cropH = o.f("ch", 1f),
@@ -198,7 +199,7 @@ object DraftStore {
                 put("name", l.name); put("volume", l.volume.toDouble()); put("off", l.sourceOffsetMs)
                 l.sourceClipId?.let { put("src", it) }
                 put("muted", l.muted); put("sdur", l.sourceDurationMs)
-                put("fi", l.fadeInMs); put("fo", l.fadeOutMs); put("nc", l.denoise)
+                put("fi", l.fadeInMs); put("fo", l.fadeOutMs); put("nc", l.denoise); put("nca", l.denoiseAmt.toDouble())
             }
         }
     }
@@ -239,7 +240,7 @@ object DraftStore {
                 o.uriOrNull("uri"), o.optString("name"), o.f("volume", 1f), o.optLong("off"),
                 if (o.has("src")) o.getLong("src") else null,
                 o.optBoolean("muted"), o.optLong("sdur"),
-                o.optLong("fi"), o.optLong("fo"), o.optBoolean("nc"),
+                o.optLong("fi"), o.optLong("fo"), o.optBoolean("nc"), o.f("nca", 1f),
             )
             else -> null
         }

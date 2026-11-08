@@ -146,6 +146,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     /** front/back = null: সাধারণ যোগ (শেষে); true = টাইমলাইনের একদম সামনে, false = একদম পিছনে ("➕ সামনে/পিছনে ভিডিও") */
     fun addUris(uris: List<Uri>, front: Boolean? = null, seed: Boolean = false) {
         viewModelScope.launch {
+            // ডিফল্ট বসানো শেষ না হওয়া পর্যন্ত এডিটরে "প্রসেসিং" বক্স দেখায় (ক্লিপ যোগ হওয়ার আগেই চালু)
+            if (seed) { seedStep = 0; seedMsg = "⏳ ভিডিও প্রস্তুত হচ্ছে…" }
             val added = mutableListOf<Clip>()
             for (u in uris) {
                 val clip = withContext(Dispatchers.IO) {
@@ -167,12 +169,27 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             if (front == null) tl.addAll(added) else tl.addAtEdge(added, front)
             if (seed && added.isNotEmpty()) seedDefaults(added.first().id)
+            else if (seed) seedMsg = null
         }
     }
 
     /** নতুন ভিডিওর ডিফল্ট বসানোর অবস্থা (এডিটরে দেখানোর বার্তা); null = কিছু চলছে না */
     var seedMsg by mutableStateOf<String?>(null)
         private set
+    /** ডিফল্ট বসানোর ধাপ: ০ = ইন্ট্রো, ১ = আউট্রো, ২ = বিজ্ঞাপন/লোগো/ট্যাগ/স্ক্রলিং লেখা, ৩ = শেষ */
+    var seedStep by mutableIntStateOf(0)
+        private set
+    /** প্রসেসিং বারের মোট শতাংশ (০..১০০): ইন্ট্রো ০–৪৫, আউট্রো ৪৫–৯০, বাকি ৯০–১০০ */
+    val seedPercent: Int
+        get() {
+            val c = if (cardBusy) cardProgress.coerceIn(0, 100) else 0
+            return when (seedStep) {
+                0 -> c * 45 / 100
+                1 -> 45 + c * 45 / 100
+                2 -> 92
+                else -> 100
+            }
+        }
 
     /**
      * "নতুন পোস্ট → ভিডিও বাছুন" (HTML-এর vcSeed): ইন্ট্রো + আউট্রো, নিচের একটা বিজ্ঞাপন, লোগো, ট্যাগ ও স্ক্রলিং লেখা নিজে বসে।
@@ -186,9 +203,10 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             val logoU = logoOpt?.let { SettingsMedia.logoUri(app, it) }
             val cardLogo = logo ?: logoU
             // ইন্ট্রো-আউট্রো আগে: তারপর লেয়ারগুলো পুরো দৈর্ঘ্য জুড়ে বসে (ইন্ট্রো-আউট্রোর অংশে লেয়ার দেখায় না)
-            if (alive()) { seedMsg = "🎬 ডিফল্ট ইন্ট্রো বানানো হচ্ছে…"; makeCardNow(false, cardLogo) }
-            if (alive()) { seedMsg = "🏁 ডিফল্ট আউট্রো বানানো হচ্ছে…"; makeCardNow(true, cardLogo) }
+            if (alive()) { seedStep = 0; seedMsg = "🎬 ডিফল্ট ইন্ট্রো বানানো হচ্ছে…"; makeCardNow(false, cardLogo) }
+            if (alive()) { seedStep = 1; seedMsg = "🏁 ডিফল্ট আউট্রো বানানো হচ্ছে…"; makeCardNow(true, cardLogo) }
             if (!alive()) return
+            seedStep = 2
             seedMsg = "⏳ বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা বসানো হচ্ছে…"
             // লোগো (ওপরে ডানে)
             if (logoU != null && tl.layers.none { it.isLogoLayer() }) tl.addLayer(LayerKind.LOGO, uri = logoU)
@@ -210,6 +228,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         } catch (_: Throwable) {
             // ডিফল্ট বসানো ব্যর্থ হলেও ভিডিও যেমন ছিল তেমনই থাকে; দরকারি জিনিস নিজে যোগ করা যাবে
         } finally {
+            seedStep = 3
             seedMsg = null
         }
     }

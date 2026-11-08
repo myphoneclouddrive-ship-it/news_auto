@@ -41,7 +41,7 @@ object AudioMixer {
 
     /** মিক্স দরকার কিনা: অডিও লেয়ার আছে, অথবা কোনো ক্লিপের ভলিউম/মিউট বদলানো */
     fun needsMix(spec: RenderSpec): Boolean =
-        spec.layers.any { it.isAudio } || spec.clips.any { !it.isImage && (it.muted || it.volume != 1f) }
+        spec.layers.any { it.isAudio } || spec.clips.any { !it.isImage && (it.muted || it.volume != 1f || it.noise > 0.001f) }
 
     private class Source(
         val uri: Uri?,              // null = বিপ (নিজে বানানো)
@@ -53,7 +53,7 @@ object AudioMixer {
         val label: String,
         val fadeInMs: Long = 0L,
         val fadeOutMs: Long = 0L,
-        val denoise: Boolean = false,
+        val denoiseAmt: Float = 0f,   // নয়েজ কমানোর পরিমাণ ০..১ (০ = বন্ধ)
     )
 
     fun mix(ctx: Context, spec: RenderSpec, out: File, isCancelled: () -> Boolean) {
@@ -73,7 +73,7 @@ object AudioMixer {
             for (c in spec.clips) {
                 val len = c.lengthMs()
                 if (!c.isImage && !c.muted && c.volume > 0f && len > 0L) {
-                    sources += Source(c.uri, Math.round(c.startSec * 1000.0), len, acc, c.volume, true, "ক্লিপের শব্দ")
+                    sources += Source(c.uri, Math.round(c.startSec * 1000.0), len, acc, c.volume, true, "ক্লিপের শব্দ", denoiseAmt = c.noise)
                 }
                 acc += len
             }
@@ -87,7 +87,7 @@ object AudioMixer {
             if (l.kind == LayerKind.BEEP) {
                 sources += Source(null, l.sourceOffsetMs, len, start, l.volume, false, "বিপ")
             } else if (l.uri != null) {
-                sources += Source(l.uri, l.sourceOffsetMs, len, start, l.volume, true, l.kind.label, l.fadeInMs, l.fadeOutMs, l.denoise)
+                sources += Source(l.uri, l.sourceOffsetMs, len, start, l.volume, true, l.kind.label, l.fadeInMs, l.fadeOutMs, if (l.denoise) l.denoiseAmt else 0f)
             }
         }
 
@@ -101,7 +101,7 @@ object AudioMixer {
                 val startFrame = msToFrame(s.timelineStartMs)
                 val maxFrames = min(msToFrame(s.lenMs), totalFrames - startFrame)
                 if (maxFrames <= 0L) continue
-                val sink = Sink(raf, startFrame, maxFrames, s.gain, if (s.ducked) duck else emptyList(), msToFrame(s.fadeInMs), msToFrame(s.fadeOutMs), s.denoise)
+                val sink = Sink(raf, startFrame, maxFrames, s.gain, if (s.ducked) duck else emptyList(), msToFrame(s.fadeInMs), msToFrame(s.fadeOutMs), s.denoiseAmt)
                 if (s.uri == null) generateBeep(sink, s.srcStartMs, isCancelled) else decode(ctx, s, sink, isCancelled)
                 sink.flush()
             }
@@ -154,9 +154,9 @@ object AudioMixer {
         private val duck: List<LongRange>,
         private val fadeInFrames: Long = 0L,
         private val fadeOutFrames: Long = 0L,
-        private val denoise: Boolean = false,
+        private val denoiseAmt: Float = 0f,
     ) {
-        private val nr = if (denoise) NoiseReducer(SR, CH) else null
+        private val nr = if (denoiseAmt > 0.001f) NoiseReducer(SR, CH).also { it.amount = denoiseAmt.toDouble() } else null
         private val buf = ShortArray(CHUNK_FRAMES * CH)
         private var n = 0            // buf-এ জমা শর্ট সংখ্যা
         private var written = 0L     // এ পর্যন্ত ফাইলে যাওয়া ফ্রেম

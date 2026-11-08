@@ -97,6 +97,17 @@ fun AudioEditor(tl: Timeline, l: AudioLayer) {
             valueRange = 0f..2f,
         )
 
+        // নয়েজ ক্যানসেল: পরিমাণ বার + লাইভ মিটার (প্লে চললে শোনা ও দেখা যায়)
+        val myMeter = NoiseMeter.layerId == l.id
+        NoiseControl(
+            enabled = l.denoise,
+            amount = l.denoiseAmt,
+            onToggle = { tl.editAudio(l.id) { it.copy(denoise = !it.denoise, denoiseAmt = if (it.denoiseAmt < 0.05f) 0.6f else it.denoiseAmt) } },
+            onAmount = { v -> tl.editAudio(l.id) { it.copy(denoise = v > 0.001f, denoiseAmt = if (v > 0.001f) v else it.denoiseAmt) } },
+            inLevel = if (myMeter) NoiseMeter.layerIn else 0f,
+            outLevel = if (myMeter) NoiseMeter.layerOut else 0f,
+        )
+
         // সময়
         if (total > LayerDefaults.MIN_LAYER_MS) {
             var r by remember(l.id, l.startMs, l.endMs, total) {

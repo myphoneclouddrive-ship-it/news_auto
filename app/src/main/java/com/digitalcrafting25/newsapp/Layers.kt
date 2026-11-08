@@ -267,6 +267,7 @@ data class AudioLayer(
     val fadeInMs: Long = 0L,         // শুরুতে ধীরে জোরালো (০/১০০০/২০০০)
     val fadeOutMs: Long = 0L,        // শেষে ধীরে মিলিয়ে যাওয়া (০/১০০০/২০০০)
     val denoise: Boolean = false,    // হালকা নয়েজ কমানো (৯০Hz হাই-পাস + নয়েজ গেট), প্রিভিউ ও রেন্ডার দুই জায়গাতেই
+    val denoiseAmt: Float = 1f,      // নয়েজ কমানোর পরিমাণ ০..১ (denoise চালু থাকলে)
 ) : Layer {
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)

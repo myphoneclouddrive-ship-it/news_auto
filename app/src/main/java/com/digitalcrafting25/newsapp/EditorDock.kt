@@ -190,6 +190,19 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                         if (m == null) tl.selectedId = null
                         msg(m)
                     }
+                    // এডজাস্ট একটাই: আগে থাকলে নতুন লেয়ার নয়, আগেরটাই বাছা হয় (✏️ এডিটে ব্রাইটনেস/কন্ট্রাস্ট বদলান)
+                    LayerKind.ADJUST -> {
+                        val ex = tl.layers.firstOrNull { it is AdjustLayer }
+                        if (ex != null) {
+                            tl.selectedId = null
+                            tl.selectedLayerId = ex.id
+                            inf("☀️ এডজাস্ট আগে থেকেই আছে — ✏️ এডিটে ব্রাইটনেস/কন্ট্রাস্ট বদলান।")
+                        } else {
+                            val m = tl.addLayer(kind)
+                            if (m == null) tl.selectedId = null
+                            msg(m)
+                        }
+                    }
                     LayerKind.IMAGE -> {
                         pendingKind = kind
                         pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -329,6 +342,12 @@ fun EditorDockBar(
                             DockBtn("🔉", "ভলিউম −") {
                                 tl.adjustClipVolume(c.id, -10)?.let { onInfo("🔉 ভলিউম $it%") }
                             }
+                            // অডিও এক্সট্রাক্ট ছাড়াই ক্লিপের শব্দে নয়েজ ক্যানসেল: স্লাইডার + লাইভ মিটারের প্যানেল খোলে
+                            if (c.card == null) DockBtn(
+                                "🎙️",
+                                if (c.noise > 0.001f) "নয়েজ ${Math.round(c.noise * 100)}%" else "নয়েজ ক্যানসেল",
+                                active = c.noise > 0.001f || editOpen,
+                            ) { onToggleEdit() }
                         }
                         DockBtn("🔍", "জুম +") {
                             tl.setClipZoomPan(c.id, zoom = c.zoom + 0.25f)
@@ -541,7 +560,11 @@ fun EditorDockPanel(
             // ---- নিচের এডিট প্যানেল ----
             when {
                 // HTML-এ ক্লিপের আলাদা প্যানেল নেই (ট্রিম = টাইমলাইনের হাতল টানা); শুধু ইন্ট্রো/আউট্রো কার্ডের লেখা বদলানোর প্যানেল থাকে
-                selClip != null -> if (editOpen) selClip.card?.let { Column(Modifier.edPanel()) { CardEditor(vm, selClip, it, onInfo) } }
+                selClip != null -> if (editOpen) {
+                    val card = selClip.card
+                    if (card != null) Column(Modifier.edPanel()) { CardEditor(vm, selClip, card, onInfo) }
+                    else if (!selClip.isImage) ClipNoiseEditor(tl, selClip)
+                }
                 selLayer != null && editOpen -> {
                     if (selLayer is AudioLayer) AudioEditor(tl, selLayer)
                     else LayerEditor(tl, selLayer) { act.replaceImage(selLayer.id) }

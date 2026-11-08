@@ -67,6 +67,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -111,7 +114,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         // এডিট প্যানেল খোলা থাকলে ওপরে ছোট প্রিভিউ + প্লে/সময় বার থেকে যায় (প্রিভিউ ঢাকা পড়ে না), নিচে প্যানেল; টাইমলাইন/জুম লুকানো
         val selClipNow = tl.clipById(tl.selectedId)
         val selLayerNow = tl.layerById(tl.selectedLayerId)
-        val panelOpen = editOpen && (selLayerNow != null || selClipNow?.card != null)
+        val panelOpen = editOpen && (selLayerNow != null || selClipNow?.card != null || (selClipNow != null && !selClipNow.isImage))
         if (tl.clips.isNotEmpty()) {
             // weight অবশ্যই এখানেই (সরাসরি এই Column-এর সন্তানে) দিতে হয়; StageCard-এর ভেতরে Surface থাকায় ভেতরে দিলে কাজ করত না,
             // ফলে স্টেজ পুরো উচ্চতা খেয়ে নিচের মেনু (ডক) ০ উচ্চতা পেত
@@ -129,7 +132,7 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
         // ---------- এডিট প্যানেল: ওপরে শিট-হেডার (নাম + ✓), নিচে স্ক্রল হওয়া সেটিং ----------
         if (panelOpen) {
             SheetHeader(
-                title = selLayerNow?.kind?.label ?: "ইন্ট্রো/আউট্রো",
+                title = selLayerNow?.kind?.label ?: if (selClipNow?.card != null) "ইন্ট্রো/আউট্রো" else "ক্লিপের নয়েজ ক্যানসেল",
                 onDone = { editOpen = false },
             )
         }
@@ -272,7 +275,30 @@ private fun StageCard(
     val pp = remember { PreviewPlayer(ctx) }
     DisposableEffect(Unit) { onDispose { pp.release() } }
     val clipSig = PreviewPlayer.signature(tl.clips)
-    LaunchedEffect(clipSig) { pp.setClips(tl.clips); pp.seekTo(tl.playheadMs) }
+    // ট্রিম টানার সময় প্রতি ধাপে পুরো প্লেলিস্ট prepare না করে একটু থেমে (১৫০ মি.সে.) একবার করে
+    LaunchedEffect(clipSig) {
+        if (pp.hasClips) kotlinx.coroutines.delay(150)
+        pp.setClips(tl.clips); pp.seekTo(tl.playheadMs)
+    }
+    // ইন্ট্রো/আউট্রো এনকোড চলার সময় প্লেয়ারের ডিকোডার ছেড়ে দেয়, শেষে আবার সাজায়
+    var wasBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.cardBusy) {
+        if (vm.cardBusy) { wasBusy = true; playing = false; pp.suspendForEncode() }
+        else if (wasBusy) { wasBusy = false; if (tl.clips.isNotEmpty()) { pp.refresh(tl.clips); pp.seekTo(tl.playheadMs) } }
+    }
+    // অ্যাপ ব্যাকগ্রাউন্ডে গেলে থামে, ফিরলে সার্ফেস/ডিকোডার নতুন করে সাজায়
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_STOP -> { playing = false; pp.pause() }
+                Lifecycle.Event.ON_START -> if (tl.clips.isNotEmpty() && !vm.cardBusy) { pp.refresh(tl.clips); pp.seekTo(tl.playheadMs) }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     // থামা অবস্থায় লাল দাগ সরালে প্লেয়ারও সেখানে যায় (ফ্রেম দেখায়)
     LaunchedEffect(tl.playheadMs, playing, clipSig) { if (!playing) pp.seekTo(tl.playheadMs) }
     LaunchedEffect(playing) {
@@ -353,10 +379,7 @@ private fun StageCard(
         // বার্তা / রেন্ডারের অগ্রগতি
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
         info?.let { Text(it, color = ED.Ok, fontSize = 13.sp) }
-        vm.seedMsg?.let { m ->
-            Text(m + if (vm.cardBusy) " ${vm.cardProgress}%" else "", color = ED.Sub, fontSize = 13.sp)
-            if (vm.cardBusy) LinearProgressIndicator(progress = { vm.cardProgress / 100f }, modifier = Modifier.fillMaxWidth())
-        }
+        if (vm.seedMsg != null) SeedProgressDialog(vm, onBack)
         if (status is RenderStatus.Running) {
             Text(renderLabel(status), color = ED.Sub, fontSize = 13.sp)
             LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
@@ -468,6 +491,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                 val vh: androidx.compose.ui.unit.Dp = if (vr > br) maxHeight else maxWidth / vr
                 androidx.compose.ui.viewinterop.AndroidView(
                     factory = { c -> android.view.TextureView(c).also { pp.player.setVideoTextureView(it) } },
+                    onRelease = { tv -> runCatching { pp.player.clearVideoTextureView(tv) } },
                     modifier = Modifier.align(Alignment.Center)
                         .requiredSize(vw, vh)
                         .alpha(if (loc != null && !isImg) 1f else 0f)
@@ -726,6 +750,36 @@ private fun PublishDialog(
                     shape = RoundedCornerShape(8.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = ED.Publish, contentColor = Color.White),
                 ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+
+/**
+ * নতুন ভিডিওর ডিফল্ট (ইন্ট্রো, আউট্রো, বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা) বসানো শেষ না হওয়া পর্যন্ত
+ * "প্রসেসিং" বক্স: ধাপ-তালিকা + প্রসেসিং বার। বক্স থাকা অবস্থায় এডিটরে কিছু ছোঁয়া যায় না; শেষ হলে নিজে সরে যায়, তখন এডিট শুরু।
+ */
+@Composable
+private fun SeedProgressDialog(vm: EditorViewModel, onBack: () -> Unit) {
+    val pct = vm.seedPercent
+    val step = vm.seedStep
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onBack,   // পেছনের বোতামে এডিটর থেকে বেরোনো যায়; বাইরে ট্যাপে বন্ধ হয় না
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().background(ED.Screen, RoundedCornerShape(16.dp)).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("⏳ প্রসেসিং চলছে…", color = Color.White, fontSize = 17.sp)
+            Text("ইন্ট্রো, আউট্রো, বিজ্ঞাপন ও ট্যাগ বসানো শেষ হলে এডিট শুরু করতে পারবেন।", color = ED.Sub, fontSize = 13.sp)
+            LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth())
+            Text("$pct%", color = ED.Sub, fontSize = 13.sp)
+            val items = listOf("🎬 ইন্ট্রো", "🏁 আউট্রো", "📢 বিজ্ঞাপন, লোগো, ট্যাগ ও স্ক্রলিং লেখা")
+            items.forEachIndexed { i, label ->
+                val mark = if (step > i) "✅" else if (step == i) "⏳" else "▫️"
+                Text("$mark $label", color = if (step >= i) Color.White else ED.Sub, fontSize = 14.sp)
             }
         }
     }

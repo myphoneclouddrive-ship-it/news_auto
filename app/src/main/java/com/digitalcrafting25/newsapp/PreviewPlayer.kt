@@ -4,10 +4,13 @@ package com.digitalcrafting25.newsapp
 
 import android.content.Context
 import android.media.AudioTrack
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -26,14 +29,54 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
  * মনে রাখুন: সব মেথড মেইন থ্রেড থেকে ডাকতে হবে
  */
 class PreviewPlayer(private val ctx: Context) {
-    val player: ExoPlayer = ExoPlayer.Builder(ctx).build().apply {
+    // ডিকোডার না পেলে সফটওয়্যার ডিকোডারে নামে (ইন্ট্রো বানানোর এনকোডার চলার সময় হার্ডওয়্যার কোডেক ফুরালে প্রিভিউ আটকে যেত)
+    // ক্লিপের নিজের শব্দের লাইভ নয়েজ কমানো (অডিও এক্সট্রাক্ট ছাড়াই): প্রধান প্লেয়ারের অডিও সিঙ্কে বসানো
+    private val clipDenoise = PreviewDenoise()
+
+    private fun rendererFactory(dn: PreviewDenoise): DefaultRenderersFactory {
+        val rf = object : DefaultRenderersFactory(ctx) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
+                DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(dn))
+                    .build()
+        }
+        rf.setEnableDecoderFallback(true)
+        return rf
     }
+
+    val player: ExoPlayer = ExoPlayer.Builder(ctx, rendererFactory(clipDenoise)).build()
     /** এখনকার ভিডিওর আসল প্রস্থ÷উচ্চতা (ছবি চ্যাপ্টা না করতে প্রিভিউ এটা দিয়ে মাপ ঠিক করে) */
     var videoAspect by mutableFloatStateOf(16f / 9f)
         private set
 
+    private val main = Handler(Looper.getMainLooper())
+    private var retries = 0
+
     init {
         player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) retries = 0
+            }
+
+            // আগে এরর ধরা হতো না: ExoPlayer চুপচাপ IDLE-এ চলে যেত, লেন্থ দেখাত (মডেল থেকে) কিন্তু ভিডিও থাকত না
+            override fun onPlayerError(error: PlaybackException) {
+                if (clips.isEmpty() || retries >= 3) return
+                retries++
+                val idx = player.currentMediaItemIndex.coerceAtLeast(0)
+                val pos = player.currentPosition.coerceAtLeast(0L)
+                val wasPlaying = player.playWhenReady
+                main.postDelayed({
+                    runCatching {
+                        if (retries >= 2) { sig = ""; setClips(clips) }   // শেষ চেষ্টায় পুরো প্লেলিস্ট নতুন করে
+                        else player.prepare()
+                        if (idx < player.mediaItemCount) player.seekTo(idx, pos)
+                        player.playWhenReady = wasPlaying
+                    }
+                }, 250L * retries)
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width <= 0 || videoSize.height <= 0) return
                 var w = videoSize.width * videoSize.pixelWidthHeightRatio
@@ -57,6 +100,24 @@ class PreviewPlayer(private val ctx: Context) {
     companion object {
         fun signature(clips: List<Clip>): String =
             clips.joinToString("|") { "${it.id}:${it.uri}:${it.startSec}:${it.endSec}:${it.imageSec}:${it.isImage}" }
+    }
+
+    val hasClips: Boolean get() = clips.isNotEmpty()
+
+    /** প্লেলিস্ট জোর করে নতুন করে বানায় (ব্যাকগ্রাউন্ড থেকে ফিরলে / কার্ড বানানো শেষে) */
+    fun refresh(list: List<Clip>) { sig = ""; retries = 0; setClips(list) }
+
+    /**
+     * ইন্ট্রো/আউট্রো এনকোড চলার সময় প্লেয়ারের ডিকোডার ও অডিও-লেয়ার প্লেয়ার ছেড়ে দেয়,
+     * যাতে ফোনের সীমিত হার্ডওয়্যার কোডেক এনকোডারের জন্য ফাঁকা থাকে। শেষে refresh() ডাকুন।
+     */
+    fun suspendForEncode() {
+        pause()
+        runCatching { player.stop(); player.clearMediaItems() }
+        sig = ""
+        stopTone()
+        audio.values.forEach { runCatching { it.release() } }
+        audio.clear(); audioUri.clear(); denoisers.clear()
     }
 
     fun setClips(list: List<Clip>) {
@@ -98,11 +159,18 @@ class PreviewPlayer(private val ctx: Context) {
         }
     }
 
-    fun play() { if (clips.isNotEmpty()) { if (player.playbackState == Player.STATE_ENDED) seekTo(0); player.playWhenReady = true } }
+    fun play() {
+        if (clips.isEmpty()) return
+        // এরর খেয়ে IDLE-এ আটকে থাকলে প্লে চাপলেই নতুন করে সাজিয়ে নেয়
+        if (player.playbackState == Player.STATE_IDLE) { retries = 0; sig = ""; setClips(clips) }
+        if (player.playbackState == Player.STATE_ENDED) seekTo(0)
+        player.playWhenReady = true
+    }
     fun pause() {
         player.playWhenReady = false
         audio.values.forEach { it.playWhenReady = false }
         stopTone()
+        NoiseMeter.clear()
     }
 
     fun ended(): Boolean = player.playbackState == Player.STATE_ENDED
@@ -129,6 +197,11 @@ class PreviewPlayer(private val ctx: Context) {
         val ci = player.currentMediaItemIndex
         val c = clips.getOrNull(ci)
         player.volume = if (c == null || c.muted || beepOn) 0f else c.volume.coerceIn(0f, 1f)
+        // ক্লিপের নয়েজ কমানো: স্লাইডার টানলে প্লে চলা অবস্থায় সাথে সাথে শোনা যায়
+        clipDenoise.amount = if (c == null || c.isImage || c.muted) 0f else c.noise
+        var clipMetered = false
+        var layerMetered = false
+        if (playing && clipDenoise.enabled) { NoiseMeter.setClip(clipDenoise.inLevel, clipDenoise.outLevel); clipMetered = true }
 
         // অডিও লেয়ার
         val live = auds.filter { it.uri != null }.map { it.id }.toSet()
@@ -138,23 +211,18 @@ class PreviewPlayer(private val ctx: Context) {
             val u = a.uri ?: continue
             val active = playing && ms >= a.startMs && ms < a.endMs
             var p = audio[a.id]
+            if (p == null && !active) continue   // চলার সময় না হলে প্লেয়ার বানাই না (কোডেক বাঁচে)
             if (p == null || audioUri[a.id] != u.toString()) {
                 p?.release()
                 val dn = PreviewDenoise()
                 denoisers[a.id] = dn
                 // এই লেয়ারের নিজস্ব অডিও সিঙ্কে নয়েজ-কমানোর প্রসেসর বসানো (বন্ধ থাকলে অবিকল পাস)
-                val rf = object : DefaultRenderersFactory(ctx) {
-                    override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
-                        DefaultAudioSink.Builder(context)
-                            .setEnableFloatOutput(enableFloatOutput)
-                            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                            .setAudioProcessors(arrayOf(dn))
-                            .build()
-                }
+                val rf = rendererFactory(dn)
                 p = ExoPlayer.Builder(ctx, rf).build().also { it.setMediaItem(MediaItem.fromUri(u)); it.prepare() }
                 audio[a.id] = p; audioUri[a.id] = u.toString()
             }
-            denoisers[a.id]?.enabled = a.denoise
+            denoisers[a.id]?.amount = if (a.denoise) a.denoiseAmt else 0f
+            if (active && a.denoise) { denoisers[a.id]?.let { NoiseMeter.setLayer(a.id, it.inLevel, it.outLevel) }; layerMetered = true }
             p.volume = if (a.muted || beepOn) 0f else (a.volume * fadeEnv(a, ms, totalMs)).coerceIn(0f, 1f)
             if (active && !p.playWhenReady) {
                 p.seekTo(a.sourceOffsetMs + (ms - a.startMs))
@@ -164,6 +232,8 @@ class PreviewPlayer(private val ctx: Context) {
             }
         }
 
+        if (!clipMetered) NoiseMeter.setClip(0f, 0f)
+        if (!layerMetered) NoiseMeter.setLayer(0L, 0f, 0f)
         if (beepOn) startTone(beepLayer!!, ms) else stopTone()
     }
 
@@ -207,6 +277,7 @@ class PreviewPlayer(private val ctx: Context) {
         audio.values.forEach { it.release() }
         audio.clear()
         denoisers.clear()
+        main.removeCallbacksAndMessages(null)
         player.release()
     }
 }

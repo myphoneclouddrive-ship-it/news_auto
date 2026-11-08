@@ -17,7 +17,14 @@ import java.nio.ByteOrder
  *  - ১৬-বিট PCM ও ১-২ চ্যানেল ছাড়া অন্য ফরম্যাট ছুঁয়ে দেখে না (পাস-থ্রু), যাতে প্লেব্যাক না ভাঙে
  */
 class PreviewDenoise : BaseAudioProcessor() {
-    @Volatile var enabled: Boolean = false
+    /** নয়েজ কমানোর পরিমাণ ০..১; ০ হলে বন্ধ (শব্দ অবিকল পাস)। প্লে চলার মধ্যেও বদলালে সাথে সাথে শোনা যায় */
+    @Volatile var amount: Float = 0f
+    val enabled: Boolean get() = amount > 0.001f
+    /** লাইভ মিটার: নয়েজ কমানোর আগের/পরের শব্দের জোর (RMS, ০..১, মসৃণ করা) */
+    @Volatile var inLevel: Float = 0f
+        private set
+    @Volatile var outLevel: Float = 0f
+        private set
     private var wasEnabled = false
     private var supported = false
     private var reducer: NoiseReducer? = null
@@ -39,17 +46,28 @@ class PreviewDenoise : BaseAudioProcessor() {
         val on = enabled
         if (!on || !supported || r == null) {
             wasEnabled = false
+            inLevel = 0f; outLevel = 0f
             out.put(inputBuffer)
         } else {
             if (!wasEnabled) { r.reset(); wasEnabled = true }
+            r.amount = amount.toDouble()
             val ch = inputAudioFormat.channelCount
             if (frame.size < ch) frame = ShortArray(ch)
             val src = inputBuffer.order(ByteOrder.nativeOrder())
             val frames = size / (2 * ch)
+            var sIn = 0.0; var sOut = 0.0
             for (f in 0 until frames) {
                 for (c in 0 until ch) frame[c] = src.getShort()
+                val a = frame[0] / 32768.0
                 r.processFrame(frame, 0)
+                val b = frame[0] / 32768.0
+                sIn += a * a; sOut += b * b
                 for (c in 0 until ch) out.putShort(frame[c])
+            }
+            if (frames > 0) {
+                val ri = Math.sqrt(sIn / frames).toFloat(); val ro = Math.sqrt(sOut / frames).toFloat()
+                inLevel = if (ri > inLevel) ri else inLevel * 0.85f + ri * 0.15f
+                outLevel = if (ro > outLevel) ro else outLevel * 0.85f + ro * 0.15f
             }
             // ফ্রেমে ভাগ না হওয়া বাড়তি বাইট (সাধারণত থাকে না) অবিকল পাঠাই
             while (src.hasRemaining()) out.put(src.get())
@@ -59,6 +77,7 @@ class PreviewDenoise : BaseAudioProcessor() {
 
     override fun onFlush() {   // সিক বা নতুন গানে গেলে
         reducer?.reset()
+        inLevel = 0f; outLevel = 0f
         wasEnabled = enabled && supported
     }
 

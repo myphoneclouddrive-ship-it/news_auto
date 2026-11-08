@@ -684,8 +684,8 @@ fun NudgeZoomBar(tl: Timeline, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
         IconBtn("zoom", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = z > Timeline.TL_ZOOM_MIN + 0.001f) { tl.zoomTimeline(1f / 1.5f) }
         ZoomSlider(tl, Modifier.weight(1f))
-        IconBtn("plus", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = z < Timeline.TL_ZOOM_MAX - 0.001f) { tl.zoomTimeline(1.5f) }
-        IconBtn("full", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = tl.totalMs > 0L) { tl.changeTimelineZoom(fitZoom(tl.clips, availDp)) }
+        IconBtn("plus", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = z < tl.maxTimelineZoom - 0.001f) { tl.zoomTimeline(1.5f) }
+        IconBtn("full", size = 32.dp, iconSize = 17.dp, tint = ED.Sub, enabled = tl.totalMs > 0L) { tl.changeTimelineZoom(fitZoom(tl.clips, availDp, tl.maxTimelineZoom)) }
         Text(
             zLabel,
             modifier = Modifier.widthIn(min = 26.dp).padding(end = 4.dp),
@@ -740,11 +740,11 @@ private fun ZoomSlider(tl: Timeline, modifier: Modifier = Modifier) {
 }
 
 /** সব ক্লিপ স্ক্রিনের চওড়ায় আঁটে এমন জুম (ছোট ক্লিপের ন্যূনতম ৪৪dp ধরে বাইনারি সার্চ) */
-private fun fitZoom(clips: List<Clip>, availDp: Float): Float {
+private fun fitZoom(clips: List<Clip>, availDp: Float, maxZoom: Float = Timeline.TL_ZOOM_MAX): Float {
     if (clips.isEmpty()) return 1f
     fun width(z: Float): Float = clips.sumOf { clipWidthDp(it, z).toDouble() }.toFloat() + GAP_DP * (clips.size - 1)
     var lo = Timeline.TL_ZOOM_MIN
-    var hi = Timeline.TL_ZOOM_MAX
+    var hi = maxZoom
     if (width(lo) >= availDp) return lo
     if (width(hi) <= availDp) return hi
     repeat(18) {

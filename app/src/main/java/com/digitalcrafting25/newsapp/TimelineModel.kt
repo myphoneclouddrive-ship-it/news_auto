@@ -62,7 +62,7 @@ class Timeline {
         const val ZOOM_MIN = 1f
         const val ZOOM_MAX = 4f
         const val TL_ZOOM_MIN = 0.1f
-        const val TL_ZOOM_MAX = 6f
+        const val TL_ZOOM_MAX = 10f   // টাইমলাইন জুম সর্বোচ্চ ১০x (আগে ৬x)
     }
 
     fun newId(): Long = nextId++
@@ -98,6 +98,7 @@ class Timeline {
         val lsel = selectedLayerId
         if (lsel != null && layers.none { it.id == lsel }) selectedLayerId = null
         playheadMs = playheadMs.coerceIn(0L, totalMs)
+        if (timelineZoom > maxTimelineZoom) timelineZoom = maxTimelineZoom   // ক্লিপ বাড়লে জুম সীমার ভেতরে রাখে
     }
 
     /**
@@ -422,12 +423,24 @@ class Timeline {
 
     // ================= টাইমলাইন জুম (ধাপ ৬) =================
 
+    /**
+     * এখনকার ভিডিওর জন্য সর্বোচ্চ জুম: সাধারণত ১০x; তবে খুব লম্বা ভিডিওতে টাইমলাইন এত চওড়া হয়ে যেত যে
+     * Compose-এর সীমা (প্রায় ২.৬ লাখ পিক্সেল) পার হয়ে অ্যাপ ক্র্যাশ করতে পারে — তাই মোট চওড়া ৬০,০০০dp-র মধ্যে রাখা হয়
+     * (১৮dp/সে. × জুম × দৈর্ঘ্য)। ১০ মিনিটের ভিডিওতে এই সীমা ~৫.৫x।
+     */
+    val maxTimelineZoom: Float
+        get() {
+            val sec = totalMs / 1000f
+            if (sec <= 0f) return TL_ZOOM_MAX
+            return (60_000f / (sec * 18f)).coerceIn(1f, TL_ZOOM_MAX)
+        }
+
     fun zoomTimeline(factor: Float) {
-        timelineZoom = (timelineZoom * factor).coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
+        timelineZoom = (timelineZoom * factor).coerceIn(TL_ZOOM_MIN, maxTimelineZoom)
     }
 
     fun changeTimelineZoom(z: Float) {
-        timelineZoom = z.coerceIn(TL_ZOOM_MIN, TL_ZOOM_MAX)
+        timelineZoom = z.coerceIn(TL_ZOOM_MIN, maxTimelineZoom)
     }
 
     // ================= লেয়ার =================
@@ -458,6 +471,11 @@ class Timeline {
         // স্ক্রলিং লেখা একটাই (HTML-এর মতো): আগে থাকলে নতুন লেয়ার নয়, আগেরটা বাছা হয়
         if (kind == LayerKind.TICKER) {
             val ex = layers.firstOrNull { it is TickerLayer }
+            if (ex != null) { selectedLayerId = ex.id; return null }
+        }
+        // এডজাস্টও একটাই: আগে থাকলে নতুন লেয়ার নয়, আগেরটাই বাছা হয় (এডিট করতে)
+        if (kind == LayerKind.ADJUST) {
+            val ex = layers.firstOrNull { it is AdjustLayer }
             if (ex != null) { selectedLayerId = ex.id; return null }
         }
         val (s, e) = LayerDefaults.range(kind, playheadMs, total)
@@ -668,6 +686,13 @@ class Timeline {
         return nv
     }
 
+    /** ক্লিপের আসল শব্দের নয়েজ কমানো (০..১; ০ = বন্ধ)। স্লাইডারের পরপর বদল এক আনডু ধাপে মেশে */
+    fun setClipNoise(id: Long, amount: Float) {
+        val c = clipById(id) ?: return
+        if (c.isImage || c.card != null) return
+        updateClipTx(id, "clipnoise:$id") { it.copy(noise = amount.coerceIn(0f, 1f)) }
+    }
+
     fun toggleClipMute(id: Long) {
         val i = clips.indexOfFirst { it.id == id }
         if (i < 0) return
@@ -777,9 +802,10 @@ class Timeline {
             sourceOffsetMs = Math.round(c.startSec * 1000.0),
             sourceClipId = c.id,
             sourceDurationMs = c.durationMs,
+            denoise = c.noise > 0.001f, denoiseAmt = if (c.noise > 0.001f) c.noise else 1f,
         )
         val m = clips.toMutableList()
-        m[i] = c.copy(muted = true)
+        m[i] = c.copy(muted = true, noise = 0f)
         commitAll(m, layers + layer)
         selectedLayerId = layer.id
         selectedId = null
