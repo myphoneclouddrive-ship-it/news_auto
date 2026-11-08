@@ -229,13 +229,13 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             // ── নিচের লেখা / ক্যাটাগরি / ছবির ট্যাগ (শুধু ফটোকার্ড) ──
             if (vm.mode == CAT_PHOTO) {
                 FieldLabel("নিচের লেখা (খালি রাখলে দেখাবে না)")
-                HtmlField(vm.cta, { vm.setCta(it) }, placeholder = "যেমন: এইমাত্র পাওয়া", readOnly = locked)
+                HtmlField(vm.cta, { vm.onCta(it) }, placeholder = "যেমন: এইমাত্র পাওয়া", readOnly = locked)
                 HSmall("এটা বদলালে শুধু এই ফোটোকার্ড মেনুর কার্ডে বদলাবে। ✍️ নতুন পোস্টের কার্ডে সেটিংসের লেখাই (আগের মতো) থাকবে।", Modifier.padding(top = 4.dp))
                 FieldLabel("ক্যাটাগরি লেখা (তারিখের পাশে)")
-                HtmlField(vm.category, { vm.setCategory(it) }, placeholder = "যেমন: জাতীয়", readOnly = locked)
+                HtmlField(vm.category, { vm.onCategory(it) }, placeholder = "যেমন: জাতীয়", readOnly = locked)
                 HSmall("খালি রাখলে ক্যাটাগরি দেখাবে না, শুধু তারিখ থাকবে। এটা বদলালে শুধু এই ফোটোকার্ড মেনুর কার্ডে বদলাবে। ✍️ নতুন পোস্টের কার্ডে সেটিংসের ক্যাটাগরিই (আগের মতো) থাকবে।", Modifier.padding(top = 4.dp))
                 FieldLabel("ছবির ট্যাগ (খালি রাখলে দেখাবে না)")
-                HtmlField(vm.tag, { vm.setTag(it) }, placeholder = "যেমন: সংগৃহীত", readOnly = locked)
+                HtmlField(vm.tag, { vm.onTag(it) }, placeholder = "যেমন: সংগৃহীত", readOnly = locked)
                 HSmall("AI দিয়ে ছবি বানালে এখানে নিজে থেকে \"AI জেনারেটেড\" বসবে। এটা বদলালে শুধু এই ফোটোকার্ড মেনুর কার্ডে বদলাবে, ✍️ নতুন পোস্টের কার্ডে সেটিংসের ট্যাগই থাকবে।", Modifier.padding(top = 4.dp))
             }
 

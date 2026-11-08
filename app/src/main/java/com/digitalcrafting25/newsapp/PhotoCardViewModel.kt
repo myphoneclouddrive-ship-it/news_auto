@@ -123,9 +123,9 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** ওয়েবের fcCta/fcCat: বদলালে সেভ থাকে (পরের বার এটাই), নইলে ডিফল্ট; ট্যাগ শুধু এই সেশনে */
-    fun setCta(v: String) { cta = v; ctaTouched = true; sp.edit().putString("fcCta", v).apply() }
-    fun setCategory(v: String) { category = v; catTouched = true; sp.edit().putString("fcCat", v).apply() }
-    fun setTag(v: String) { tag = v; tagTouched = true; tagAi = false }
+    fun onCta(v: String) { cta = v; ctaTouched = true; sp.edit().putString("fcCta", v).apply() }
+    fun onCategory(v: String) { category = v; catTouched = true; sp.edit().putString("fcCat", v).apply() }
+    fun onTag(v: String) { tag = v; tagTouched = true; tagAi = false }
 
     fun reset() {
         job?.cancel()
