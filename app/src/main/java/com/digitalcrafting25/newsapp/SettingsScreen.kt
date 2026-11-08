@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,64 +40,137 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private enum class SetTab(val label: String) {
-    SITE("🏷️ সাইট"),
-    ADS("📢 বিজ্ঞাপন"),
-    CONN("🔑 সংযোগ"),
-    AUTO("🌅 অটো পোস্ট"),
-    AI("🤖 AI কী"),
-    UPDATE("🔄 আপডেট"),
-}
-
 private val Amber = Color(0xFFB26A00)
 
 /** "হ্যাঁ/না" নিশ্চিতকরণ (ওয়েবের confirm()) */
 private class Ask(val text: String, val onYes: () -> Unit)
 
+/** ওয়েবের `#p-settings .card.acc`: শিরোনামে চাপলে খোলে/বন্ধ হয়, ডানে ▾/▴ */
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel) {
-    var tab by rememberSaveable { mutableStateOf(SetTab.SITE.name) }
+private fun AccCard(title: String, open: Boolean, onToggle: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White,
+        shadowElevation = 1.dp,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Text(if (open) "▴" else "▾", color = Color(0xFF888888), fontSize = 18.sp)
+            }
+            if (open) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEEEEEE)))
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 14.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeBar(text: String, onClose: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(10.dp)).padding(start = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, modifier = Modifier.weight(1f), fontSize = 14.sp)
+        TextButton(onClick = onClose) { Text("✕", color = C.Gray) }
+    }
+}
+
+/** ওয়েবের `.cr-grp`: কার্ডের ভেতরের উপ-অংশ, ওপরে হালকা রেখা */
+@Composable
+internal fun CrGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEEEEEE)))
+        Column(Modifier.fillMaxWidth().padding(top = 12.dp), content = content)
+    }
+}
+
+/**
+ * ওয়েবের ⚙️ সেটিংস পেইজ: এক পেইজে সব কার্ড (অ্যাকর্ডিয়ন, শুরুতে সব বন্ধ, একটা খুললে বাকিগুলো বন্ধ)
+ * আর একদম নিচে একটাই "💾 সেটিংস সেভ করুন"। কার্ডের ক্রম ওয়েবের মতো।
+ */
+@Composable
+fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel, np: NewPostViewModel, dash: DashboardViewModel, ev: EditorViewModel) {
+    var open by rememberSaveable { mutableStateOf("") }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
     LaunchedEffect(Unit) {
         vm.loadCreds()
         vm.loadAi()
         auto.load()
+        site.load()
+        ads.load()
+        vm.loadWallet()
+    }
+    // সাইটের লোগো/তথ্য সেভ হলে টেমপ্লেটের নমুনায় নতুন লোগো আনা (সেভ-না-হওয়া টেমপ্লেট বদল থাকলে ছোঁয়া হয় না)
+    var siteWasBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(site.busy) {
+        if (siteWasBusy && !site.busy && !np.tplDirty) np.load(true)
+        siteWasBusy = site.busy
     }
 
-    // অ্যাডমিন না হলে AI কী ট্যাবই দেখায় না (ওয়েবে কার্ড লুকানো থাকে)
-    val tabs = SetTab.entries.filter { (it != SetTab.AI || vm.aiOwner == true) && (it != SetTab.AUTO || auto.allowed != false) }
-    val cur = tabs.firstOrNull { it.name == tab } ?: SetTab.SITE
+    fun toggle(id: String) { open = if (open == id) "" else id }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp)) {
-            H1("⚙️ সেটিংস")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                tabs.forEach { t ->
-                    FilterChip(selected = t == cur, onClick = { tab = t.name }, label = { Text(t.label) })
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        H1("⚙️ সেটিংস")
+
+        vm.notice?.let { n -> NoticeBar(n) { vm.notice = null } }
+        site.notice?.let { n -> NoticeBar(n) { site.notice = null } }
+        ads.notice?.let { n -> NoticeBar(n) { ads.notice = null } }
+
+        AccCard("🖼️ ফোটোকার্ড টেমপ্লেট", open == "tpl", { toggle("tpl") }) { TplSettingsBody(np, dash) }
+        AccCard("🏷️ লোগো ও সাইটের তথ্য", open == "site", { toggle("site") }) { SiteInfoBody(site) }
+        AccCard("📢 বিজ্ঞাপন সেকশন", open == "ads", { toggle("ads") }) { AdsBody(ads) }
+        AccCard("🖼️ ওয়ার্ডপ্রেস ফিচার ইমেজ", open == "fi", { toggle("fi") }) { FeatureImageBody(site) }
+        // অ্যাডমিন না হলে AI কী কার্ডই দেখায় না (ওয়েবে কার্ড লুকানো থাকে)
+        if (vm.aiOwner == true) {
+            AccCard("🤖 AI কী (সবার জন্য)", open == "ai", { toggle("ai") }) { AiBody(vm) { ask = it } }
+        }
+        AccCard("🔑 WordPress ও Facebook সংযোগ", open == "conn", { toggle("conn") }) { ConnBody(vm) { ask = it } }
+        if (auto.allowed != false) {
+            AccCard("🌅 অটো \"শুভ সকাল\" পোস্ট", open == "auto", { toggle("auto") }) { AutoPostBody(auto) }
+        }
+        // শুধু অ্যাডমিনের জন্য (ওয়েবের #csOwner)
+        if (vm.csOwner) {
+            AccCard("💳 ব্যালেন্স যোগের অনুরোধ", open == "wallet", { toggle("wallet") }) { WalletReqBody(vm) }
+        }
+        AccCard("🎬 ভিডিও ক্যাশ ও ডাটা", open == "vclear", { toggle("vclear") }) { VideoClearBody(vm, ev) { ask = it } }
+        // শুধু অ্যাপে আছে (ওয়েবে নেই)
+        AccCard("🔄 অ্যাপ আপডেট", open == "update", { toggle("update") }) { UpdateScreen(uv, embedded = true) }
+
+        if (ads.dirty) {
+            Text("⚠️ বিজ্ঞাপনের বদল সেভ করা হয়নি। নিচের \"সেটিংস সেভ করুন\" চাপুন।", color = C.Red, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        if (np.tplDirty) {
+            Text("⚠️ ফোটোকার্ড টেমপ্লেটের বদল সেভ করা হয়নি। নিচের \"সেটিংস সেভ করুন\" চাপুন।", color = C.Red, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        AppBtn(
+            if (site.busy || ads.busy || np.tplSaving) "অপেক্ষা করুন..." else "💾 সেটিংস সেভ করুন",
+            color = C.Green,
+            enabled = !site.busy && !ads.busy && !np.tplSaving,
+            onClick = {
+                var any = false
+                if (site.loaded) { site.save(); any = true }
+                if (ads.loaded && ads.dirty) { ads.save(); any = true }
+                if (np.tplDirty) {
+                    np.saveTplStaged { e -> vm.notice = if (e == null) "✅ ফোটোকার্ড টেমপ্লেট সেভ হয়েছে" else "⚠️ $e" }
+                    any = true
                 }
-            }
-        }
-        vm.notice?.let { n ->
-            Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 8.dp).fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(10.dp)).padding(start = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(n, modifier = Modifier.weight(1f), fontSize = 14.sp)
-                TextButton(onClick = { vm.notice = null }) { Text("✕", color = C.Gray) }
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (cur) {
-                SetTab.SITE -> SiteTab(site)
-                SetTab.ADS -> AdsTab(ads)
-                SetTab.CONN -> ConnTab(vm) { ask = it }
-                SetTab.AI -> AiTab(vm) { ask = it }
-                SetTab.AUTO -> AutoPostTab(auto)
-                SetTab.UPDATE -> UpdateScreen(uv)
-            }
-        }
+                if (!any) vm.notice = "⚠️ সেটিংস এখনো লোড হয়নি, একটু পরে আবার চেষ্টা করুন"
+            },
+        )
+        Spacer(Modifier.height(20.dp))
     }
 
     ask?.let { a ->
@@ -106,6 +181,57 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
             dismissButton = { TextButton(onClick = { ask = null }) { Text("না") } },
         )
     }
+}
+
+// ───────────────────────── 💳 ব্যালেন্স যোগের অনুরোধ (অ্যাডমিন) ─────────────────────────
+
+/** ওয়েবের `#csOwner`: ইউজার টাকা পাঠিয়ে TrxID দিলে এখানে আসে; অ্যাডমিন পরিমাণ মিলিয়ে অনুমোদন/বাতিল করে */
+@Composable
+private fun WalletReqBody(vm: SettingsViewModel) {
+    Small("ইউজার টাকা পাঠিয়ে TrxID দিলে এখানে আসে। টাকা পেয়ে থাকলে পরিমাণ মিলিয়ে (দরকারে বদলে) অনুমোদন দিন, ইউজারের ব্যালেন্সে যোগ হবে।")
+    vm.csMsg?.let { (ok, t) -> Text(t, fontSize = 13.sp, color = if (ok) C.Green else C.Red, modifier = Modifier.padding(top = 8.dp)) }
+    if (vm.csItems.isEmpty()) {
+        Text(if (vm.csLoading) "লোড হচ্ছে..." else "কোনো অনুরোধ নেই।", fontSize = 14.sp, color = C.Muted, modifier = Modifier.padding(top = 10.dp))
+    }
+    vm.csItems.forEach { r -> WalletReqRow(vm, r) }
+    AppBtn("🔄 রিফ্রেশ", Modifier.padding(top = 12.dp), color = C.Gray, enabled = !vm.csLoading && vm.csBusyKey == null) { vm.csMsg = null; vm.loadCsList() }
+}
+
+@Composable
+private fun WalletReqRow(vm: SettingsViewModel, r: WalletReq) {
+    var amt by remember(r.key) { mutableStateOf(if (r.amount % 1.0 == 0.0) r.amount.toLong().toString() else r.amount.toString()) }
+    val busy = vm.csBusyKey != null
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEEEEEE)))
+        Text(r.email + " — ৳" + Bn.num(r.amount), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+        Small("পাঠানো নম্বর: " + r.phone + " · TrxID: " + r.trx + (if (r.at > 0) " · " + Bn.dateTime(r.at) else ""))
+        AppField(amt, { amt = it.filter { c -> c.isDigit() || c == '.' } }, Modifier.padding(top = 6.dp), keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppBtn(if (vm.csBusyKey == r.key) "অপেক্ষা করুন..." else "✔ অনুমোদন (যোগ হবে)", color = C.Green, small = true, enabled = !busy && amt.isNotBlank()) { vm.csDecide(r, true, amt) }
+            AppBtn("✕ বাতিল", color = C.Gray, small = true, enabled = !busy) { vm.csDecide(r, false, amt) }
+        }
+    }
+}
+
+// ───────────────────────── 🎬 ভিডিও ক্যাশ ও ডাটা ─────────────────────────
+
+/** ওয়েবের `#vcClearCard`: ভিডিও এডিটরের জমে থাকা ফাইল ও পছন্দ মুছে রিসেট; অসমাপ্ত এডিট থাকে */
+@Composable
+private fun VideoClearBody(vm: SettingsViewModel, ev: EditorViewModel, ask: (Ask) -> Unit) {
+    Small(
+        "এগুলো মুছে রিসেট হবে: রেন্ডার করে রাখা ভিডিওর অস্থায়ী ফাইল, বানানো ইন্ট্রো/আউট্রো কার্ডের ভিডিও, " +
+            "সেটিংস থেকে বানানো বিজ্ঞাপন/লোগোর ছবি, রেকর্ড করা ভয়েস, আর ইন্ট্রোর লেখা ও টাইটেল/ব্যানারের লেখা। " +
+            "এরপর নতুন ভিডিও দিলে ইন্ট্রো-আউট্রো, ব্যানার, স্ক্রলিং লেখা, ট্যাগ ও লোগো আবার নতুন করে নিজে বসবে।",
+    )
+    Small("📝 অসমাপ্ত ভিডিও এডিট (ড্রাফট) ও তার ফাইল থাকবে। গ্যালারিতে সেভ করা ভিডিও, সেটিংস, লগইন ও সংযোগ ছোঁয়া হবে না।", Modifier.padding(top = 6.dp))
+    AppBtn(
+        if (vm.vcBusy) "⏳ ক্লিয়ার হচ্ছে..." else "🧹 ক্লিয়ার ভিডিও ক্যাশ এন্ড ডাটা",
+        Modifier.padding(top = 10.dp), color = C.Red, enabled = !vm.vcBusy,
+    ) {
+        vm.vcMsg = null
+        ask(Ask("রেন্ডার করে রাখা ভিডিও ও তথ্য, আর ভিডিও সেটিংসের সব সেভ (ইন্ট্রো, আউট্রো, লোগো, লেখা, ট্যাগ) মুছে রিসেট হবে।\n\nঅসমাপ্ত ভিডিও এডিট থাকবে। চালিয়ে যাবেন?") { vm.clearVideoData(ev) })
+    }
+    vm.vcMsg?.let { (ok, t) -> Text(t, fontSize = 13.sp, color = if (ok) C.Green else C.Red, modifier = Modifier.padding(top = 8.dp)) }
 }
 
 // ───────────────────────── ছোট সাহায্যকারী ─────────────────────────
@@ -150,20 +276,16 @@ internal fun Guide(title: String, lines: List<String>) {
 // ───────────────────────── সংযোগ: WordPress ও Facebook ─────────────────────────
 
 @Composable
-private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        InfoCard {
-            Text("🔑 WordPress, Facebook ও YouTube সংযোগ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Small("এখানে নিজের সাইট ও পেইজের তথ্য দিন। তথ্যগুলো Worker-এ এনক্রিপ্ট করে থাকে, অ্যাপে আর ফেরত আসে না। এই সংযোগ শুধু আপনার লগইন অ্যাকাউন্টের।", Modifier.padding(top = 4.dp))
             vm.credsErr?.let { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ $it") }
             if (!vm.kvOk) { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ Worker-এ KV (SCHEDULE) বাইন্ডিং নেই, তাই এখান থেকে সেভ হবে না") }
         }
 
         // ── WordPress ──
-        InfoCard {
+        CrGroup {
             Text("🌐 WordPress", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             StatusLine(
@@ -196,7 +318,6 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppBtn("💾 সেভ", color = C.Green, small = true, enabled = vm.busy == null, onClick = { vm.saveCreds() })
                 AppBtn("🔌 টেস্ট করুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = { vm.testCred("wp") })
                 AppBtn("🗑️ মুছুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = {
                     ask(Ask("WordPress-এর সেভ করা তথ্য মুছে ফেলবেন?") { vm.clearCreds("wp") })
@@ -206,7 +327,7 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
         }
 
         // ── Facebook ──
-        InfoCard {
+        CrGroup {
             Text("📘 Facebook পেইজ", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             StatusLine(
@@ -238,7 +359,6 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppBtn("💾 সেভ", color = C.Green, small = true, enabled = vm.busy == null, onClick = { vm.saveCreds() })
                 AppBtn("🔌 টেস্ট করুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = { vm.testCred("fb") })
                 AppBtn("🗑️ মুছুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = {
                     ask(Ask("Facebook-এর সেভ করা তথ্য মুছে ফেলবেন?") { vm.clearCreds("fb") })
@@ -249,6 +369,9 @@ private fun ConnTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
 
         // ── YouTube (HTML সেটিংসের "▶️ YouTube (ভিডিও পাবলিশের জন্য)") ──
         YtCard(ask)
+
+        Spacer(Modifier.height(14.dp))
+        AppBtn("💾 সংযোগ সেভ করুন", color = C.Green, enabled = vm.busy == null, onClick = { vm.saveCreds() })
     }
 }
 
@@ -262,7 +385,7 @@ private fun YtCard(ask: (Ask) -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val sha = remember { YouTube.sha1(ctx) }
-    InfoCard {
+    CrGroup {
         Text("▶️ YouTube (ভিডিও পাবলিশের জন্য)", fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         StatusLine(ok, if (ok) "✅ লগইন ঠিক আছে" else "❌ লগইন টেস্ট করা হয়নি")
@@ -329,20 +452,16 @@ private fun statLine(c: KeyCheck?): Pair<Color, String> = when (c?.state) {
 }
 
 @Composable
-private fun AiTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        InfoCard {
-            Text("🤖 AI কী (সবার জন্য)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+private fun AiBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Small("এখানে দেওয়া Gemini/Groq/Cloudflare/Claude কী অ্যাপের সব ইউজারের জন্য কাজ করবে। শুধু অ্যাডমিন এটা দেখতে ও বদলাতে পারে।", Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(8.dp))
             if (vm.aiStatus.isBlank()) Small("লোড হচ্ছে...") else StatusLine(vm.aiStatusOk, vm.aiStatus)
         }
 
         AiProv.entries.forEach { p ->
-            InfoCard {
+            CrGroup {
                 Text(p.title, fontWeight = FontWeight.Bold)
                 if (p == AiProv.GEMINI && vm.geminiModels.isNotBlank()) Small(vm.geminiModels, Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(8.dp))
@@ -388,7 +507,7 @@ private fun AiTab(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             }
         }
 
-        InfoCard {
+        CrGroup {
             Guide(
                 "📖 কী কোথায় পাবেন",
                 listOf(

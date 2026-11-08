@@ -147,7 +147,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
         photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()
         busy = false; error = null; notice = null; balance = null; pubLink = ""; pubNotes = emptyList()
-        loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""; TplRegistry.reset()
+        loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""; TplRegistry.reset(); tplDirty = false
         undo.clear()
         prefs.edit().remove("draft").apply()
         deleteDraftImages()
@@ -660,6 +660,83 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** এডিটরের প্রিভিউয়ের জন্য: এখনকার শিরোনাম/ছবিসহ কার্ডের ডেটা */
     fun editorCardData(): CardData = cardData()
+
+    // ───────── সেটিংসের "🖼️ ফোটোকার্ড টেমপ্লেট" কার্ড (ওয়েবের renderTplGrid / openTpl / cbBuy) ─────────
+    /** গ্রিড/মোডালের বদল ধরা আছে কিন্তু সেভ হয়নি (ওয়েবে cfg বদলায়, সেভ হয় সেটিংসের নিচের বাটনে) */
+    var tplDirty by mutableStateOf(false)
+
+    /** গ্রিড ও মোডালের নমুনা: নমুনা শিরোনাম, সেটিংসের লোগো/তথ্য, আজকের তারিখ; বিজ্ঞাপন ছাড়া */
+    private fun sampleData() = CardData(
+        photo = photo ?: placeholder,
+        head = "এখানে খবরের শিরোনাম এভাবে সাজানো দেখাবে, আপনার লোগো ও আজকের তারিখসহ",
+        cat = PostUtil.catParts(cfg.category).firstOrNull() ?: "",
+        date = bnDate(),
+        url = cfg.siteUrl,
+        tag = cfg.photoTag.trim(),
+        cta = cfg.ctaText.trim(),
+        siteName = cfg.siteName,
+        logo = logoBmp, icon = iconBmp, iconRound = cfg.iconShape != "square",
+        fx = 0.5f, fy = 0.5f,
+    )
+
+    suspend fun settingsThumbs(scale: Float): Map<String, Bitmap> {
+        val d = sampleData(); val list = cardTpls("photo")
+        return withContext(Dispatchers.Default) { list.associate { it.first to CardRender.render(it.first, d, scale, null) } }
+    }
+
+    /** বড় ভিউ: ts = মোডালে বদলানো লোগো-মোড/সাইজ/রঙ (সেভের আগেই প্রিভিউতে দেখায়) */
+    suspend fun settingsCard(id: String, scale: Float, ts: JSONObject?): Bitmap {
+        val d = sampleData()
+        return withContext(Dispatchers.Default) { CardRender.render(id, d, scale, null, TplOv(null, ts)) }
+    }
+
+    /** মোডালের বদল ধরে রাখা (cfg.tpls / cfg.template); সেভ হয় saveTplStaged() দিয়ে */
+    fun stageTplSettings(id: String, ts: JSONObject?, pick: Boolean, dropLayout: Boolean = false) {
+        val st = TplRegistry.store.copyStore()
+        if (dropLayout) st.dtpl.remove(id)
+        if (ts == null || ts.length() == 0) st.tpls.remove(id) else st.tpls.put(id, ts)
+        if (pick) st.template = id
+        TplRegistry.store = st
+        tplDirty = true; tplVer++; photoVer++
+    }
+
+    fun saveTplStaged(onDone: (String?) -> Unit) {
+        if (tplSaving) return
+        tplSaving = true
+        viewModelScope.launch {
+            try {
+                Fs.saveTplCfg(app, TplRegistry.store)
+                tplDirty = false; tplVer++; photoVer++
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "সেভ হয়নি") } finally { tplSaving = false }
+        }
+    }
+
+    /** ব্যালেন্স ও কেনা বাড়তি স্লট আবার আনা (ওয়েবের loadSlots) */
+    suspend fun reloadSlots() {
+        runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull()?.let {
+            balance = it.optDouble("balance", 0.0)
+            TplRegistry.store.extraSlots = it.optInt("extra", 0)
+            tplVer++
+        }
+    }
+
+    /** ব্যালেন্স থেকে ৫০০ টাকায় আরেকটা কাস্টম টেমপ্লেট কেনা: আগে লগইন পাসওয়ার্ড যাচাই, তারপর Worker /cslot-buy (ওয়েবের cbBuyGo) */
+    fun buyCustomSlot(password: String, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                if (password.isBlank()) throw ApiError("আপনার লগইন পাসওয়ার্ড দিন")
+                if (email.isBlank()) runCatching { Worker.post(app, "/whoami", JSONObject(), 15000) }.getOrNull()?.let { email = it.optString("email") }
+                if (email.isBlank()) throw ApiError("ইমেইল জানা যায়নি, ইন্টারনেট দেখে আবার চেষ্টা করুন")
+                try { Session.signIn(app, email, password) } catch (e: ApiError) {
+                    throw if (e.message?.contains("ভুল") == true) ApiError("পাসওয়ার্ড ভুল") else e
+                }
+                Worker.post(app, "/cslot-buy", JSONObject(), 20000)
+                reloadSlots()
+                onDone(null)
+            } catch (e: Exception) { onDone(e.message ?: "কেনা যায়নি") }
+        }
+    }
 
     // ───────── ধাপ ২ → ৩ → ৪ ─────────
     fun toStep3() {

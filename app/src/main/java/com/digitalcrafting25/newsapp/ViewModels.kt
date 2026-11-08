@@ -123,6 +123,20 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     var fbTop by mutableStateOf("")
     var fbBottom by mutableStateOf("")
     var fbColor by mutableIntStateOf(0xFF000000.toInt())
+
+    /** চলমান কাজের Uri (ড্রাফট + এখনকার টাইমলাইন) — ক্যাশ ক্লিয়ারে এগুলো বাঁচিয়ে রাখা হয় */
+    fun uriInUse(): Set<String> {
+        val inUse = HashSet<String>()
+        drafts.forEach { inUse.addAll(DraftStore.urisOf(it.clips, it.layers)) }
+        inUse.addAll(DraftStore.urisOf(tl.clips, tl.layers))
+        return inUse
+    }
+
+    /** ইন্ট্রোর লেখা ও টাইটেল/ব্যানার/লোগো ডিফল্টে (ওয়েবের vcResetVideoData)। অসমাপ্ত এডিট (ক্লিপ) থাকলে তার লোগো/টাইটেল ছোঁয়া হয় না */
+    fun resetVideoDefaults() {
+        caption = ""; fbTop = ""; fbBottom = ""; fbColor = 0xFF000000.toInt()
+        if (clips.isEmpty()) { videoTitle = ""; logo = null; music = null; musicName = ""; musicVolume = 0.3f; keepAudio = true }
+    }
     private fun displayName(uri: Uri): String = runCatching {
         app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null

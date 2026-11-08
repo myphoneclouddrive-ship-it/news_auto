@@ -10,7 +10,9 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,6 +28,9 @@ data class AiKey(
 )
 
 data class KeyCheck(val state: String, val msg: String)
+
+/** Worker /cslot-list-এর একটা ঘর: ইউজারের ব্যালেন্স যোগের অনুরোধ (অনুমোদনের অপেক্ষায়) */
+data class WalletReq(val key: String, val email: String, val amount: Double, val phone: String, val trx: String, val at: Long)
 
 /** ওয়েবের AIP: provider আইডি Worker-এর provOf()-এর সাথে মেলে */
 enum class AiProv(
@@ -77,6 +82,8 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         aiOwner = null; aiStatus = ""; aiStatusOk = false
         aiKeys.clear(); aiChecks.clear(); aiInputs.clear()
         groqModel = ""; cfModel = ""; geminiModels = ""
+        csOwner = false; csItems = emptyList(); csMsg = null; csLoading = false; csBusyKey = null
+        vcBusy = false; vcMsg = null
     }
 
     // ───────── WordPress / Facebook ─────────
@@ -304,5 +311,95 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         Worker.post(app, "/ai-clear", JSONObject().put("fields", fields), 20000)
         aiChecks.clear()
         loadAi()
+    }
+
+    // ───────── 💳 ব্যালেন্স যোগের অনুরোধ (শুধু অ্যাডমিন; ওয়েবের csOwner / loadCsList) ─────────
+    var csOwner by mutableStateOf(false)
+        private set
+    var csItems by mutableStateOf<List<WalletReq>>(emptyList())
+        private set
+    var csLoading by mutableStateOf(false)
+        private set
+    /** এখন যে অনুরোধের অনুমোদন/বাতিল চলছে (একই অনুরোধে দ্বিতীয় চাপ ঠেকাতে) */
+    var csBusyKey by mutableStateOf<String?>(null)
+        private set
+    /** (সফল?, লেখা) */
+    var csMsg by mutableStateOf<Pair<Boolean, String>?>(null)
+
+    /** Worker /cslot-get দিয়ে অ্যাডমিন কিনা জানা; অ্যাডমিন হলে অনুরোধের তালিকাও আনে */
+    fun loadWallet() {
+        viewModelScope.launch {
+            val d = runCatching { Worker.post(app, "/cslot-get", JSONObject(), 15000) }.getOrNull() ?: return@launch
+            csOwner = d.optBoolean("owner", false)
+            if (csOwner) loadCsList()
+        }
+    }
+
+    fun loadCsList() {
+        if (csLoading) return
+        csLoading = true
+        viewModelScope.launch {
+            try {
+                val d = Worker.post(app, "/cslot-list", JSONObject(), 20000)
+                val a = d.optJSONArray("items") ?: JSONArray()
+                csItems = List(a.length()) { i ->
+                    val o = a.getJSONObject(i)
+                    WalletReq(
+                        key = o.optString("key"), email = o.optString("email"), amount = o.optDouble("amount", 0.0),
+                        phone = o.optString("phone"), trx = o.optString("trx"), at = o.optLong("at", 0L),
+                    )
+                }
+            } catch (e: Exception) {
+                csMsg = false to (e.message ?: "তালিকা আনা যায়নি")
+            } finally { csLoading = false }
+        }
+    }
+
+    /** ✔ অনুমোদন (amount = অ্যাডমিনের মিলিয়ে নেওয়া পরিমাণ, দরকারে বদলানো) বা ✕ বাতিল — Worker /cslot-approve */
+    fun csDecide(req: WalletReq, ok: Boolean, amount: String) {
+        if (csBusyKey != null) return
+        csBusyKey = req.key; csMsg = null
+        viewModelScope.launch {
+            try {
+                Worker.post(app, "/cslot-approve", JSONObject().put("key", req.key).put("ok", ok).put("amount", amount), 20000)
+                csMsg = true to (if (ok) "✅ অনুমোদন হয়েছে, ইউজারের ব্যালেন্সে যোগ হয়েছে।" else "✅ অনুরোধ বাতিল হয়েছে।")
+            } catch (e: Exception) {
+                csMsg = false to ("⚠️ " + (e.message ?: "সমস্যা হয়েছে"))
+            } finally {
+                csBusyKey = null
+                csLoading = false
+                loadCsList()   // সফল/ব্যর্থ যা-ই হোক তালিকা আবার আনা (ওয়েবের finally)
+            }
+        }
+    }
+
+    // ───────── 🎬 ভিডিও ক্যাশ ও ডাটা ক্লিয়ার (ওয়েবের vcClearData; কী মোছে তা VideoCache.kt-এ লেখা) ─────────
+    var vcBusy by mutableStateOf(false)
+        private set
+    var vcMsg by mutableStateOf<Pair<Boolean, String>?>(null)
+
+    fun clearVideoData(ev: EditorViewModel) {
+        if (vcBusy) return
+        if (RenderBus.status.value is RenderStatus.Running || ev.cardBusy) {
+            vcMsg = false to "⚠️ রেন্ডার বা ইন্ট্রো/আউট্রো বানানো চলছে, শেষ হলে আবার চেষ্টা করুন।"
+            return
+        }
+        vcBusy = true; vcMsg = null
+        viewModelScope.launch {
+            try {
+                val inUse = ev.uriInUse()
+                val editing = ev.clips.isNotEmpty() || ev.drafts.isNotEmpty()
+                val r = withContext(Dispatchers.IO) { VideoCache.clear(app, inUse) }
+                ev.resetVideoDefaults()
+                if (RenderBus.status.value is RenderStatus.Done) RenderBus.status.value = RenderStatus.Idle   // রেন্ডার করা ভিডিওর পেইজ (ওয়েবের vidClean)
+                vcMsg = true to (
+                    "✅ ভিডিও ক্যাশ ও ডাটা ক্লিয়ার হয়েছে।\n🗑️ " + Bn.num(r.files) + "টি ফাইল মোছা হয়েছে (" + VideoCache.sizeText(r.bytes) + ")।" +
+                        (if (editing) "\n📝 অসমাপ্ত ভিডিও এডিট আগের মতোই আছে।" else "") +
+                        "\nএখন নতুন ভিডিও দিলে ইন্ট্রো-আউট্রো, ব্যানার, স্ক্রলিং লেখা, ট্যাগ ও লোগো নতুন করে নিজে বসবে।"
+                    )
+            } catch (e: Exception) {
+                vcMsg = false to ("⚠️ " + (e.message ?: "ক্লিয়ার করা যায়নি"))
+            } finally { vcBusy = false }
+        }
     }
 }

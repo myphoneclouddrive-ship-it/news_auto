@@ -181,7 +181,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                     Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE })
                     Page.CARD -> PhotoCardScreen(card, adsVm, np)
                     Page.SCHEDULE -> ScheduleScreen(sched)
-                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm)
+                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm, np, dash, ev)
                 }
                 }
             }
@@ -395,10 +395,10 @@ fun UpdateNotes(notes: String) {
 }
 
 @Composable
-fun UpdateScreen(vm: UpdateViewModel) {
+fun UpdateScreen(vm: UpdateViewModel, embedded: Boolean = false) {
     val st by vm.state.collectAsStateWithLifecycle()
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("বর্তমান সংস্করণ: ${BuildConfig.VERSION_NAME} (কোড ${BuildConfig.VERSION_CODE})")

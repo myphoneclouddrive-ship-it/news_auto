@@ -172,10 +172,18 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { typeface = Typeface.DEFAULT_BOLD }
     var skipPhoto = false
     var ov: TplOv? = null
+    private var curId = ""
+    /** ওয়েবের tcolors(): সেটিংসের টেমপ্লেট-মোডালে বদলানো রঙ (tpls[id].c[key]); না থাকলে আসল ডিফল্ট */
+    private fun tc(k: String, d: String): String {
+        val ts = ov?.ts ?: TplRegistry.store.tpls.optJSONObject(curId)
+        val v = ts?.optJSONObject("c")?.optString(k).orEmpty()
+        return if (Regex("^#[0-9a-fA-F]{6}$").matches(v)) v else d
+    }
     private fun face(bold: Boolean) { p.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
     val photoRects = ArrayList<RectF>()
     fun coverPhoto(x: Float, y: Float, w: Float, h: Float) { val sv = skipPhoto; skipPhoto = false; cover(d.photo, x, y, w, h); skipPhoto = sv }
     fun draw(id: String) {
+        curId = id
         val lay = ov?.s ?: TplRegistry.layout(id)
         if (lay != null) { drawLayout(id, lay); return }
         when (id) {
@@ -540,7 +548,7 @@ private class CardPainter(val c: Canvas, val d: CardData) {
 
     // ---------- ৫টি টেমপ্লেট ----------
     fun dark() {
-        val head = hex("#ffd400"); val band = "#1e1e6e"; val shade = "#000000"; val sub = hex("#dddddd"); val lt = hex("#ffffff")
+        val head = hex(tc("head", "#ffd400")); val band = tc("band", "#1e1e6e"); val shade = tc("shade", "#000000"); val sub = hex(tc("sub", "#dddddd")); val lt = hex(tc("lt", "#ffffff"))
         cover(d.photo, 0f, 0f, 1080f, 1350f)
         vGrad(650f, 1350f, intArrayOf(hexA(shade, 0f), hexA(shade, .88f), hex(shade)), floatArrayOf(0f, .45f, 1f))
         rect(0f, 880f, 1080f, 60f, hexA(band, .6f))
@@ -553,8 +561,8 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     }
 
     fun white() {
-        val head1 = hex("#d50000"); val head2 = hex("#1a3ea8"); val panel = hex("#f2f2f2"); val foot = hex("#e2e2e2")
-        val ft = hex("#333333"); val lt = hex("#222222")
+        val head1 = hex(tc("head1", "#d50000")); val head2 = hex(tc("head2", "#1a3ea8")); val panel = hex(tc("panel", "#f2f2f2")); val foot = hex(tc("foot", "#e2e2e2"))
+        val ft = hex(tc("ft", "#333333")); val lt = hex(tc("lt", "#222222"))
         cover(d.photo, 0f, 0f, 1080f, 860f)
         rect(0f, 860f, 1080f, 490f, panel)
         p.shader = null; p.style = Paint.Style.FILL; p.color = panel
@@ -568,8 +576,8 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     }
 
     fun red() {
-        val bg = hex("#b30012"); val head1 = hex("#ffffff"); val head2 = hex("#ffe600"); val foot = hex("#8e000d")
-        val ft = hex("#ffffff"); val lt = hex("#ffffff")
+        val bg = hex(tc("bg", "#b30012")); val head1 = hex(tc("head1", "#ffffff")); val head2 = hex(tc("head2", "#ffe600")); val foot = hex(tc("foot", "#8e000d"))
+        val ft = hex(tc("ft", "#ffffff")); val lt = hex(tc("lt", "#ffffff"))
         cover(d.photo, 0f, 0f, 1080f, 900f)
         rect(0f, 900f, 1080f, 450f, bg)
         logoSlot(30f, 30f, 260f, 110f, 'l', listOf("wide", "icon"), lt)
@@ -580,8 +588,8 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     }
 
     fun blue() {
-        val bg1 = hex("#0d3b8e"); val bg2 = hex("#08224f"); val head1 = hex("#ffffff"); val head2 = hex("#ffe600")
-        val chipc = hex("#6a1bb1"); val ft = hex("#ffffff"); val lt = hex("#ffffff")
+        val bg1 = hex(tc("bg1", "#0d3b8e")); val bg2 = hex(tc("bg2", "#08224f")); val head1 = hex(tc("head1", "#ffffff")); val head2 = hex(tc("head2", "#ffe600"))
+        val chipc = hex(tc("chipc", "#6a1bb1")); val ft = hex(tc("ft", "#ffffff")); val lt = hex(tc("lt", "#ffffff"))
         cover(d.photo, 0f, 0f, 1080f, 650f)
         vGrad(650f, 1350f, intArrayOf(bg1, bg2), null)
         logoSlot(30f, 30f, 260f, 110f, 'l', listOf("wide", "icon"), lt)
@@ -593,7 +601,7 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     }
 
     fun top() {
-        val bg = hex("#1c2d52"); val head = hex("#ffe600"); val ft = hex("#ffffff"); val lt = hex("#ffffff")
+        val bg = hex(tc("bg", "#1c2d52")); val head = hex(tc("head", "#ffe600")); val ft = hex(tc("ft", "#ffffff")); val lt = hex(tc("lt", "#ffffff"))
         rect(0f, 0f, 1080f, 440f, bg)
         logoSlot(790f, 24f, 260f, 90f, 'r', listOf("wide", "icon"), lt)
         headline(d.head, 50f, 130f, 980f, 300f, head)

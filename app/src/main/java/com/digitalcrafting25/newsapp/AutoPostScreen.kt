@@ -38,23 +38,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** 🌅 অটো "শুভ সকাল" পোস্ট — ওয়েবের autoCard (সেটিংসের একটা ট্যাব) */
+/** 🌅 অটো "শুভ সকাল" পোস্ট — ওয়েবের autoCard-এর ভেতরটা (সেটিংসের অ্যাকর্ডিয়নে বসে) */
 @Composable
-fun AutoPostTab(vm: AutoPostViewModel) {
+fun AutoPostBody(vm: AutoPostViewModel) {
     val ctx = LocalContext.current
     var confirmNow by remember { mutableStateOf(false) }
     val busy = vm.busy != null
 
-    LaunchedEffect(Unit) { vm.load() }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        InfoCard {
-            Text("🌅 অটো \"শুভ সকাল\" পোস্ট", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Text(
-                "প্রতিদিন নির্ধারিত সময়ে নিজে থেকে ফোটোকার্ড বানিয়ে Facebook পেইজে পোস্ট হবে। রংপুরের আবহাওয়া অনুযায়ী ছবি বসবে (বৃষ্টিতে বৃষ্টির, শীতে শীতের ছবি)। রাশি AI বাছাই করবে, আর ক্যাপশন নিজে তৈরি হবে। Facebook সংযোগ \"🔑 সংযোগ\" ট্যাবে সেভ করা থাকতে হবে।",
+                "প্রতিদিন নির্ধারিত সময়ে নিজে থেকে ফোটোকার্ড বানিয়ে Facebook পেইজে পোস্ট হবে। রংপুরের আবহাওয়া অনুযায়ী ছবি বসবে (বৃষ্টিতে বৃষ্টির, শীতে শীতের ছবি)। রাশি AI বাছাই করবে, আর ক্যাপশন নিজে তৈরি হবে। Facebook সংযোগ উপরে সেভ করা থাকতে হবে।",
                 color = C.Muted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp),
             )
             when {
@@ -69,7 +63,7 @@ fun AutoPostTab(vm: AutoPostViewModel) {
         }
 
         if (!vm.missing && vm.loadErr == null && vm.status != null) {
-            InfoCard {
+            Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = vm.on, onCheckedChange = { vm.on = it })
                     Text("প্রতিদিন অটো পোস্ট চালু", fontWeight = FontWeight.Bold)

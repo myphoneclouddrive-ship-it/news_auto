@@ -260,7 +260,7 @@ fun openUrl(ctx: android.content.Context, url: String) {
 }
 
 @Composable
-private fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -> Unit) {
+internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -> Unit) {
     var amt by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var trx by remember { mutableStateOf("") }

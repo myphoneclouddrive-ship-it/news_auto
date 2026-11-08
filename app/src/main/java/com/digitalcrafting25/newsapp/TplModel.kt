@@ -21,7 +21,7 @@ class TplStore(
 }
 
 /** আঁকার সময় এডিটরের অস্থায়ী কপি দিতে (থ্রেড-নিরাপদ: আঁকার আগে JSON-এর কপি নেওয়া হয়) */
-class TplOv(val s: JSONObject, val ts: JSONObject?)
+class TplOv(val s: JSONObject?, val ts: JSONObject?)
 
 object TplRegistry {
     @Volatile var store = TplStore()
@@ -91,6 +91,18 @@ object TplRegistry {
     }
 
     fun reset() { store = TplStore() }
+}
+
+/** ওয়েবের TPL[id].colors: ডিফল্ট ফোটোকার্ড টেমপ্লেটের রঙের তালিকা (key, লেবেল, ডিফল্ট) — সেটিংসের টেমপ্লেট-মোডালে দেখায় */
+object TplColors {
+    private const val LT = "সাইট নামের রঙ (লোগো না থাকলে)"
+    val DEFS: Map<String, List<Triple<String, String, String>>> = mapOf(
+        "dark" to listOf(Triple("head", "শিরোনামের রঙ", "#ffd400"), Triple("band", "তারিখের বারের রঙ", "#1e1e6e"), Triple("shade", "নিচের ছায়ার রঙ", "#000000"), Triple("sub", "ওয়েবসাইটের লেখার রঙ", "#dddddd"), Triple("lt", LT, "#ffffff")),
+        "white" to listOf(Triple("head1", "শিরোনাম (উপরের অংশ)", "#d50000"), Triple("head2", "শিরোনাম (নিচের অংশ)", "#1a3ea8"), Triple("panel", "প্যানেলের রঙ", "#f2f2f2"), Triple("foot", "নিচের বারের রঙ", "#e2e2e2"), Triple("ft", "নিচের লেখার রঙ", "#333333"), Triple("lt", LT, "#222222")),
+        "red" to listOf(Triple("bg", "ব্যাকগ্রাউন্ডের রঙ", "#b30012"), Triple("head1", "শিরোনাম (উপরের অংশ)", "#ffffff"), Triple("head2", "শিরোনাম (নিচের অংশ)", "#ffe600"), Triple("foot", "নিচের বারের রঙ", "#8e000d"), Triple("ft", "নিচের লেখার রঙ", "#ffffff"), Triple("lt", LT, "#ffffff")),
+        "blue" to listOf(Triple("bg1", "ব্যাকগ্রাউন্ড (উপরে)", "#0d3b8e"), Triple("bg2", "ব্যাকগ্রাউন্ড (নিচে)", "#08224f"), Triple("head1", "শিরোনাম (উপরের অংশ)", "#ffffff"), Triple("head2", "শিরোনাম (নিচের অংশ)", "#ffe600"), Triple("chipc", "বাটন/লেখার বক্সের রঙ", "#6a1bb1"), Triple("ft", "নিচের লেখার রঙ", "#ffffff"), Triple("lt", LT, "#ffffff")),
+        "top" to listOf(Triple("bg", "উপরের ব্যাকগ্রাউন্ডের রঙ", "#1c2d52"), Triple("head", "শিরোনামের রঙ", "#ffe600"), Triple("ft", "লেখার রঙ", "#ffffff"), Triple("lt", LT, "#ffffff")),
+    )
 }
 
 /** ওয়েবের cbStarter / cbDefStarter: নতুন কাস্টম ও ডিফল্ট টেমপ্লেটের শুরুর লেআউট */
