@@ -99,6 +99,13 @@ class ScheduleViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun dismissNotice() = _state.update { it.copy(notice = null) }
 
+    fun markBusy(id: String, on: Boolean) = setBusy(id, on)
+
+    fun showNotice(msg: String) = _state.update { it.copy(notice = msg) }
+
+    /** অন্য জায়গা (এডিট) থেকে পুরনো সিডিউল সরানো হলে তালিকায় ৩ মিনিট লুকিয়ে রাখি */
+    fun markGone(id: String) { gone[id] = System.currentTimeMillis(); _state.update { it.copy(items = it.items.filter { x -> x.id != id }) } }
+
     private fun apply(d: SchedResult) {
         val now = System.currentTimeMillis()
         gone.entries.removeAll { now - it.value > 180000 }

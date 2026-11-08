@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -80,12 +82,13 @@ internal fun pickDateTime(ctx: Context, initial: Long, onPicked: (Long) -> Unit)
 }
 
 @Composable
-fun ScheduleScreen(vm: ScheduleViewModel) {
+fun ScheduleScreen(vm: ScheduleViewModel, hasDraft: () -> Boolean = { false }, onEdit: (SchedItem) -> Unit = {}) {
     val st by vm.state.collectAsStateWithLifecycle()
     val cur by rememberUpdatedState(st)
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val dueSeen = remember { mutableSetOf<String>() }
     var confirmNow by remember { mutableStateOf<SchedItem?>(null) }
+    var confirmEdit by remember { mutableStateOf<SchedItem?>(null) }
 
     LaunchedEffect(Unit) { vm.load() }
     // প্রতি সেকেন্ডে কাউন্টডাউন; কোনো পোস্টের সময় পেরোলে ১৫ সেকেন্ড পর একবার, নইলে ৫ মিনিটে একবার সার্ভার থেকে হালনাগাদ
@@ -134,6 +137,8 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
                 onPostNow = { confirmNow = item },
                 onCancel = { vm.cancel(item) },
                 onReschedule = { at -> vm.reschedule(item, at) },
+                // নতুন পোস্টে লেখা থাকলে আগে জিজ্ঞেস; নইলে সরাসরি ধাপ ২-এ এডিট
+                onEdit = { if (hasDraft()) confirmEdit = item else onEdit(item) },
             )
         }
 
@@ -151,6 +156,15 @@ fun ScheduleScreen(vm: ScheduleViewModel) {
             text = { Text("এই পোস্টটি এখনই পোস্ট হয়ে যাবে এবং সিডিউল থেকে উঠে যাবে। করবেন?") },
             confirmButton = { TextButton(onClick = { confirmNow = null; vm.postNow(item) }) { Text("হ্যাঁ, পোস্ট করুন", color = C.Green, fontWeight = FontWeight.Bold) } },
             dismissButton = { TextButton(onClick = { confirmNow = null }) { Text("বাতিল", color = C.Gray) } },
+        )
+    }
+    confirmEdit?.let { item ->
+        AlertDialog(
+            onDismissRequest = { confirmEdit = null },
+            containerColor = Color.White,
+            text = { Text("নতুন পোস্টের পাতায় যে লেখা/ছবি আছে, এডিট শুরু করলে সেটা মুছে যাবে। এডিট করবেন?") },
+            confirmButton = { TextButton(onClick = { confirmEdit = null; onEdit(item) }) { Text("হ্যাঁ, এডিট করুন", color = C.Green, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { confirmEdit = null }) { Text("বাতিল", color = C.Gray) } },
         )
     }
     st.notice?.let { msg ->
@@ -171,6 +185,7 @@ private fun ScheduleCard(
     onPostNow: () -> Unit,
     onCancel: () -> Unit,
     onReschedule: (Long) -> Unit,
+    onEdit: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val failed = item.status == "failed"
@@ -199,28 +214,35 @@ private fun ScheduleCard(
 
     Column(
         Modifier.padding(top = 10.dp).fillMaxWidth().shadow(1.dp, RoundedCornerShape(12.dp)).background(Color.White, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Text((if (item.kind == "card") "🖼️ " else "") + item.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 22.sp)
-        Text("🗓 " + Bn.dateTime(item.at), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 4.dp))
+        Text((if (item.kind == "card") "🖼️ " else "") + item.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text("🗓 " + Bn.dateTime(item.at), fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 2.dp))
         Text(
             cdText, color = cdColor,
-            fontSize = if (failed) 14.sp else 22.sp, fontWeight = if (failed) FontWeight.Normal else FontWeight.Bold,
-            modifier = Modifier.padding(top = 6.dp),
+            fontSize = if (failed) 14.sp else 20.sp, fontWeight = if (failed) FontWeight.Normal else FontWeight.Bold,
+            modifier = Modifier.padding(top = 2.dp),
         )
 
-        if (item.status == "pending") {
-            HBtn(
-                if (busy) "অপেক্ষা করুন..." else "🚀 এখনই পোস্ট করুন", Modifier.fillMaxWidth().padding(top = 8.dp),
-                color = C.Green, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy, onClick = onPostNow,
-            )
-        }
         if (item.status != "running" || stuck) {
             if (failed || stuck) {
-                HBtn("🗑️ মুছে ফেলুন", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Gray, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy, onClick = onCancel)
+                HBtn("🗑️ মুছে ফেলুন", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Gray, padH = 8.dp, padV = 7.dp, size = 13.sp, enabled = !busy, onClick = onCancel)
             } else {
-                HBtn("⏰ সময় বদলান", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Gray, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy) {
-                    editing = !editing; if (editing) picked = item.at
+                // তিনটা বাটন পাশাপাশি: এখনই পোস্ট | সময় বদলান | এডিট করুন (ফোটোকার্ডে এডিট নেই, তাই সেখানে মুছুন)
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (item.status == "pending") {
+                        HBtn(
+                            if (busy) "অপেক্ষা..." else "🚀 এখনই পোস্ট", Modifier.weight(1f),
+                            color = C.Green, padH = 4.dp, padV = 7.dp, size = 12.sp, enabled = !busy, onClick = onPostNow,
+                        )
+                    }
+                    HBtn("⏰ সময় বদলান", Modifier.weight(1f), color = C.Gray, padH = 4.dp, padV = 7.dp, size = 12.sp, enabled = !busy) {
+                        editing = !editing; if (editing) picked = item.at
+                    }
+                    if (item.status == "pending") {
+                        if (item.kind == "card") HBtn("🗑️ মুছুন", Modifier.weight(1f), color = C.Red, padH = 4.dp, padV = 7.dp, size = 12.sp, enabled = !busy) { askDel = true }
+                        else HBtn("✏️ এডিট করুন", Modifier.weight(1f), color = C.Blue, padH = 4.dp, padV = 7.dp, size = 12.sp, enabled = !busy, onClick = onEdit)
+                    }
                 }
                 if (editing) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -239,9 +261,6 @@ private fun ScheduleCard(
                             color = C.Green, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy && !tooSoon,
                         ) { onReschedule(picked); editing = false }
                     }
-                }
-                if (item.status == "pending") {   // অপেক্ষমাণ সিডিউল পোস্ট মুছে ফেলার বাটন
-                    HBtn("🗑️ মুছে ফেলুন", Modifier.fillMaxWidth().padding(top = 8.dp), color = C.Red, padH = 8.dp, padV = 8.dp, size = 14.sp, enabled = !busy) { askDel = true }
                 }
             }
         }

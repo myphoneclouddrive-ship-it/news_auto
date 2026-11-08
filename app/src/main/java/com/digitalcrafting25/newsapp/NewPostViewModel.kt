@@ -42,6 +42,10 @@ import java.util.Locale
 class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     var step by mutableIntStateOf(1)
 
+    // সিডিউল করা পোস্ট এডিট: null না হলে ধাপ ২ থেকে শুরু; ক্লিয়ারের জায়গায় ডিলিট; ড্রাফট সেভ হয় না
+    var editItem by mutableStateOf<SchedItem?>(null)
+    var onOldCancelled: (String) -> Unit = {}
+
     // ধাপ ১
     var src by mutableStateOf("")
     var useOrig by mutableStateOf(false)
@@ -142,6 +146,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         job?.cancel(); tickJob?.cancel()
+        editItem = null
         step = 1; src = ""; notes = ""; webNews = false; mTitle = ""; mBody = TextFieldValue(""); showManual = false; sec = "src"
         title = ""; body = TextFieldValue(""); cardTitle = ""; category = ""; tag = ""; tplId = "dark"; useAd = true
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
@@ -263,6 +268,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun saveDraft() {
+        if (editItem != null) return   // সিডিউল এডিটের লেখা সাধারণ খসড়া হয়ে যেন না থাকে (নইলে ডুপ্লিকেট পোস্ট হতে পারে)
         val empty = title.isBlank() && body.text.isBlank() && src.isBlank() && notes.isBlank() && !hasPhoto
         if (empty || step >= 5) { prefs.edit().remove("draft").apply(); deleteDraftImages(); return }
         val d = JSONObject().put("title", title).put("body", body.text).put("cardTitle", cardTitle)
@@ -994,6 +1000,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 else notes.add("⚠️ ফোটোকার্ড Facebook-এ পোস্ট হয়েছে, কিন্তু কমেন্টে লিংক দেওয়া যায়নি (${d.optString("comment_error").ifBlank { "কারণ অজানা" }})। লিংকটা হাতে কমেন্ট করুন।")
                 try { Fs.addPost(app, title.trim(), link, d.optString("facebook_post"), email) }
                 catch (e: Exception) { notes.add("পোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: ${e.message}") }
+                cancelOld()?.let { notes.add("⚠️ পুরনো সিডিউলটা মোছা যায়নি ($it)। সিডিউল ট্যাবে গিয়ে সেটা মুছে দিন, নইলে একই পোস্ট আবার হয়ে যাবে।") }
                 pubLink = link; pubNotes = notes
                 PostUtil.catParts(category).forEach { pushHist("cat", it) }; pushHist("tag", tag)
                 val keepCat = category; val keepTag = tag
@@ -1013,15 +1020,84 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val used = useAd && curAd != null
                 val p = payload().put("at", atMs)
-                Worker.post(app, "/schedule", p, 60000)
+                val sd = Worker.post(app, "/schedule", p, 60000)
                 advanceAd(used)
+                val cancelErr = cancelOld()
+                saveSchedCopy(sd.optString("id"), atMs)
                 val keepCat = category; val keepTag = tag
                 wipeAfterPost()
                 category = keepCat; tag = keepTag
                 step = 1
-                notice = "✅ সিডিউল হয়েছে (সিডিউল ট্যাবে দেখুন)।"
+                notice = if (cancelErr == null) "✅ সিডিউল হয়েছে (সিডিউল ট্যাবে দেখুন)।"
+                else "✅ নতুন সিডিউল হয়েছে, কিন্তু পুরনোটা মোছা যায়নি ($cancelErr)। সিডিউল ট্যাবে গিয়ে পুরনোটা মুছে দিন, নইলে দুইবার পোস্ট হবে।"
                 onDone()
             } catch (e: Exception) { fail(e) } finally { endBusy() }
+        }
+    }
+
+    /** এডিট করা পোস্ট নতুন করে সিডিউল/পাবলিশ হলে আগের সিডিউলটা বাতিল (সার্ভারে /schedule-cancel); ব্যর্থ হলে কারণ ফেরত */
+    private suspend fun cancelOld(): String? {
+        val old = editItem ?: return null
+        return try {
+            Worker.post(app, "/schedule-cancel", JSONObject().put("id", old.id), 20000)
+            SchedCache.delete(app, old.id)
+            onOldCancelled(old.id)
+            editItem = null
+            null
+        } catch (e: Exception) { e.message ?: "কারণ অজানা" }
+    }
+
+    /** সিডিউল হওয়া খবরের লেখা-ছবির কপি ফোনে রাখা, যাতে পরে "এডিট করুন" চাপলে ধাপ ২ থেকে খোলা যায় */
+    private fun saveSchedCopy(id: String, atMs: Long) {
+        if (id.isBlank()) return
+        val d = JSONObject().put("title", title.trim()).put("body", body.text).put("cardTitle", cardTitle)
+            .put("category", category).put("tag", tag).put("tpl", tplId).put("useAd", useAd)
+            .put("imgMode", imgMode).put("imgUrl", imgUrl).put("aiPrompt", aiPrompt)
+            .put("fx", fx.toDouble()).put("fy", fy.toDouble()).put("at", atMs)
+        SchedCache.save(app, id, d, photo)
+    }
+
+    /** এডিটের মাঝে ডিলিট চাপলে: ফোনের কপি মুছে সব ফাঁকা (সার্ভারের সিডিউল মোছে ScheduleViewModel.cancel) */
+    fun discardEdit() { editItem?.let { SchedCache.delete(app, it.id) }; clearAll() }
+
+    /** নতুন পোস্টের পাতায় কিছু লেখা/ছবি আছে কিনা (এডিট শুরুতে সেটা মুছে যাবে, তাই আগে জানানো) */
+    fun hasWork(): Boolean = title.isNotBlank() || body.text.isNotBlank() || src.isNotBlank() || notes.isNotBlank() ||
+        mTitle.isNotBlank() || mBody.text.isNotBlank() || hasPhoto
+
+    /**
+     * সিডিউল করা খবর-পোস্ট এডিট: ধাপ ১ বাদ, ২ লেখা থেকে শুরু। আগে ফোনের কপি (আসল ছবিসহ);
+     * না থাকলে (পুরনো সিডিউল/অন্য ফোন) Worker-এর /schedule-get থেকে লেখা, ক্যাটাগরি ও ফিচার ছবি।
+     * onResult(null) = ঠিক আছে, নইলে ব্যর্থতার বার্তা
+     */
+    fun beginEdit(item: SchedItem, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val local = withContext(Dispatchers.IO) { SchedCache.load(app, item.id) }
+            var d: JSONObject? = local?.data
+            var ph: Bitmap? = local?.photo
+            var fromServer = false
+            if (d == null) {
+                try {
+                    val r = Worker.post(app, "/schedule-get", JSONObject().put("id", item.id), 60000)
+                    val bmp = withContext(Dispatchers.Default) { PostUtil.fromDataUrl(r.optString("featured")) }
+                    d = JSONObject().put("title", r.optString("title")).put("body", PostUtil.htmlToEditable(r.optString("body")))
+                        .put("cardTitle", r.optString("title")).put("category", r.optString("category"))
+                    ph = bmp; fromServer = true
+                } catch (e: Exception) { onResult("⚠️ " + (e.message ?: "পোস্টের লেখা আনা যায়নি")); return@launch }
+            }
+            val dd: JSONObject = d ?: return@launch
+            reset()
+            editItem = item
+            title = dd.optString("title", item.title); body = TextFieldValue(dd.optString("body")); cardTitle = dd.optString("cardTitle").ifBlank { title }
+            category = dd.optString("category"); tag = dd.optString("tag"); tplId = dd.optString("tpl", "dark"); useAd = dd.optBoolean("useAd", true)
+            imgMode = dd.optString("imgMode").ifBlank { "upload" }; imgUrl = dd.optString("imgUrl"); aiPrompt = dd.optString("aiPrompt")
+            fx = dd.optDouble("fx", 0.5).toFloat(); fy = dd.optDouble("fy", 0.5).toFloat()
+            ph?.let { photo = it; hasPhoto = true }
+            photoVer++
+            error = null
+            notice = if (fromServer) "ℹ️ সার্ভারের কপি থেকে খোলা হয়েছে: ছবি ফিচার ইমেজের মাপে, ট্যাগ ও টেমপ্লেট ডিফল্ট। ধাপ ৩-এ দেখে নিন।" else null
+            step = 2
+            load(true)
+            onResult(null)
         }
     }
 

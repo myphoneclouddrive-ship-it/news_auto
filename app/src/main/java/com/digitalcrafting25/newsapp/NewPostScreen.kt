@@ -79,9 +79,9 @@ import java.util.Locale
 /** সিডিউলের সময় বাছাই: দ্রুত চিপ (৩০ মিনিট, ১ ঘণ্টা, ৩ ঘণ্টা, কাল সকাল ৮টা) + নিজে তারিখ/সময় বাছা (ওয়েবের schDrawer) */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SchedulePickDialog(busy: Boolean, error: String? = null, onConfirm: (Long) -> Unit, onDismiss: () -> Unit) {
+fun SchedulePickDialog(busy: Boolean, error: String? = null, initialAt: Long? = null, onConfirm: (Long) -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    var at by remember { mutableLongStateOf(System.currentTimeMillis() + 3600_000L) }
+    var at by remember { mutableLongStateOf(initialAt?.takeIf { it > System.currentTimeMillis() + 60_000L } ?: (System.currentTimeMillis() + 3600_000L)) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
     androidx.compose.ui.window.Dialog(
@@ -300,7 +300,7 @@ private fun FormatBar(vm: NewPostViewModel, manual: Boolean) {
 }
 
 @Composable
-fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit, header: @Composable () -> Unit = {}) {
+fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit, onDelete: () -> Unit = {}, header: @Composable () -> Unit = {}) {
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
     LaunchedEffect(vm.cardTitle, vm.title, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.useAd, vm.nextAdId, vm.step) { if (vm.step in 3..4) vm.refresh() }
@@ -312,6 +312,12 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
     var sched by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmRetry by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    // সিডিউল এডিট চললে: ধাপ ১ নেই, ক্লিয়ারের জায়গায় লাল ডিলিট বাটন (সিডিউল থেকেই মুছে যায়)
+    val editing = vm.editItem != null
+    val clearLabel = if (editing) "🗑️ ডিলিট" else "🗑️ ক্লিয়ার"
+    val clearColor = if (editing) C.Red else C.Gray
+    val onClearClick = { if (editing) confirmDelete = true else confirmClear = true }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("✍️ নতুন পোস্ট")
@@ -335,9 +341,10 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         if (vm.rewriting) ProcPanel(vm) else when (vm.step) {
             1 -> Step1(vm, onOpenVideo, onClear = { vm.clearAll() }, header = header)
             2 -> Step2(vm, onNext = { if (vm.title.isBlank() || vm.body.text.isBlank()) vm.error = "শিরোনাম ও বডি লিখুন" else warn = true },
-                onRetry = { if (vm.retryOk()) confirmRetry = true }, onClear = { confirmClear = true })
-            3 -> Step3(vm, onClear = { confirmClear = true })
-            4 -> Step4(vm, onSchedule = { sched = true }, onClear = { confirmClear = true })
+                onRetry = { if (vm.retryOk()) confirmRetry = true }, onClear = onClearClick, clearLabel = clearLabel, clearColor = clearColor,
+                onBack = { if (editing) { vm.clearAll(); onScheduled() } else vm.back() })   // এডিটে ব্যাক = কিছু না বদলে সিডিউলে ফেরা
+            3 -> Step3(vm, onClear = onClearClick, clearLabel = clearLabel, clearColor = clearColor)
+            4 -> Step4(vm, onSchedule = { sched = true }, onClear = onClearClick, clearLabel = clearLabel, clearColor = clearColor)
             else -> Step5(vm)
         }
         Box(Modifier.height(24.dp))
@@ -353,12 +360,19 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
     }
     // AI-র ওয়ার্নিং (ওয়েবের #aiWarn): টিক না দিলে নেক্সট চালু হয় না
     if (warn) AiWarnDialog(onRead = { warn = false }, onGo = { warn = false; vm.toStep3() })
-    if (sched) SchedulePickDialog(busy = vm.busy, error = vm.error, onConfirm = { at -> vm.schedule(at) { sched = false; onScheduled() } }, onDismiss = { sched = false })
+    if (sched) SchedulePickDialog(busy = vm.busy, error = vm.error, initialAt = vm.editItem?.at, onConfirm = { at -> vm.schedule(at) { sched = false; onScheduled() } }, onDismiss = { sched = false })
     if (confirmRetry) AlertDialog(
         onDismissRequest = { confirmRetry = false },
         text = { Text("আবার নতুন করে লেখাবেন? এখনকার শিরোনাম ও বডি বদলে যাবে।") },
         confirmButton = { TextButton(onClick = { confirmRetry = false; vm.rewriteAgain() }) { Text("হ্যাঁ") } },
         dismissButton = { TextButton(onClick = { confirmRetry = false }) { Text("না") } },
+    )
+    if (confirmDelete) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        containerColor = Color.White,
+        text = { Text("এই সিডিউল পোস্টটি মুছে ফেলবেন? এটা আর পোস্ট হবে না।") },
+        confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("হ্যাঁ, মুছুন", color = C.Red, fontWeight = FontWeight.Bold) } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("বাতিল", color = C.Gray) } },
     )
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false },
@@ -558,7 +572,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
 
 // ───────── ধাপ ২: লেখা ─────────
 @Composable
-private fun Step2(vm: NewPostViewModel, onNext: () -> Unit, onRetry: () -> Unit, onClear: () -> Unit) {
+private fun Step2(vm: NewPostViewModel, onNext: () -> Unit, onRetry: () -> Unit, onClear: () -> Unit, clearLabel: String, clearColor: Color, onBack: () -> Unit) {
     FieldLabel("২. শিরোনাম (এডিট করুন)")
     AppField(vm.title, { vm.title = it; vm.saveDraft() }, singleLine = false)
     FieldLabel("বডি (পোস্ট প্রিভিউ, এখানেই এডিট করুন)")
@@ -566,15 +580,15 @@ private fun Step2(vm: NewPostViewModel, onNext: () -> Unit, onRetry: () -> Unit,
     BodyField(vm.body, { vm.editBody(it) }, 14)
     AppBtn("নেক্সট →", Modifier.padding(top = 10.dp), onClick = onNext)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        NavBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray) { vm.back() }
-        NavBtn("🔁 আবার লিখুন", Modifier.weight(1f), color = C.Gray, enabled = !vm.busy && !vm.rwLow, onClick = onRetry)
-        NavBtn("🗑️ ক্লিয়ার", Modifier.weight(1f), color = C.Gray, onClick = onClear)
+        NavBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray, onClick = onBack)
+        NavBtn("🔁 আবার লিখুন", Modifier.weight(1f), color = C.Gray, enabled = !vm.busy && !vm.rwLow && vm.editItem == null, onClick = onRetry)
+        NavBtn(clearLabel, Modifier.weight(1f), color = clearColor, onClick = onClear)
     }
 }
 
 // ───────── ধাপ ৩: কার্ড ─────────
 @Composable
-private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
+private fun Step3(vm: NewPostViewModel, onClear: () -> Unit, clearLabel: String, clearColor: Color) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { uris -> vm.addPhotos(uris) }
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     var cropOpen by remember { mutableStateOf(false) }
@@ -693,22 +707,22 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit) {
         NavBtn("🔁 ছবি রিট্রাই", Modifier.weight(1f), color = C.Gray, enabled = !vm.busy) {
             when (vm.imgMode) { "ai" -> vm.makeCartoon(); "link" -> vm.fetchLink(); else -> pick() }
         }
-        NavBtn("🗑️ ক্লিয়ার", Modifier.weight(1f), color = C.Gray, onClick = onClear)
+        NavBtn(clearLabel, Modifier.weight(1f), color = clearColor, onClick = onClear)
     }
 }
 
 // ───────── ধাপ ৪: কনফার্ম ─────────
 @Composable
-private fun Step4(vm: NewPostViewModel, onSchedule: () -> Unit, onClear: () -> Unit) {
+private fun Step4(vm: NewPostViewModel, onSchedule: () -> Unit, onClear: () -> Unit, clearLabel: String, clearColor: Color) {
     H2("🔍 শেষবার দেখে নিন")
     vm.preview?.let { Image(it.asImageBitmap(), contentDescription = "কার্ড", modifier = Modifier.fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId)).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Fit) }
     Text(vm.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
     Text("কনফার্ম করলে WordPress-এ পোস্ট হবে আর Facebook-এ ফোটোকার্ডসহ শেয়ার হবে।", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
     AppBtn(if (vm.busy) "⏳ অপেক্ষা করুন…" else "✅ কনফার্ম ও পাবলিশ করুন", color = C.Green, enabled = !vm.busy) { vm.publish() }
-    AppBtn("⏰ সিডিউল পোস্ট", Modifier.padding(top = 10.dp), color = C.Blue, enabled = !vm.busy, onClick = onSchedule)
+    AppBtn(if (vm.editItem != null) "⏰ সিডিউল আপডেট করুন" else "⏰ সিডিউল পোস্ট", Modifier.padding(top = 10.dp), color = C.Blue, enabled = !vm.busy, onClick = onSchedule)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         NavBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray) { vm.back() }
-        NavBtn("🗑️ ক্লিয়ার", Modifier.weight(1f), color = C.Gray, onClick = onClear)
+        NavBtn(clearLabel, Modifier.weight(1f), color = clearColor, onClick = onClear)
     }
     Text("⚠️ পাবলিশ ব্যর্থ হলে \"কনফার্ম\" আবার চাপুন। ফেসবুক ত্রুটির বার্তা এলে আবার পাবলিশ করবেন না (ডুপ্লিকেট হবে)।", fontSize = 12.sp, color = C.Muted, modifier = Modifier.padding(top = 8.dp))
 }

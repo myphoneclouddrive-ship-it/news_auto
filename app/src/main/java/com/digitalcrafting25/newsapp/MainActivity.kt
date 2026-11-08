@@ -50,6 +50,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -163,6 +164,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
             dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
         )
     }
+    SideEffect { np.onOldCancelled = { sched.markGone(it) } }   // এডিট করা পোস্ট নতুন করে সিডিউল হলে পুরনোটা তালিকা থেকে সরে যায়
     var page by rememberSaveable { mutableStateOf(Page.DASH) }
     var navH by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -178,9 +180,20 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
-                    Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE })
+                    Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE }, onDelete = {
+                        // এডিটের মাঝে ডিলিট: সার্ভারের সিডিউল মুছে, ফোনের কপি মুছে, সিডিউল পাতায় ফেরা
+                        np.editItem?.let { sched.cancel(it) }
+                        np.discardEdit()
+                        page = Page.SCHEDULE
+                    })
                     Page.CARD -> PhotoCardScreen(card, adsVm, np)
-                    Page.SCHEDULE -> ScheduleScreen(sched)
+                    Page.SCHEDULE -> ScheduleScreen(sched, hasDraft = { np.hasWork() }, onEdit = { item ->
+                        sched.markBusy(item.id, true)   // লেখা আনার সময় বাটন বন্ধ
+                        np.beginEdit(item) { err ->
+                            sched.markBusy(item.id, false)
+                            if (err == null) page = Page.NEW else sched.showNotice(err)
+                        }
+                    })
                     Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm, np, dash, ev)
                 }
                 }
@@ -246,7 +259,7 @@ fun ComingSoon(title: String, text: String) {
 }
 
 @Composable
-fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, onScheduled: () -> Unit) {
+fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, onScheduled: () -> Unit, onDelete: () -> Unit = {}) {
     var editor by remember { mutableStateOf(false) }
     var pendingOpen by remember { mutableStateOf(false) }
     // "ভিডিও বাছুন" → গ্যালারি (শুধু ভিডিও) → বাছা ভিডিও টাইমলাইনে যোগ হলে এডিটর খোলে; না বাছলে এখানেই থাকে
@@ -286,7 +299,7 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
                     androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VideoOnly,
                 ),
             )
-        }, onScheduled = onScheduled, header = {
+        }, onScheduled = onScheduled, onDelete = onDelete, header = {
             DraftList(ev, onOpen = { id -> if (ev.openDraft(id)) editor = true })
         })
     }
