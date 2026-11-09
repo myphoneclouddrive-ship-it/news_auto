@@ -61,6 +61,40 @@ object RenderComposer {
         val band = spec.fbBandPx.coerceAtLeast(0)
         val outH = h + 2 * band
 
+        // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
+        val totalMs = spec.clips.sumOf { it.lengthMs() }
+        val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs || (it is NameBarLayer && it.repeatSec > 0) }
+        val renderer = LayerFrameRenderer(
+            ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
+            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
+            adsInBand = spec.fbAdsInBand && band > 0,
+            cardRanges = cardRangesMs(spec.clips),
+            cuts = ClipTr.cuts(spec.clips),
+        )
+        // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
+        val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()
+            .filter { it.contrast != 0f && it.endMs > it.startMs }
+            .map { TimestampWrapper(ContrastMatrix(it.contrast.coerceIn(-1f, 1f)), it.startMs * 1000L, it.endMs * 1000L) }
+        // ক্লিপ-ট্রানজিশনের স্লাইড ও জুম পাঞ্চ: কাটের ±০.২৮ সে. ভিডিও-ফ্রেম সরে/বড় হয় (ওভারলের নিচে, তাই লেখা/ব্যানার নড়ে না)
+        val moveFx: List<Effect> = ClipTr.cuts(spec.clips).filter { it.mode == "slide" || it.mode == "zoom" }.map { cut ->
+            val st = (cut.ms - ClipTr.HALF_MS).coerceAtLeast(0L)
+            val en = (cut.ms + ClipTr.HALF_MS).coerceAtLeast(st + 1L)
+            TimestampWrapper(
+                object : MatrixTransformation {
+                    override fun getMatrix(presentationTimeUs: Long): Matrix {
+                        val u = ((presentationTimeUs / 1000.0 - cut.ms) / ClipTr.HALF_MS).toFloat().coerceIn(-0.999f, 0.999f)
+                        return ClipTr.matrixFor(cut.mode, u) ?: Matrix()
+                    }
+                },
+                st * 1000L, en * 1000L,
+            )
+        }
+        // ওভারলে/কন্ট্রাস্ট/ট্রানজিশন-সরানো প্রতিটা ক্লিপের নিজস্ব ইফেক্টের শেষে বসে (আগে পুরো কম্পোজিশনে বসানো ছিল, কিন্তু ডিভাইসে ওভারলে আঁকা হচ্ছিল না; কারণ নিশ্চিত নয়, তাই ক্লিপ-স্তরে সরানো)।
+        // ক্লিপ-স্তরের ইফেক্টেও ফ্রেমের সময় টাইমলাইন ধরে চলে (আগের ক্লিপগুলোর দৈর্ঘ্য যোগ হয়ে), তাই লেয়ারের সময় একই থাকে
+        fun tailFx(): List<Effect> = contrastFx + moveFx + if (renderer.isEmpty) emptyList() else {
+            listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(LayerFrameOverlay(renderer))))
+        }
+
         val items = spec.clips.map { c ->
             // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়; তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন থাকলে ওই ফ্রেমের ওপর
             val fxList = mutableListOf<Effect>()
@@ -82,6 +116,7 @@ object RenderComposer {
                 // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
                 if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
             }
+            fxList += tailFx()
             val fit = Effects(emptyList(), fxList)
             if (c.isImage) {
                 val ms = (c.imageSec * 1000).toLong().coerceAtLeast(500L)
@@ -128,40 +163,7 @@ object RenderComposer {
             sequences += EditedMediaItemSequence(listOf(mi))
         }
 
-        // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
-        val totalMs = spec.clips.sumOf { it.lengthMs() }
-        val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs || (it is NameBarLayer && it.repeatSec > 0) }
-        val renderer = LayerFrameRenderer(
-            ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
-            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
-            adsInBand = spec.fbAdsInBand && band > 0,
-            cardRanges = cardRangesMs(spec.clips),
-            cuts = ClipTr.cuts(spec.clips),
-        )
-        // কন্ট্রাস্ট: এডজাস্ট লেয়ারের সময়ের মধ্যেই ভিডিওর ওপর বসে (লেখা/বার/বিজ্ঞাপনের নিচে, তাই সেগুলো প্রভাবিত হয় না)
-        val contrastFx: List<Effect> = visible.filterIsInstance<AdjustLayer>()
-            .filter { it.contrast != 0f && it.endMs > it.startMs }
-            .map { TimestampWrapper(ContrastMatrix(it.contrast.coerceIn(-1f, 1f)), it.startMs * 1000L, it.endMs * 1000L) }
-        // ক্লিপ-ট্রানজিশনের স্লাইড ও জুম পাঞ্চ: কাটের ±০.২৮ সে. ভিডিও-ফ্রেম সরে/বড় হয় (ওভারলের নিচে, তাই লেখা/ব্যানার নড়ে না)
-        val moveFx: List<Effect> = ClipTr.cuts(spec.clips).filter { it.mode == "slide" || it.mode == "zoom" }.map { cut ->
-            val st = (cut.ms - ClipTr.HALF_MS).coerceAtLeast(0L)
-            val en = (cut.ms + ClipTr.HALF_MS).coerceAtLeast(st + 1L)
-            TimestampWrapper(
-                object : MatrixTransformation {
-                    override fun getMatrix(presentationTimeUs: Long): Matrix {
-                        val u = ((presentationTimeUs / 1000.0 - cut.ms) / ClipTr.HALF_MS).toFloat().coerceIn(-0.999f, 0.999f)
-                        return ClipTr.matrixFor(cut.mode, u) ?: Matrix()
-                    }
-                },
-                st * 1000L, en * 1000L,
-            )
-        }
-        val videoFx: List<Effect> = contrastFx + moveFx + if (renderer.isEmpty) emptyList() else {
-            listOf(OverlayEffect(ImmutableList.of<TextureOverlay>(LayerFrameOverlay(renderer))))
-        }
-
         return Composition.Builder(sequences)
-            .setEffects(Effects(emptyList(), videoFx))
             .experimentalSetForceAudioTrack(true)
             .build()
     }

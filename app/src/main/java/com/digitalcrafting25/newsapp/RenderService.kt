@@ -193,6 +193,7 @@ class RenderService : Service() {
         val file = outFile ?: return fail("আউটপুট ফাইল পাওয়া যায়নি")
         val pass = passes[passIdx]
         val multi = passes.size > 1
+        RenderBus.summary += "\n${pass.label} রেন্ডারে ওভারলের ফ্রেম আঁকা: ${LayerFrameOverlay.calls.getAndSet(0)}"
         // পরের পাসের স্পেক হুবহু একই হলে (যেমন ব্যান্ড/ওপরের ব্যানার নেই) আবার রেন্ডার না করে এই ফাইলটাই কাজে লাগে
         val reuse = passIdx + 1 < passes.size && passes[passIdx + 1].spec == pass.spec
         Thread {

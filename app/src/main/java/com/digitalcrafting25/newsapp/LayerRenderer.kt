@@ -249,5 +249,12 @@ class LayerFrameRenderer(
 /** Media3-র জন্য: প্রতিটা ফ্রেমের সময়ে `LayerFrameRenderer` থেকে ছবি নেয় */
 @UnstableApi
 class LayerFrameOverlay(private val renderer: LayerFrameRenderer) : BitmapOverlay() {
-    override fun getBitmap(presentationTimeUs: Long): Bitmap = renderer.frameAt(presentationTimeUs / 1000L)
+    companion object {
+        /** Media3 কতবার এই ওভারলে থেকে ছবি চেয়েছে (রেন্ডার ফলাফল পেইজে দেখানো হয়: ০ মানে ওভারলে প্রয়োগই হয়নি) */
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+    }
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        calls.incrementAndGet()
+        return renderer.frameAt(presentationTimeUs / 1000L)
+    }
 }
