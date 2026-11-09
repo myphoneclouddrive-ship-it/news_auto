@@ -93,6 +93,8 @@ object RenderBus {
     /** true = পেইজ থেকে অন্য ভার্সন রেন্ডার (আগের রেন্ডারের সাথে জোড়া লাগে); false = নতুন রেন্ডার (আগেরটার জায়গা নেয়) */
     @Volatile var merge: Boolean = false
     @Volatile var draftId: Long = 0L
+    /** শেষ রেন্ডারে কী কী লেয়ার/লেখা পাঠানো হয়েছিল (ফলাফল পেইজে দেখানো হয়: লেয়ার টাইমলাইনে ছিল কিনা বোঝার জন্য) */
+    @Volatile var summary: String = ""
 }
 
 object AppState {

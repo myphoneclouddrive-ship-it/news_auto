@@ -367,6 +367,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         seedAnswer = null
     }
 
+    /** ডিফল্ট বসানোর পর কোনো কিছু না বসলে তার বার্তা (এডিটর একবার দেখিয়ে মুছে দেয়) */
+    var seedWarn by mutableStateOf<String?>(null)
     /** নতুন ভিডিওর ডিফল্ট বসানোর অবস্থা (এডিটরে দেখানোর বার্তা); null = কিছু চলছে না */
     var seedMsg by mutableStateOf<String?>(null)
         private set
@@ -402,41 +404,61 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             if (!alive()) return
             seedStep = 2
             seedMsg = "⏳ বিজ্ঞাপন, লোগো, ট্যাগ, নাম/পদবি, স্ক্রলিং লেখা বসানো হচ্ছে…"
-            // লোগো (ওপরে ডানে)
-            if (logoU != null && tl.layers.none { it.isLogoLayer() }) tl.addLayer(LayerKind.LOGO, uri = logoU)
-            // নিচের বিজ্ঞাপন: সেটিংসের প্রথমটা, না থাকলে "বিজ্ঞাপন এরিয়া" ডিফল্ট ব্যানার
-            if (tl.layers.none { it is AdLayer }) {
+            // প্রতিটা জিনিস আলাদা ধাপে: একটা ব্যর্থ হলেও বাকিগুলো বসে, আর কী বসেনি তা এডিটরে জানানো হয়
+            val missed = ArrayList<String>()
+            suspend fun step(name: String, body: suspend () -> String?) {
+                if (!alive()) return
+                val err = try { body() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { e.message ?: "অজানা সমস্যা" }
+                if (err != null) missed += name
+            }
+            // লোগো (ওপরে ডানে): সেটিংসে লোগো/আইকন/সাইটের নাম কিছুই না থাকলে বসানো যায় না
+            step("লোগো") {
+                if (logoU == null) "সেটিংসে লোগো নেই"
+                else if (tl.layers.any { it.isLogoLayer() }) null
+                else tl.addLayer(LayerKind.LOGO, uri = logoU)
+            }
+            // নিচের বিজ্ঞাপন: সেটিংসের প্রথমটা; আঁকতে না পারলে বা না থাকলে "বিজ্ঞাপন এরিয়া" ডিফল্ট ব্যানার
+            step("নিচের ব্যানার") {
+                if (tl.layers.any { it is AdLayer }) return@step null
                 val ad = SettingsMedia.ads(app).firstOrNull()
-                if (ad != null) tl.addLayer(LayerKind.AD_BOTTOM, uri = SettingsMedia.adUri(app, ad), adId = ad.id)
+                val adUri = ad?.let { runCatching { SettingsMedia.adUri(app, it) }.getOrNull() }
+                if (ad != null && adUri != null) tl.addLayer(LayerKind.AD_BOTTOM, uri = adUri, adId = ad.id)
                 else tl.addLayer(LayerKind.AD_BOTTOM, uri = SettingsMedia.placeholderAdUri(app))
             }
-            // ট্যাগ (পুরো ভিডিও জুড়ে) ও স্ক্রলিং লেখা
-            if (tl.layers.none { it is TagLayer }) {
-                tl.addLayer(LayerKind.TAG, text = SEED_TAG)
+            // ট্যাগ (পুরো ভিডিও জুড়ে)
+            step("ট্যাগ") {
+                if (tl.layers.any { it is TagLayer }) return@step null
+                val e = tl.addLayer(LayerKind.TAG, text = SEED_TAG)
                 tl.selectedLayerId?.let { id -> tl.updateLayer(id) { it.withTime(0L, tl.totalMs) } }
+                e
             }
-            if (tl.layers.none { it is TickerLayer }) tl.addLayer(LayerKind.TICKER, text = SEED_TICKER)
+            // স্ক্রলিং লেখা
+            step("স্ক্রলিং লেখা") {
+                if (tl.layers.any { it is TickerLayer }) null else tl.addLayer(LayerKind.TICKER, text = SEED_TICKER)
+            }
             // নাম/পদবির বার (HTML-এর মতো): মূল ভিডিও শুরুর (ইন্ট্রোর পরের) ১০ সেকেন্ড পর আসে, ৫ সেকেন্ড থাকে।
             // লেখা = সেটিংসের সাইটের নাম + ট্যাগলাইন (পদবির জায়গায়); পরে লেয়ার এডিটে লেখা/সময় বদলানো বা মোছা যায়
-            if (alive() && tl.layers.none { it is NameBarLayer }) {
-                val cfg = runCatching { withContext(Dispatchers.IO) { Fs.cardCfg(app) } }.getOrNull()
-                val siteName = cfg?.siteName?.trim().orEmpty()
-                val tagline = cfg?.siteTagline?.trim().orEmpty()
-                if (siteName.isNotEmpty() || tagline.isNotEmpty()) {
-                    tl.addLayer(LayerKind.NAME_BAR, text = siteName.ifEmpty { tagline })
-                    tl.selectedLayerId?.let { id ->
-                        val introEnd = tl.cardClip(false)?.lengthMs() ?: 0L
-                        val mainEnd = tl.totalMs - (tl.cardClip(true)?.lengthMs() ?: 0L)   // আউট্রোর আগ পর্যন্ত
-                        var st = introEnd + 10_000L
-                        var du = 5_000L
-                        if (st > mainEnd - 1_000L) { st = maxOf(introEnd, mainEnd - du) }   // ভিডিও খুব ছোট হলে শেষের দিকে
-                        du = minOf(du, maxOf(1_000L, mainEnd - st))
-                        tl.updateLayer(id) { l ->
-                            (l as? NameBarLayer)?.copy(name = siteName.ifEmpty { tagline }, title = tagline)?.withTime(st, st + du) ?: l
-                        }
+            step("নাম/পদবি") {
+                if (tl.layers.any { it is NameBarLayer }) return@step null
+                val cfg = withContext(Dispatchers.IO) { Fs.cardCfg(app) }
+                val siteName = cfg.siteName.trim()
+                val tagline = cfg.siteTagline.trim()
+                if (siteName.isEmpty() && tagline.isEmpty()) return@step "সেটিংসে সাইটের নাম/ট্যাগলাইন নেই"
+                val e = tl.addLayer(LayerKind.NAME_BAR, text = siteName.ifEmpty { tagline })
+                tl.selectedLayerId?.let { id ->
+                    val introEnd = tl.cardClip(false)?.lengthMs() ?: 0L
+                    val mainEnd = tl.totalMs - (tl.cardClip(true)?.lengthMs() ?: 0L)   // আউট্রোর আগ পর্যন্ত
+                    var st = introEnd + 10_000L
+                    var du = 5_000L
+                    if (st > mainEnd - 1_000L) { st = maxOf(introEnd, mainEnd - du) }   // ভিডিও খুব ছোট হলে শেষের দিকে
+                    du = minOf(du, maxOf(1_000L, mainEnd - st))
+                    tl.updateLayer(id) { l ->
+                        (l as? NameBarLayer)?.copy(name = siteName.ifEmpty { tagline }, title = tagline)?.withTime(st, st + du) ?: l
                     }
                 }
+                e
             }
+            if (missed.isNotEmpty()) seedWarn = "⚠️ এগুলো নিজে বসেনি: " + missed.joinToString(", ") + "। লেয়ার মেনু থেকে নিজে যোগ করুন (সেটিংসে তথ্য/নেট ঠিক আছে কিনা দেখুন)।"
             tl.selectedId = null
             tl.selectedLayerId = null
             tl.playheadMs = 0L
@@ -551,6 +573,12 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         // ভিডিও টাইটেল আগে থেকে বসে (পরে পেইজে বদলানো যায়); রেন্ডার শেষে সার্ভিস এগুলো দিয়ে "শেষ রেন্ডার" মনে রাখে
         if (videoTitle.isBlank()) videoTitle = defaultTitle()
         saveDraft()   // রেন্ডার কোন এডিট ড্রাফট থেকে, সেটা মনে রাখতে (ড্রাফট মুছলে এই রেন্ডারও মোছা হয়)
+        RenderBus.summary = run {
+            val names = tl.layers.filter { !it.isAudio }.joinToString(", ") { it.kind.label }.ifEmpty { "একটাও না" }
+            "রেন্ডারে পাঠানো লেয়ার: $names\nফেইসবুক ব্যান্ড: " + (if (band > 0) "${band}px" else "নেই") +
+                (if (top.isNotEmpty()) "\nওপরের লেখা: $top" else "") + (if (bottom.isNotEmpty()) "\nনিচের লেখা: $bottom" else "") +
+                "\nইন্ট্রো: " + (if (tl.cardClip(false) != null) "আছে" else "নেই") + ", আউট্রো: " + (if (tl.cardClip(true) != null) "আছে" else "নেই")
+        }
         RenderBus.title = videoTitle; RenderBus.wp = wp; RenderBus.merge = merge; RenderBus.draftId = currentDraftId ?: 0L
         val snapClips = clips.toList()
         val snapLayers = tl.layers.toList()

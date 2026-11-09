@@ -161,6 +161,7 @@ fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: 
                         modifier = Modifier.fillMaxWidth().height(230.dp),
                     )
                 }
+                if (RenderBus.summary.isNotBlank()) Text(RenderBus.summary, color = C.Muted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp))
                 // শেয়ার: ফেইসবুক ভিডিও → Facebook অ্যাপ, ইউটিউব ভিডিও → YouTube অ্যাপ; দুটোর পাশেই যেকোনো অ্যাপে পাঠানো
                 val isFb = o.mode == "fb"
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

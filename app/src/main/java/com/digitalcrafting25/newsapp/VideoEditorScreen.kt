@@ -99,6 +99,11 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     val setError: (String?) -> Unit = { m -> error = m; if (m != null) info = null }
     val setInfo: (String?) -> Unit = { m -> info = m; if (m != null) error = null }
     val act = rememberDockActions(tl, setError, setInfo)
+    // ডিফল্ট বসানোর পর কিছু না বসলে (লোগো/ব্যানার/ট্যাগ ইত্যাদি) একবার জানানো
+    LaunchedEffect(vm.seedWarn, vm.seedMsg) {
+        val w = vm.seedWarn
+        if (w != null && vm.seedMsg == null) { setError(w); vm.seedWarn = null }
+    }
     // প্রতিটা বদলের একটু পরে নিজে নিজে সেভ (অ্যাপ কেটে দিলেও এডিট থাকবে)
     LaunchedEffect(tl.clips, tl.layers) {
         if (tl.clips.isNotEmpty()) { kotlinx.coroutines.delay(700); vm.saveDraft() }
