@@ -388,6 +388,10 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun clearVideoData(ev: EditorViewModel) {
         if (vcBusy) return
+        if (ev.publish.busy) {
+            vcMsg = false to "⚠️ পাবলিশ চলছে, শেষ হলে আবার চেষ্টা করুন।"
+            return
+        }
         if (RenderBus.status.value is RenderStatus.Running || ev.cardBusy) {
             vcMsg = false to "⚠️ রেন্ডার বা ইন্ট্রো/আউট্রো বানানো চলছে, শেষ হলে আবার চেষ্টা করুন।"
             return
@@ -398,6 +402,8 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
                 val inUse = ev.uriInUse()
                 val editing = ev.clips.isNotEmpty() || ev.drafts.isNotEmpty()
                 val r = withContext(Dispatchers.IO) { VideoCache.clear(app, inUse) }
+                withContext(Dispatchers.IO) { LastRender.clear(app) }   // রেন্ডার করা ভিডিও, টাইটেল ও পাবলিশের অবস্থাও মোছে (ওয়েবের vidClean + vidStoreClearAll)
+                ev.clearRender()
                 ev.resetVideoDefaults()
                 if (RenderBus.status.value is RenderStatus.Done) RenderBus.status.value = RenderStatus.Idle   // রেন্ডার করা ভিডিওর পেইজ (ওয়েবের vidClean)
                 vcMsg = true to (

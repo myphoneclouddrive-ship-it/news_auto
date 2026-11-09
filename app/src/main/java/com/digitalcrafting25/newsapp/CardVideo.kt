@@ -47,10 +47,45 @@ object CardVideoMaker {
     const val FPS = 30
     const val SR = 44100
 
+    /** এই টেমপ্লেট-লেখা-মাপের কার্ড আগেই সেভ করা আছে কিনা (থাকলে নতুন করে বানাতে হয় না) */
+    fun isSaved(ctx: Context, spec: CardSpec, w0: Int, h0: Int): Boolean {
+        val w = max(2, w0 and 1.inv())
+        val h = max(2, h0 and 1.inv())
+        val f = File(File(ctx.filesDir, "card_saved"), cacheKey(spec, w, h) + ".mp4")
+        return f.exists() && f.length() > 0L
+    }
+
+    /** সেভ করা কার্ডের চাবি: আউট্রোর লেখা ফিক্সড, তাই শুধু ইন্ট্রোর লেখা চাবিতে ধরা হয় */
+    private fun cacheKey(spec: CardSpec, w: Int, h: Int): String {
+        val logoSig = spec.logo?.let { u ->
+            if (u.scheme == "file") { val f = File(u.path ?: ""); "f:${u.path}:${f.length()}:${f.lastModified()}" } else u.toString()
+        } ?: "-"
+        val txt = if (spec.outro) "" else spec.title.trim().ifEmpty { CardDefaults.INTRO_HEAD } + "\u0001" + spec.subtitle.trim()
+        val raw = "v1|${spec.outro}|${spec.style.name}|$txt|$w|$h|$logoSig"
+        val d = java.security.MessageDigest.getInstance("SHA-1").digest(raw.toByteArray(Charsets.UTF_8))
+        return d.joinToString("") { "%02x".format(it) }.take(24)
+    }
+
+    /** সেভ করা কার্ড সর্বোচ্চ ৮০টা রাখে; বেশি হলে সবচেয়ে পুরোনোগুলো যায় */
+    private fun pruneSaved(dir: File, keep: Int = 80) {
+        val fs = dir.listFiles { f -> f.name.endsWith(".mp4") }?.sortedByDescending { it.lastModified() } ?: return
+        fs.drop(keep).forEach { runCatching { it.delete() } }
+    }
+
     /** কার্ডের MP4 বানিয়ে `filesDir/cards/`-এ রাখে; (ফাইল-Uri, দৈর্ঘ্য মি.সে.) ফেরত দেয়। ব্যর্থ হলে Exception ছোড়ে */
     fun make(ctx: Context, spec: CardSpec, w0: Int, h0: Int, onProgress: (Float) -> Unit = {}): Pair<Uri, Long> {
         val w = max(2, w0 and 1.inv())
         val h = max(2, h0 and 1.inv())
+        // একই টেমপ্লেট + লেখা + লোগো + মাপে আগে বানানো থাকলে সেভ করা ভিডিওটাই ফেরত (নতুন করে বানাতে হয় না)
+        val saved = File(ctx.filesDir, "card_saved").apply { mkdirs() }
+        val key = cacheKey(spec, w, h)
+        val hit = File(saved, "$key.mp4")
+        val durMs = ((if (spec.outro) OUTRO_SEC else INTRO_SEC) * 1000f).roundToInt().toLong()
+        if (hit.exists() && hit.length() > 0L) {
+            runCatching { hit.setLastModified(System.currentTimeMillis()) }
+            onProgress(1f)
+            return Uri.fromFile(hit) to durMs
+        }
         val dir = File(ctx.filesDir, "cards").apply { mkdirs() }
         val stamp = System.currentTimeMillis()
         val tag = if (spec.outro) "out" else "in"
@@ -76,8 +111,14 @@ object CardVideoMaker {
             } else {
                 tmpV.copyTo(outF, overwrite = true)
             }
+            // বানানো কার্ড স্টোরেজে সেভ রাখা হয় (পরেরবার একই টেমপ্লেট-লেখায় কাজে লাগবে)
+            val finalF = runCatching {
+                val tmp = File(saved, "$key.tmp")
+                outF.copyTo(tmp, overwrite = true)
+                if (tmp.renameTo(hit)) { outF.delete(); pruneSaved(saved); hit } else { tmp.delete(); outF }
+            }.getOrDefault(outF)
             onProgress(1f)
-            return Uri.fromFile(outF) to (scene.durationSec * 1000f).roundToInt().toLong()
+            return Uri.fromFile(finalF) to (scene.durationSec * 1000f).roundToInt().toLong()
         } catch (e: Throwable) {
             runCatching { outF.delete() }
             throw e

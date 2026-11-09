@@ -36,7 +36,7 @@ class RenderService : Service() {
 
     companion object {
         const val ACTION_CANCEL = "com.digitalcrafting25.newsapp.CANCEL_RENDER"
-        private const val NOTIF_ID = 1001
+        const val NOTIF_ID = 1001
         private const val DONE_ID = 1002
     }
 
@@ -60,7 +60,7 @@ class RenderService : Service() {
             return START_NOT_STICKY
         }
         ServiceCompat.startForeground(
-            this, NOTIF_ID, buildNotification(0, "শুরু হচ্ছে…"),
+            this, NOTIF_ID, buildNotification(0, "রেন্ডার হচ্ছে — 0%"),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
         begin(list)
@@ -92,7 +92,12 @@ class RenderService : Service() {
     private fun beginPass() {
         val pass = passes[passIdx]
         val spec = pass.spec
-        publishProgress(0)
+        val all0 = publishProgress(0)
+        // ০% থেকেই নোটিফিকেশনে বার + শতাংশ (আগে প্রথম অগ্রগতি আসা পর্যন্ত শতাংশ দেখাত না)
+        if (Notif.canPost(this)) {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIF_ID, buildNotification(all0, passText("রেন্ডার হচ্ছে — $all0%")))
+        }
         val out = File(cacheDir, "render_${System.currentTimeMillis()}_${pass.mode}.mp4")
         outFile = out
 
@@ -104,7 +109,7 @@ class RenderService : Service() {
         // ধাপ ৫: আগে ব্যাকগ্রাউন্ড থ্রেডে সব শব্দ মেশানো, তারপর Transformer
         if (Notif.canPost(this)) {
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIF_ID, buildNotification(0, passText("অডিও মেশানো হচ্ছে…")))
+                .notify(NOTIF_ID, buildNotification(all0, passText("অডিও মেশানো হচ্ছে — $all0%")))
         }
         val token = ++renderToken
         val wav = File(cacheDir, "mix_${System.currentTimeMillis()}.wav")
@@ -194,12 +199,19 @@ class RenderService : Service() {
             try {
                 // দুই ভিডিও হলে ফাইলের নামে প্ল্যাটফর্ম থাকে (HTML: facebook.mp4 / youtube.mp4)
                 val name = "news_" + passStamp + (if (multi) (if (pass.mode == "fb") "_facebook" else "_youtube") else "") + ".mp4"
-                val uri = saveToGallery(file, name)
+                // গ্যালারিতে নিজে সেভ হয় না: অ্যাপের নিজস্ব ফোল্ডারে থাকে; "💾 সেভ করুন" চাপলে তবেই গ্যালারিতে যায়
+                val dir = File(filesDir, "renders").apply { mkdirs() }
+                val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                val kept = LastRender.keptPaths(this)   // "শেষ রেন্ডার" অ্যাপ বন্ধ করে খুললেও ফিরবে, তাই ওগুলো মোছা হয় না
+                dir.listFiles()?.forEach { if (it.lastModified() < cutoff && it.absolutePath !in kept) runCatching { it.delete() } }   // একদিনের পুরোনো রেন্ডার মোছা
+                val dest = File(dir, name)
+                file.copyTo(dest, overwrite = true)
+                val uri = Uri.fromFile(dest)
                 if (!reuse) file.delete()
                 handler.post {
                     if (!running) { file.delete(); return@post }
                     val sp = pass.spec
-                    outputs += RenderOutput(pass.mode, uri, sp.aspect.w, sp.aspect.h + 2 * sp.fbBandPx.coerceAtLeast(0))
+                    outputs += RenderOutput(pass.mode, uri, sp.aspect.w, sp.aspect.h + 2 * sp.fbBandPx.coerceAtLeast(0), name)
                     passIdx++
                     runCatching { mixFile?.delete() }
                     mixFile = null
@@ -212,35 +224,21 @@ class RenderService : Service() {
                             beginPass()
                         }
                     } else {
+                        // আগে ডিস্কে মনে রাখা (অ্যাপ ব্যাকগ্রাউন্ডে/বন্ধ থাকলেও), তারপর UI-কে জানানো
+                        LastRender.onRendered(applicationContext, outputs.toList(), RenderBus.title, RenderBus.wp, RenderBus.merge, RenderBus.draftId)
                         RenderBus.status.value = RenderStatus.Done(outputs.toList())
                         finishUp()
                         Notif.post(
                             this, DONE_ID, Notif.CH_RENDER,
                             if (multi) "✅ ${outputs.size}টি ভিডিও তৈরি হয়েছে" else "✅ ভিডিও তৈরি হয়েছে",
-                            "গ্যালারি → Movies/NewsPublisher",
+                            "অ্যাপ খুলে \"🚀 পাবলিশ করুন\" চাপুন (বা \"💾 সেভ করুন\" দিয়ে গ্যালারিতে নিন)",
                         )
                     }
                 }
             } catch (e: Exception) {
-                handler.post { fail("সেভ করা যায়নি: ${e.message}") }
+                handler.post { fail("ভিডিও ফাইল রাখা যায়নি: ${e.message}") }
             }
         }.start()
-    }
-
-    private fun saveToGallery(file: File, name: String): Uri {
-        val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, name)
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/NewsPublisher")
-            put(MediaStore.Video.Media.IS_PENDING, 1)
-        }
-        val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-            ?: throw IllegalStateException("MediaStore এ ফাইল বানানো যায়নি")
-        contentResolver.openOutputStream(uri)!!.use { o -> file.inputStream().use { it.copyTo(o) } }
-        values.clear()
-        values.put(MediaStore.Video.Media.IS_PENDING, 0)
-        contentResolver.update(uri, values, null, null)
-        return uri
     }
 
     private fun cancel() {

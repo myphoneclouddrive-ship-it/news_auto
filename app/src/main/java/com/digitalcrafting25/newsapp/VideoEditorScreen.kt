@@ -200,21 +200,21 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
                 }
                 is RenderStatus.Done -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (s.outputs.size > 1) "✅ ${s.outputs.size}টি ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)" else "✅ ভিডিও তৈরি হয়েছে (Movies/NewsPublisher)")
+                        Text(if (s.outputs.size > 1) "✅ ${s.outputs.size}টি ভিডিও তৈরি হয়েছে" else "✅ ভিডিও তৈরি হয়েছে")
                         s.outputs.forEach { o ->
                             if (s.outputs.size > 1) Text("${o.label} · ${o.w}×${o.h}", fontWeight = FontWeight.Bold)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = {
                                     runCatching {
                                         ctx.startActivity(
-                                            Intent(Intent.ACTION_VIEW).setDataAndType(o.uri, "video/mp4")
+                                            Intent(Intent.ACTION_VIEW).setDataAndType(VideoShare.shareable(ctx, o.uri), "video/mp4")
                                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                                         )
                                     }
                                 }) { Text("▶️ দেখুন") }
                                 OutlinedButton(onClick = {
                                     val send = Intent(Intent.ACTION_SEND).setType("video/mp4")
-                                        .putExtra(Intent.EXTRA_STREAM, o.uri)
+                                        .putExtra(Intent.EXTRA_STREAM, VideoShare.shareable(ctx, o.uri))
                                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     runCatching { ctx.startActivity(Intent.createChooser(send, "শেয়ার করুন")) }
                                 }) { Text("📤 শেয়ার") }
@@ -398,9 +398,10 @@ private fun StageCard(
         hasTopAd = tl.layers.any { it.kind == LayerKind.AD_TOP },
         hasBottomAd = tl.layers.any { it.kind == LayerKind.AD_BOTTOM },
         onDismiss = { showPublish = false },
-        onRender = { fb, yt ->
+        onOld = { showPublish = false; vm.reopenLast() },
+        onRender = { fb, yt, wp ->
             showPublish = false
-            val err = vm.startRender(fb = fb, yt = yt)
+            val err = vm.startRender(fb = fb, yt = yt, wp = wp)
             setError(err)
             if (err == null) { awaiting = true; sawRunning = false }
         },
@@ -450,6 +451,8 @@ private fun StageCard(
         // বার্তা / রেন্ডারের অগ্রগতি
         error?.let { Text("⚠️ $it", color = ED.Err, fontSize = 13.sp) }
         info?.let { Text(it, color = ED.Ok, fontSize = 13.sp) }
+        vm.seedAsk?.let { SeedChoiceDialog(vm, it) }
+        if (vm.aspectMsg != null) AspectProgressDialog(vm)
         if (vm.seedMsg != null) SeedProgressDialog(vm, onBack)
     }
     }
@@ -703,7 +706,8 @@ private fun PublishDialog(
     hasTopAd: Boolean,
     hasBottomAd: Boolean,
     onDismiss: () -> Unit,
-    onRender: (fb: Boolean, yt: Boolean) -> Unit,   // yt = ইউটিউব বা ওয়ার্ডপ্রেস টিক (ওয়ার্ডপ্রেসে ইউটিউব ভিডিও)
+    onOld: () -> Unit,   // রেন্ডার ছাড়াই শেষ রেন্ডারের পেইজে (HTML-এর "পুরাতন রেন্ডার")
+    onRender: (fb: Boolean, yt: Boolean, wp: Boolean) -> Unit,   // yt = ইউটিউব বা ওয়ার্ডপ্রেস টিক (ওয়ার্ডপ্রেসে ইউটিউব ভিডিও)
 ) {
     var fb by remember { mutableStateOf(false) }
     var yt by remember { mutableStateOf(false) }
@@ -809,14 +813,19 @@ private fun PublishDialog(
             if (fb && (yt || wp)) {
                 Text("ফেইসবুক আর ইউটিউব দুটোর জন্য আলাদা দুটো ভিডিও রেন্ডার হবে (আগে ফেইসবুক, তারপর ইউটিউব)। সময় প্রায় দ্বিগুণ লাগবে।", color = Color(0xFFFBBF24), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 4.dp))
             }
-            Text("এখন রেন্ডার হয়ে ফোনে সেভ হবে। সরাসরি আপলোড এখনো নেই; রেন্ডারের পর পেইজ থেকে ভিডিও Facebook/YouTube অ্যাপে পাঠানো যাবে।", color = dSub, fontSize = 12.sp)
+            Text("রেন্ডার শেষে পেইজে একটাই \"🚀 পাবলিশ করুন\" বাটন আসবে; চাপলে এখানে টিক দেওয়া সব জায়গায় পাবলিশ হবে। টাইটেল আগে থেকে বসানো থাকবে।", color = dSub, fontSize = 12.sp)
 
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = fb || yt || wp, onClick = { onRender(fb, yt || wp) }, modifier = Modifier.weight(1f),
+                    enabled = fb || yt || wp, onClick = { onRender(fb, yt || wp, wp) }, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = ED.Publish, contentColor = Color.White),
                 ) { Text("🎬 রেন্ডার", fontWeight = FontWeight.Bold) }
+            }
+            if (vm.lastRender != null) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onOld, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), shape = RoundedCornerShape(8.dp),
+                ) { Text("🎞️ পুরাতন রেন্ডার (রেন্ডার ছাড়াই দেখুন)", color = dText) }
             }
         }
     }
@@ -848,6 +857,31 @@ private fun SeedProgressDialog(vm: EditorViewModel, onBack: () -> Unit) {
                 val mark = if (step > i) "✅" else if (step == i) "⏳" else "▫️"
                 Text("$mark $label", color = if (step >= i) Color.White else ED.Sub, fontSize = 14.sp)
             }
+        }
+    }
+}
+
+
+/** পোস্ট ↔ রিলস বদলানোর সময় ইন্ট্রো/আউট্রো কার্ড নতুন মাপে বানানোর প্রগ্রেস পপ-আপ: চলার সময় এডিটরে কিছু ছোঁয়া যায় না, শেষে নিজে সরে যায় */
+@Composable
+private fun AspectProgressDialog(vm: EditorViewModel) {
+    val pct = vm.aspectPercent
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { },
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().background(ED.Screen, RoundedCornerShape(16.dp)).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("⏳ ইন্ট্রো-আউট্রো নতুন মাপে হচ্ছে…", color = Color.White, fontSize = 17.sp)
+            Text(vm.aspectMsg ?: "", color = ED.Sub, fontSize = 13.sp)
+            LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth()) {
+                Text("$pct%", color = ED.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                if (vm.aspectStep.isNotEmpty()) Text("কার্ড ${vm.aspectStep}", color = ED.Sub, fontSize = 13.sp)
+            }
+            Text("একই টেমপ্লেট-লেখা আগে বানানো থাকলে সেভ করা কার্ডই বসে, নতুন করে বানাতে হয় না।", color = ED.Muted, fontSize = 12.sp)
         }
     }
 }

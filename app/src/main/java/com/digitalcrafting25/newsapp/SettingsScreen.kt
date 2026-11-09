@@ -252,8 +252,8 @@ private fun VideoClearBody(vm: SettingsViewModel, ev: EditorViewModel, ask: (Ask
     )
     Small("📝 অসমাপ্ত ভিডিও এডিট (ড্রাফট) ও তার ফাইল থাকবে। গ্যালারিতে সেভ করা ভিডিও, সেটিংস, লগইন ও সংযোগ ছোঁয়া হবে না।", Modifier.padding(top = 6.dp))
     AppBtn(
-        if (vm.vcBusy) "⏳ ক্লিয়ার হচ্ছে..." else "🧹 ক্লিয়ার ভিডিও ক্যাশ এন্ড ডাটা",
-        Modifier.padding(top = 10.dp), color = C.Red, enabled = !vm.vcBusy,
+        if (vm.vcBusy) "⏳ ক্লিয়ার হচ্ছে..." else if (ev.publish.busy) "⏳ পাবলিশ চলছে..." else "🧹 ক্লিয়ার ভিডিও ক্যাশ এন্ড ডাটা",
+        Modifier.padding(top = 10.dp), color = C.Red, enabled = !vm.vcBusy && !ev.publish.busy,
     ) {
         vm.vcMsg = null
         ask(Ask("রেন্ডার করে রাখা ভিডিও ও তথ্য, আর ভিডিও সেটিংসের সব সেভ (ইন্ট্রো, আউট্রো, লোগো, লেখা, ট্যাগ) মুছে রিসেট হবে।\n\nঅসমাপ্ত ভিডিও এডিট থাকবে। চালিয়ে যাবেন?") { vm.clearVideoData(ev) })

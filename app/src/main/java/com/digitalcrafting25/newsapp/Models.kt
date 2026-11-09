@@ -65,7 +65,7 @@ data class RenderPass(val mode: String, val spec: RenderSpec) {
 }
 
 /** রেন্ডার হয়ে গ্যালারিতে সেভ হওয়া একটা ভিডিও */
-data class RenderOutput(val mode: String, val uri: Uri, val w: Int, val h: Int) {
+data class RenderOutput(val mode: String, val uri: Uri, val w: Int, val h: Int, val fileName: String = "") {
     val label: String get() = if (mode == "fb") "ফেইসবুক" else "ইউটিউব"
 }
 
@@ -87,6 +87,12 @@ object RenderBus {
     /** পরপর যে ভিডিওগুলো রেন্ডার হবে (ফেইসবুক + ইউটিউব দুটো টিক দিলে দুটো) */
     @Volatile var passes: List<RenderPass> = emptyList()
     val status = MutableStateFlow<RenderStatus>(RenderStatus.Idle)
+    /** রেন্ডার শেষে "শেষ রেন্ডার মনে রাখা" (LastRender) সার্ভিস থেকেই লেখা হয়, তাই এগুলো রেন্ডার শুরুর সময় বসানো থাকে */
+    @Volatile var title: String = ""
+    @Volatile var wp: Boolean = false
+    /** true = পেইজ থেকে অন্য ভার্সন রেন্ডার (আগের রেন্ডারের সাথে জোড়া লাগে); false = নতুন রেন্ডার (আগেরটার জায়গা নেয়) */
+    @Volatile var merge: Boolean = false
+    @Volatile var draftId: Long = 0L
 }
 
 object AppState {

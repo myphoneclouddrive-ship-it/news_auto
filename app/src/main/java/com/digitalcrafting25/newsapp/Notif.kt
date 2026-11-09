@@ -31,6 +31,25 @@ object Notif {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
+    /** চলমান রেন্ডারের প্রগ্রেস-নোটিফিকেশন (০% থেকেই বার + শতাংশ দেখায়); সার্ভিস চালু হলে একই id-তে সেটাই আপডেট হয় */
+    fun progress(ctx: Context, id: Int, title: String, text: String, pct: Int) {
+        if (!canPost(ctx)) return
+        val n = NotificationCompat.Builder(ctx, CH_RENDER)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setProgress(100, pct.coerceIn(0, 100), false)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(openApp(ctx))
+            .build()
+        ctx.getSystemService(NotificationManager::class.java).notify(id, n)
+    }
+
+    fun cancel(ctx: Context, id: Int) {
+        ctx.getSystemService(NotificationManager::class.java).cancel(id)
+    }
+
     fun post(ctx: Context, id: Int, channel: String, title: String, text: String, pi: PendingIntent? = openApp(ctx)) {
         if (!canPost(ctx)) return
         val n = NotificationCompat.Builder(ctx, channel)

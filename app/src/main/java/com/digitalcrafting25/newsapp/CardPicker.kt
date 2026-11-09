@@ -179,3 +179,50 @@ private fun CardMakeBody(vm: EditorViewModel, outro: Boolean, onInfo: (String?) 
         }
     }
 }
+
+
+/**
+ * নতুন ভিডিও দেওয়ার পর, নিচের বিজ্ঞাপন/ইন্ট্রো-আউট্রো নিজে বসার আগে এই পপ-আপ: ইন্ট্রো-আউট্রোর টেমপ্লেট ও ইন্ট্রোর লেখা বাছা হয়।
+ * আগেরবার বাছা টেমপ্লেট/লেখা আগে থেকে বসানো থাকে; একই টেমপ্লেট-লেখায় আগে বানানো কার্ড সেভ করা আছে, তাই সরাসরি বসে যায়।
+ */
+@Composable
+fun SeedChoiceDialog(vm: EditorViewModel, init: EditorViewModel.SeedChoice) {
+    var intro by remember { mutableStateOf(init.intro) }
+    var outro by remember { mutableStateOf(init.outro) }
+    Dialog(
+        onDismissRequest = { },
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, dismissOnBackPress = false),
+    ) {
+        EditorDarkTheme {
+            Column(
+                Modifier.fillMaxSize().background(Color(0xFF111111)).verticalScroll(rememberScrollState())
+                    .padding(top = 28.dp, bottom = 12.dp, start = 14.dp, end = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("🎬 ইন্ট্রো-আউট্রো বাছুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(
+                    "ইন্ট্রো-আউট্রো ও নিচের বিজ্ঞাপন বসার আগে টেমপ্লেট আর লেখা ঠিক করুন। একই টেমপ্লেট-লেখা আগে বানানো থাকলে সেভ করা কার্ডটাই বসবে, নতুন করে বানাতে হবে না।",
+                    color = Color(0xFFBBBBBB), fontSize = 12.sp,
+                )
+                Text("🎬 ইন্ট্রো", color = ED.Amber, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                CardPreviewBox(intro, vm.aspect, maxHeight = 150.dp)
+                CardStyleStrip(intro, vm.aspect) { intro = intro.copy(style = it) }
+                OutlinedTextField(
+                    value = intro.title, onValueChange = { intro = intro.copy(title = it.take(40)) },
+                    label = { Text("বড় লেখা (যেমন: ব্রেকিং নিউজ)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = intro.subtitle, onValueChange = { intro = intro.copy(subtitle = it.take(70)) },
+                    label = { Text("নিচের ছোট লেখা (যেমন: সর্বশেষ সংবাদ • সবার আগে)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Text("🏁 আউট্রো", color = ED.Amber, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+                CardPreviewBox(outro, vm.aspect, maxHeight = 150.dp)
+                CardStyleStrip(outro, vm.aspect) { outro = outro.copy(style = it) }
+                Text("আউট্রোর লেখা ফিক্সড (ধন্যবাদ + লাইক/শেয়ার/সাবস্ক্রাইব), শুধু টেমপ্লেট বদলানো যায়।", color = ED.Muted, fontSize = 11.sp)
+                AppBtn("✅ ঠিক আছে — বসান", Modifier.fillMaxWidth().padding(top = 4.dp), color = C.Green) {
+                    vm.answerSeedChoice(EditorViewModel.SeedChoice(intro, outro))
+                }
+            }
+        }
+    }
+}

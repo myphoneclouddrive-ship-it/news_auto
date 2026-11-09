@@ -6,7 +6,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.ContentValues
 import android.net.Uri
+import android.provider.MediaStore
 
 /**
  * রেন্ডার করা ভিডিও অন্য অ্যাপে পাঠানো (শেয়ার ইন্টেন্ট)।
@@ -20,7 +22,39 @@ object VideoShare {
     const val YOUTUBE = "com.google.android.youtube"
 
     /** pkg = নির্দিষ্ট অ্যাপ (না থাকলে বা খুলতে না পারলে সাধারণ শেয়ার-তালিকা)। ফেরত দেয় ইউজারকে দেখানোর বার্তা। */
-    fun share(ctx: Context, uri: Uri, title: String, pkg: String? = null, appName: String = ""): String {
+    /** অ্যাপের নিজস্ব ফাইল (file://) অন্য অ্যাপকে দেওয়া যায় না, তাই FileProvider-এর content:// Uri */
+    fun shareable(ctx: Context, uri: Uri): Uri {
+        if (uri.scheme != "file") return uri
+        val f = java.io.File(uri.path ?: return uri)
+        return runCatching { androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f) }.getOrDefault(uri)
+    }
+
+    /** রেন্ডার করা ভিডিও গ্যালারিতে (Movies/NewsPublisher) সেভ — ব্লকিং, IO থ্রেডে ডাকুন */
+    fun saveToGallery(ctx: Context, src: Uri, name: String): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/NewsPublisher")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        val uri = ctx.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("MediaStore এ ফাইল বানানো যায়নি")
+        try {
+            ctx.contentResolver.openOutputStream(uri)!!.use { o ->
+                (ctx.contentResolver.openInputStream(src) ?: throw IllegalStateException("ভিডিও ফাইল খোলা যায়নি")).use { it.copyTo(o) }
+            }
+            values.clear()
+            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            ctx.contentResolver.update(uri, values, null, null)
+        } catch (e: Exception) {
+            runCatching { ctx.contentResolver.delete(uri, null, null) }
+            throw e
+        }
+        return uri
+    }
+
+    fun share(ctx: Context, uri0: Uri, title: String, pkg: String? = null, appName: String = ""): String {
+        val uri = shareable(ctx, uri0)
         val t = title.trim()
         var copied = false
         if (t.isNotEmpty()) {

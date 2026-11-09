@@ -47,6 +47,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".UploadKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".AiKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

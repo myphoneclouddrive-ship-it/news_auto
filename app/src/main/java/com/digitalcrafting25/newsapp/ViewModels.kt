@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,6 +91,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         saveDraft()
         tl.resetAll()
         currentDraftId = null
+        videoTitle = ""   // নতুন ভিডিওর টাইটেল নতুন করে আগে থেকে বসবে (আগেরটার টাইটেল থাকবে না)
     }
 
     /** ড্রাফটে "চালিয়ে যান"; চলতিটা আগে সেভ হয়ে থাকে */
@@ -102,6 +104,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun removeDraft(id: Long) {
+        // এই এডিট থেকে বানানো পুরাতন রেন্ডারও মোছা হয় (HTML-এর dRemove)
+        if (!publish.busy && (currentDraftId == id || lastRender?.draftId == id || LastRender.load(app)?.draftId == id)) clearRender()
         drafts.removeAll { it.id == id }
         if (currentDraftId == id) { tl.resetAll(); currentDraftId = null }
         persist(sync = false)
@@ -118,23 +122,57 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         set(v) { aspectState = v; FrameAspect.set(v) }
     init { FrameAspect.set(aspectState) }
 
-    /** পোস্ট/রিলস বদলানো: ইন্ট্রো/আউট্রো কার্ড নতুন মাপে আবার বানানো হয় (একটার পর একটা) */
+    /** পোস্ট/রিলস বদলানোর সময় কার্ড নতুন মাপে বানানোর বার্তা/শতাংশ; null = কিছু চলছে না (পপ-আপ দেখানোর জন্য) */
+    var aspectMsg by mutableStateOf<String?>(null)
+        private set
+    var aspectPercent by mutableIntStateOf(0)
+        private set
+    /** কয়টা কার্ডের মধ্যে কোনটা চলছে ("১/২") */
+    var aspectStep by mutableStateOf("")
+        private set
+
+    /**
+     * পোস্ট/রিলস বদলানো: ইন্ট্রো/আউট্রো কার্ড নতুন মাপে আবার বানানো হয় (একটার পর একটা), সাথে প্রগ্রেস পপ-আপ।
+     * একই টেমপ্লেট-লেখা-মাপে আগে বানানো কার্ড সেভ থাকলে নতুন করে বানানো হয় না, সেটাই বসে।
+     */
     fun changeAspect(a: Aspect) {
-        if (a == aspect) return
+        if (a == aspect || aspectMsg != null) return
         aspect = a
         val cards = tl.clips.filter { it.card != null && !it.isImage }.map { it.id to it.card!! }
         if (cards.isEmpty()) return
+        val n = cards.size
+        aspectPercent = 0
+        aspectMsg = "⏳ কার্ড নতুন মাপে প্রস্তুত হচ্ছে…"
         viewModelScope.launch {
-            for ((id, spec) in cards) {
-                while (cardBusy) delay(200)
-                val s2 = spec.copy(w = a.w, h = a.h)
-                cardBusy = true; cardProgress = 0
-                val r = withContext(Dispatchers.IO) {
-                    runCatching { CardVideoMaker.make(app, s2, a.w, a.h) { cardProgress = (it * 100f).toInt().coerceIn(0, 100) } }
+            try {
+                for ((i, pair) in cards.withIndex()) {
+                    val (id, spec) = pair
+                    while (cardBusy) delay(200)
+                    val s2 = spec.copy(w = a.w, h = a.h)
+                    val saved = CardVideoMaker.isSaved(app, s2, a.w, a.h)
+                    val sizeName = if (a == Aspect.PORTRAIT) "রিলস" else "পোস্ট"
+                    aspectStep = "${i + 1}/$n"
+                    aspectMsg = (if (spec.outro) "🏁 আউট্রো" else "🎬 ইন্ট্রো") + " — " + sizeName +
+                        (if (saved) " মাপের সেভ করা কার্ড বসানো হচ্ছে…" else " মাপে নতুন বানানো হচ্ছে…")
+                    aspectPercent = i * 100 / n
+                    cardBusy = true; cardProgress = 0
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching {
+                            CardVideoMaker.make(app, s2, a.w, a.h) {
+                                cardProgress = (it * 100f).toInt().coerceIn(0, 100)
+                                aspectPercent = ((i * 100 + cardProgress) / n).coerceIn(0, 100)
+                            }
+                        }
+                    }
+                    cardBusy = false
+                    if (aspect != a) return@launch
+                    r.onSuccess { (uri, dur) -> tl.setCard(id, s2, uri, dur) }
                 }
+                aspectPercent = 100
+            } finally {
                 cardBusy = false
-                if (aspect != a) return@launch   // এর মধ্যে আবার বদলানো হয়েছে
-                r.onSuccess { (uri, dur) -> tl.setCard(id, s2, uri, dur) }
+                aspectMsg = null
+                aspectStep = ""
             }
         }
     }
@@ -149,6 +187,90 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     var fbTop by mutableStateOf("")
     var fbBottom by mutableStateOf("")
     var fbColor by mutableIntStateOf(0xFF000000.toInt())
+
+    // ---- রেন্ডারের পরের "২ ভিডিও" পেইজ: শেষ রেন্ডার মনে রাখা, টাইটেল আগে থেকে বসা, একটাই পাবলিশ বাটন ----
+    /** এক বাটনে Facebook+YouTube+WordPress পাবলিশ (ViewModel-এর স্কোপে চলে) */
+    val publish = VideoPublishState(app, viewModelScope)
+    /** null না হলে "২ ভিডিও" পেইজ খোলা; অ্যাপ খুললে শেষ রেন্ডার থাকলে এটা নিজে থেকেই বসে */
+    var resultOutputs by mutableStateOf<List<RenderOutput>?>(null)
+    /** কোন কোন জায়গায় পাবলিশ হবে (রেন্ডারের টিক; পেইজের চিপ দিয়ে ✕ / + করা যায়, মনে থাকে) */
+    var targets by mutableStateOf(PubTargets())
+        private set
+
+    /** চিপ: k = fb/yt/wp। YouTube কাটলে WordPress-ও কাটে; WordPress যোগ করলে YouTube নিজে যোগ হয় (HTML-এর মতো) */
+    fun setTarget(k: String, add: Boolean, hasYt: Boolean) {
+        if (publish.busy) return
+        var t = targets
+        t = when (k) {
+            "yt" -> t.copy(yt = add, wp = if (add) t.wp else false)
+            "wp" -> if (add && hasYt) t.copy(wp = true, yt = true) else t.copy(wp = false)
+            else -> t.copy(fb = add)
+        }
+        targets = t
+        viewModelScope.launch(Dispatchers.IO) { LastRender.updateTargets(app, t) }
+    }
+    /** মনে রাখা শেষ রেন্ডার (নতুন পোস্ট পেইজে "আগের রেন্ডার দেখুন" বাটনের জন্য) */
+    var lastRender by mutableStateOf<LastRender.Rec?>(null)
+        private set
+    /** নতুন পোস্টের শিরোনাম (NewPostHost বসায়): ভিডিও টাইটেল আগে থেকে এটাই বসে */
+    var titleSeed by mutableStateOf("")
+    private var titleJob: kotlinx.coroutines.Job? = null
+
+    /** ভিডিও টাইটেলের ডিফল্ট: নতুন পোস্টের শিরোনাম → ইন্ট্রোর লেখা → ইন্ট্রো কার্ডের বড় লেখা (ডিফল্ট "ব্রেকিং নিউজ" বাদে) */
+    fun defaultTitle(): String {
+        titleSeed.trim().takeIf { it.isNotEmpty() }?.let { return it }
+        caption.trim().takeIf { it.isNotEmpty() }?.let { return it }
+        return tl.clips.firstNotNullOfOrNull { c ->
+            c.card?.takeIf { !it.outro }?.title?.trim()?.takeIf { it.isNotEmpty() && it != CardDefaults.INTRO_HEAD }
+        }.orEmpty()
+    }
+
+    /** টাইটেল বদলালে একটু থেমে (০.৪ সেকেন্ড) মনে রাখা রেন্ডারের সাথে সেভ */
+    fun persistTitleSoon() {
+        titleJob?.cancel()
+        titleJob = viewModelScope.launch {
+            delay(400)
+            val t = videoTitle
+            withContext(Dispatchers.IO) { LastRender.updateTitle(app, t) }
+        }
+    }
+
+    private fun applyRecord(r: LastRender.Rec) {
+        lastRender = r
+        if (r.title.isNotBlank()) videoTitle = r.title
+        targets = r.tg
+        publish.restore(r.pub)
+        resultOutputs = r.outputs
+    }
+
+    /** রেন্ডার শেষে "২ ভিডিও" পেইজ খোলা (সার্ভিস আগেই ডিস্কে রেখেছে; না পেলে সরাসরি আউটপুট দিয়ে) */
+    fun openResult(o: List<RenderOutput>) {
+        val r = LastRender.load(app)
+        if (r != null) applyRecord(r) else { publish.restore(PubState()); resultOutputs = o }
+        if (videoTitle.isBlank()) videoTitle = defaultTitle()
+    }
+
+    /** অ্যাপ নতুন করে খোলার পর টাইমলাইন ফাঁকা থাকে: এই রেন্ডারের এডিট-ড্রাফট (না পেলে সবচেয়ে নতুনটা) খুলে দেয়। ফাঁকা না থাকলে কিছু করে না */
+    fun loadEditForRender() {
+        if (tl.clips.isNotEmpty()) return
+        val id = lastRender?.draftId ?: 0L
+        (drafts.firstOrNull { it.id == id } ?: drafts.firstOrNull())?.let { openDraft(it.id) }
+    }
+
+    /** নতুন পোস্ট পেইজ থেকে "আগের রেন্ডার দেখুন" */
+    fun reopenLast() { (LastRender.load(app) ?: lastRender)?.let { applyRecord(it) } }
+
+    /** লগআউট: মনে রাখা রেন্ডার মোছা */
+    fun clearRender() {
+        LastRender.clear(app)
+        resultOutputs = null; lastRender = null; videoTitle = ""; targets = PubTargets()
+        publish.restore(PubState())
+    }
+
+    init {
+        // অ্যাপ বন্ধ করে খুললে আগের রেন্ডার (ভিডিও + টাইটেল + কোথায় পাবলিশ হয়ে গেছে) ফিরে আসে
+        LastRender.load(app)?.let { applyRecord(it) }
+    }
 
     /** চলমান কাজের Uri (ড্রাফট + এখনকার টাইমলাইন) — ক্যাশ ক্লিয়ারে এগুলো বাঁচিয়ে রাখা হয় */
     fun uriInUse(): Set<String> {
@@ -194,9 +316,55 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 added.add(clip)
             }
             if (front == null) tl.addAll(added) else tl.addAtEdge(added, front)
-            if (seed && added.isNotEmpty()) seedDefaults(added.first().id)
-            else if (seed) seedMsg = null
+            if (seed && added.isNotEmpty()) {
+                // নিচের বিজ্ঞাপন/ইন্ট্রো-আউট্রো বসার আগে পপ-আপ: কোন টেমপ্লেট, কী লেখা
+                seedMsg = null
+                val choice = askSeedChoice()
+                seedStep = 0
+                seedMsg = "⏳ ইন্ট্রো-আউট্রো, বিজ্ঞাপন, লোগো, ট্যাগ বসানো হচ্ছে…"
+                seedDefaults(added.first().id, choice)
+            } else if (seed) seedMsg = null
         }
+    }
+
+    /** নতুন ভিডিওর পর "ইন্ট্রো-আউট্রো বাছুন" পপ-আপের মান (ইন্ট্রো ও আউট্রোর টেমপ্লেট + ইন্ট্রোর লেখা) */
+    data class SeedChoice(val intro: CardSpec, val outro: CardSpec)
+    /** null না হলে পপ-আপ দেখায়; ব্যবহারকারী "ঠিক আছে" চাপলে answerSeedChoice ডাকে */
+    var seedAsk by mutableStateOf<SeedChoice?>(null)
+        private set
+    private var seedAnswer: CompletableDeferred<SeedChoice>? = null
+
+    private fun seedPrefs() = app.getSharedPreferences("seed_card_choice", android.content.Context.MODE_PRIVATE)
+
+    /** আগেরবার বাছা টেমপ্লেট/লেখা দিয়ে পপ-আপ খুলে উত্তরের জন্য অপেক্ষা করে */
+    private suspend fun askSeedChoice(): SeedChoice {
+        val p = seedPrefs()
+        fun styleOf(k: String) = runCatching { CardStyle.valueOf(p.getString(k, "") ?: "") }.getOrDefault(CardStyle.GLOBAL)
+        val logoU = SettingsMedia.logos(app).firstOrNull()?.let { SettingsMedia.logoUri(app, it) }
+        val cardLogo = logo ?: logoU
+        val title = caption.trim().ifEmpty { p.getString("intro_title", null) ?: CardDefaults.INTRO_HEAD }
+        val intro = CardDefaults.intro(title, cardLogo).copy(
+            style = styleOf("intro_style"),
+            subtitle = p.getString("intro_sub", null) ?: CardDefaults.INTRO_SUB,
+        )
+        val outro = CardDefaults.outro(cardLogo).copy(style = styleOf("outro_style"))
+        val d = CompletableDeferred<SeedChoice>()
+        seedAnswer = d
+        seedAsk = SeedChoice(intro, outro)
+        return d.await()
+    }
+
+    /** পপ-আপে "ঠিক আছে": বাছাই মনে রাখে (পরেরবার এটাই আগে থেকে বাছা থাকবে) ও বসানো চালু করে */
+    fun answerSeedChoice(c: SeedChoice) {
+        seedPrefs().edit()
+            .putString("intro_style", c.intro.style.name)
+            .putString("intro_title", c.intro.title)
+            .putString("intro_sub", c.intro.subtitle)
+            .putString("outro_style", c.outro.style.name)
+            .apply()
+        seedAsk = null
+        seedAnswer?.complete(c)
+        seedAnswer = null
     }
 
     /** নতুন ভিডিওর ডিফল্ট বসানোর অবস্থা (এডিটরে দেখানোর বার্তা); null = কিছু চলছে না */
@@ -221,7 +389,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
      * "নতুন পোস্ট → ভিডিও বাছুন" (HTML-এর vcSeed): ইন্ট্রো + আউট্রো, নিচের একটা বিজ্ঞাপন, লোগো, ট্যাগ ও স্ক্রলিং লেখা নিজে বসে।
      * সবই সাধারণ ক্লিপ/লেয়ার, তাই পরে একটা একটা করে মোছা/এডিট করা যায়। মাঝে ভিডিও বদলে/মুছে গেলে থেমে যায়।
      */
-    private suspend fun seedDefaults(firstClipId: Long) {
+    private suspend fun seedDefaults(firstClipId: Long, choice: SeedChoice) {
         fun alive() = tl.clips.any { it.id == firstClipId }
         try {
             seedMsg = "⏳ ডিফল্ট ইন্ট্রো-আউট্রো, বিজ্ঞাপন, লোগো, ট্যাগ বসানো হচ্ছে…"
@@ -229,11 +397,11 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             val logoU = logoOpt?.let { SettingsMedia.logoUri(app, it) }
             val cardLogo = logo ?: logoU
             // ইন্ট্রো-আউট্রো আগে: তারপর লেয়ারগুলো পুরো দৈর্ঘ্য জুড়ে বসে (ইন্ট্রো-আউট্রোর অংশে লেয়ার দেখায় না)
-            if (alive()) { seedStep = 0; seedMsg = "🎬 ডিফল্ট ইন্ট্রো বানানো হচ্ছে…"; makeCardNow(false, cardLogo) }
-            if (alive()) { seedStep = 1; seedMsg = "🏁 ডিফল্ট আউট্রো বানানো হচ্ছে…"; makeCardNow(true, cardLogo) }
+            if (alive()) { seedStep = 0; seedMsg = "🎬 ইন্ট্রো বসানো হচ্ছে…"; makeCardNow(false, cardLogo, choice.intro) }
+            if (alive()) { seedStep = 1; seedMsg = "🏁 আউট্রো বসানো হচ্ছে…"; makeCardNow(true, cardLogo, choice.outro) }
             if (!alive()) return
             seedStep = 2
-            seedMsg = "⏳ বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা বসানো হচ্ছে…"
+            seedMsg = "⏳ বিজ্ঞাপন, লোগো, ট্যাগ, নাম/পদবি, স্ক্রলিং লেখা বসানো হচ্ছে…"
             // লোগো (ওপরে ডানে)
             if (logoU != null && tl.layers.none { it.isLogoLayer() }) tl.addLayer(LayerKind.LOGO, uri = logoU)
             // নিচের বিজ্ঞাপন: সেটিংসের প্রথমটা, না থাকলে "বিজ্ঞাপন এরিয়া" ডিফল্ট ব্যানার
@@ -248,6 +416,27 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 tl.selectedLayerId?.let { id -> tl.updateLayer(id) { it.withTime(0L, tl.totalMs) } }
             }
             if (tl.layers.none { it is TickerLayer }) tl.addLayer(LayerKind.TICKER, text = SEED_TICKER)
+            // নাম/পদবির বার (HTML-এর মতো): মূল ভিডিও শুরুর (ইন্ট্রোর পরের) ১০ সেকেন্ড পর আসে, ৫ সেকেন্ড থাকে।
+            // লেখা = সেটিংসের সাইটের নাম + ট্যাগলাইন (পদবির জায়গায়); পরে লেয়ার এডিটে লেখা/সময় বদলানো বা মোছা যায়
+            if (alive() && tl.layers.none { it is NameBarLayer }) {
+                val cfg = runCatching { withContext(Dispatchers.IO) { Fs.cardCfg(app) } }.getOrNull()
+                val siteName = cfg?.siteName?.trim().orEmpty()
+                val tagline = cfg?.siteTagline?.trim().orEmpty()
+                if (siteName.isNotEmpty() || tagline.isNotEmpty()) {
+                    tl.addLayer(LayerKind.NAME_BAR, text = siteName.ifEmpty { tagline })
+                    tl.selectedLayerId?.let { id ->
+                        val introEnd = tl.cardClip(false)?.lengthMs() ?: 0L
+                        val mainEnd = tl.totalMs - (tl.cardClip(true)?.lengthMs() ?: 0L)   // আউট্রোর আগ পর্যন্ত
+                        var st = introEnd + 10_000L
+                        var du = 5_000L
+                        if (st > mainEnd - 1_000L) { st = maxOf(introEnd, mainEnd - du) }   // ভিডিও খুব ছোট হলে শেষের দিকে
+                        du = minOf(du, maxOf(1_000L, mainEnd - st))
+                        tl.updateLayer(id) { l ->
+                            (l as? NameBarLayer)?.copy(name = siteName.ifEmpty { tagline }, title = tagline)?.withTime(st, st + du) ?: l
+                        }
+                    }
+                }
+            }
             tl.selectedId = null
             tl.selectedLayerId = null
             tl.playheadMs = 0L
@@ -260,11 +449,11 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** একটা কার্ড (ইন্ট্রো/আউট্রো) বানিয়ে টাইমলাইনে বসায়; চলমান আরেকটা কার্ড বানানো শেষ হওয়া পর্যন্ত অপেক্ষা করে */
-    private suspend fun makeCardNow(outro: Boolean, cardLogo: Uri?): Boolean {
+    private suspend fun makeCardNow(outro: Boolean, cardLogo: Uri?, base: CardSpec? = null): Boolean {
         if (tl.cardClip(outro) != null) return true
         while (cardBusy) delay(200)
         val (w, h) = aspect.w to aspect.h
-        val spec = (if (outro) CardDefaults.outro(cardLogo) else CardDefaults.intro(caption, cardLogo)).copy(w = w, h = h)
+        val spec = (base ?: (if (outro) CardDefaults.outro(cardLogo) else CardDefaults.intro(caption, cardLogo))).copy(w = w, h = h)
         cardBusy = true
         cardProgress = 0
         val r = withContext(Dispatchers.IO) {
@@ -337,7 +526,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
      * - ফেইসবুক: ব্যানার বা লেখা থাকলে ওপরে-নিচে সাদা ব্যান্ড; ব্যানার ওই ব্যান্ডে বসে (ভিডিওর ভেতরে নয়), লেখা শুধু সেই দিকে যেদিকে ব্যানার নেই
      * - ইউটিউব: ১২৮০×৭২০, শুধু নিচের ব্যানার ভিতরে (ওপরের ব্যানার বসে না)
      */
-    fun startRender(fb: Boolean = false, yt: Boolean = false): String? {
+    fun startRender(fb: Boolean = false, yt: Boolean = false, wp: Boolean = false, merge: Boolean = false): String? {
         if (!fb && !yt) return "কোথায় পাবলিশ হবে সেটা বাছুন"
         if (clips.isEmpty()) return "আগে অন্তত একটা ভিডিও বা ছবি যোগ করুন"
         for ((i, c) in clips.withIndex()) {
@@ -359,6 +548,10 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val band = if (fb && aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
         val asp = aspect
         FrameAspect.set(asp)
+        // ভিডিও টাইটেল আগে থেকে বসে (পরে পেইজে বদলানো যায়); রেন্ডার শেষে সার্ভিস এগুলো দিয়ে "শেষ রেন্ডার" মনে রাখে
+        if (videoTitle.isBlank()) videoTitle = defaultTitle()
+        saveDraft()   // রেন্ডার কোন এডিট ড্রাফট থেকে, সেটা মনে রাখতে (ড্রাফট মুছলে এই রেন্ডারও মোছা হয়)
+        RenderBus.title = videoTitle; RenderBus.wp = wp; RenderBus.merge = merge; RenderBus.draftId = currentDraftId ?: 0L
         val snapClips = clips.toList()
         val snapLayers = tl.layers.toList()
         val cap = caption
@@ -373,7 +566,9 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         if (fb) plans += Plan("fb", band, snapLayers, top, bottom)
         if (yt) plans += Plan("yt", 0, snapLayers.filterNot { it is AdLayer && it.isTop }, "", "")   // ইউটিউবে ওপরের ব্যানার বসে না
         RenderBus.status.value = RenderStatus.Running(0, 1, plans.size, if (plans.first().mode == "fb") "ফেইসবুক" else "ইউটিউব")
-        viewModelScope.launch {
+        // রেন্ডার চাপার সঙ্গে সঙ্গেই নোটিফিকেশনে ০% (কার্ড মাপ মেলানোর সময়টাতেও); সার্ভিস চালু হলে এটাই আপডেট হয়
+        Notif.progress(app, RenderService.NOTIF_ID, "নিউজ পাবলিশার", "রেন্ডার হচ্ছে — 0%", 0)
+        renderJob = viewModelScope.launch {
             // কার্ড (ইন্ট্রো/আউট্রো) যে মাপে বানানো সেটা পাসের ক্যানভাসের মাপের সাথে না মিললে ওই মাপে আবার বানানো
             // (দৈর্ঘ্য একই থাকে, তাই টাইমলাইন/লেয়ারের সময় বদলায় না; ব্যর্থ হলে আগের ফাইলই চলে)
             val built = withContext(Dispatchers.IO) {
@@ -403,12 +598,28 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
             RenderBus.passes = built
-            ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
+            try {
+                ContextCompat.startForegroundService(app, Intent(app, RenderService::class.java))
+            } catch (e: Exception) {
+                Notif.cancel(app, RenderService.NOTIF_ID)
+                RenderBus.status.value = RenderStatus.Failed(e.message ?: "রেন্ডার শুরু করা যায়নি")
+            }
         }
         return null
     }
 
+    private var renderJob: kotlinx.coroutines.Job? = null
+
     fun cancelRender() {
+        // সার্ভিস চালুর আগের প্রস্তুতি (কার্ড মাপ মেলানো) চলতে থাকলে সেটাই থামে, সার্ভিস আর চালু হয় না
+        val j = renderJob
+        if (j != null && j.isActive) {
+            j.cancel()
+            renderJob = null
+            RenderBus.status.value = RenderStatus.Idle
+            Notif.cancel(app, RenderService.NOTIF_ID)
+            return
+        }
         app.startService(Intent(app, RenderService::class.java).setAction(RenderService.ACTION_CANCEL))
     }
 }

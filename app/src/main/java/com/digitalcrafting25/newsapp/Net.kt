@@ -43,7 +43,7 @@ object Net {
                 if (check(cm)) return@launch
                 delay(500); waited += 500
             }
-            if (!check(cm) && AppState.foreground && !AiKeepAliveService.active) _locked.value = true
+            if (!check(cm) && AppState.foreground && !AiKeepAliveService.active && !UploadKeepAliveService.active) _locked.value = true
         }
     }
 

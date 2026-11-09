@@ -166,14 +166,14 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
         )
     }
     SideEffect { np.onOldCancelled = { sched.markGone(it) } }   // এডিট করা পোস্ট নতুন করে সিডিউল হলে পুরনোটা তালিকা থেকে সরে যায়
-    var page by rememberSaveable { mutableStateOf(Page.DASH) }
+    var page by rememberSaveable { mutableStateOf(if (ev.resultOutputs != null) Page.NEW else Page.DASH) }   // আগের রেন্ডার থাকলে অ্যাপ খুলেই সেখানে
     var navH by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     BackHandler(enabled = page != Page.DASH) { page = Page.DASH }
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            if (!EditorUi.fullscreen) TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); auth.logout() })
+            if (!EditorUi.fullscreen) TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); ev.clearRender(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
                 val tick by Net.refreshTick.collectAsStateWithLifecycle()
@@ -284,15 +284,23 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
     }
     BackHandler(enabled = editor) { ev.saveDraft(); editor = false }
     // রেন্ডার শেষে HTML-এর "২ ভিডিও" পেইজ; ব্যাক = এডিটে ফেরা, "নতুন পোস্টে ফিরুন" = সাধারণ নতুন পোস্ট
-    var resultOutputs by remember { mutableStateOf<List<RenderOutput>?>(null) }
+    // (রেন্ডার মনে রাখা হয়: অ্যাপ বন্ধ করে খুললেও ev.resultOutputs ফিরে আসে)
+    val nt = np.title
+    SideEffect { ev.titleSeed = nt }   // ভিডিও টাইটেল আগে থেকে বসাতে নতুন পোস্টের শিরোনাম
+    val resultOutputs = ev.resultOutputs
     if (resultOutputs != null) {
         VideoResultScreen(
-            ev, resultOutputs!!,
-            onBack = { resultOutputs = null; editor = true },
-            onNewPost = { resultOutputs = null },
+            ev, resultOutputs,
+            onBack = {
+                ev.resultOutputs = null
+                // অ্যাপ নতুন করে খোলার পর টাইমলাইন ফাঁকা থাকে; সর্বশেষ এডিট ড্রাফট খুলে এডিটে ফেরা
+                ev.loadEditForRender()
+                editor = true
+            },
+            onNewPost = { ev.resultOutputs = null },
         )
     } else if (editor) {
-        VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false }, onRendered = { o -> ev.saveDraft(); editor = false; resultOutputs = o })
+        VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false }, onRendered = { o -> ev.saveDraft(); editor = false; ev.openResult(o) })
     } else {
         NewPostScreen(np, ads, onOpenVideo = {
             pickVideo.launch(
@@ -351,7 +359,7 @@ fun DraftList(ev: EditorViewModel, onOpen: (Long) -> Unit) {
     delId?.let { id ->
         AlertDialog(
             onDismissRequest = { delId = null },
-            text = { Text("এই অসমাপ্ত এডিট মুছে ফেলবেন?") },
+            text = { Text(if (ev.lastRender?.draftId == id) "এই অসমাপ্ত এডিট ও পুরাতন রেন্ডার মুছে ফেলবেন?" else "এই অসমাপ্ত এডিট মুছে ফেলবেন?") },
             confirmButton = { androidx.compose.material3.TextButton(onClick = { ev.removeDraft(id); delId = null }) { Text("মুছুন") } },
             dismissButton = { androidx.compose.material3.TextButton(onClick = { delId = null }) { Text("না") } },
         )
