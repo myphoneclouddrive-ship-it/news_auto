@@ -227,6 +227,7 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                                 LayerKind.TAG -> "ট্যাগ"
                                 LayerKind.TICKER -> "এখানে স্ক্রলিং খবর লিখুন"
                                 LayerKind.NAME_BAR -> "আপনার নাম"
+                                LayerKind.WATERMARK -> "ওয়াটারমার্ক"
                                 else -> "আপনার লেখা"
                             },
                         )
@@ -504,6 +505,7 @@ fun EditorDockBar(
                                     DockBtn("logo", "লোগো", active = tl.layers.any { it.isLogoLayer() }) { act.add(LayerKind.LOGO) }
                                     DockBtn("pin", "ট্যাগ", active = tl.layers.any { it is TagLayer }) { act.add(LayerKind.TAG) }
                                     DockBtn("user", "নাম/পদবি") { act.add(LayerKind.NAME_BAR) }
+                                    DockBtn("💧", "ওয়াটারমার্ক", active = tl.layers.any { it is WatermarkLayer }) { act.add(LayerKind.WATERMARK) }
                                     DockBtn("ticker", "স্ক্রলিং লেখা", active = tl.layers.any { it is TickerLayer }) { act.add(LayerKind.TICKER) }
                                 }
                                 "ads" -> {

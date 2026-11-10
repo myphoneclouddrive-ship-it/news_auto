@@ -140,6 +140,7 @@ class LayerFrameRenderer(
             when (l) {
                 is TextLayer -> drawText(cv, l)
                 is TagLayer -> HtmlBrand.drawTag(cv, w.toFloat(), h.toFloat(), l, topInset, bottomBase)
+                is WatermarkLayer -> WatermarkDraw.draw(cv, w.toFloat(), h.toFloat(), l)
                 is ImageLayer -> drawImage(cv, l, topInset, bottomBase)
                 is AdLayer -> drawAdAt(cv, l, adRect(l), ms)
                 is TickerLayer -> HtmlBrand.drawTicker(cv, w.toFloat(), h.toFloat(), l, ms, inFrame)

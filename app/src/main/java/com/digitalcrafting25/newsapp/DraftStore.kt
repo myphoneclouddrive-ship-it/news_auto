@@ -173,6 +173,12 @@ object DraftStore {
                 put("t", "tag"); put("text", l.text); put("corner", l.corner.name)
                 put("color", l.color); put("bg", l.bgColor); put("size", l.sizeFrac.toDouble())
             }
+            is WatermarkLayer -> {
+                put("t", "wm"); put("text", l.text); put("style", l.style)
+                put("color", l.color); put("bg", l.bgColor); put("opacity", l.opacity.toDouble())
+                put("size", l.sizeFrac.toDouble()); put("bold", l.bold); put("shadow", l.shadow); put("round", l.round)
+                put("x", l.x.toDouble()); put("y", l.y.toDouble()); put("rot", l.rotation.toDouble())
+            }
             is TickerLayer -> {
                 put("t", "ticker"); put("text", l.text); put("color", l.color); put("bg", l.bgColor)
                 put("barH", l.barHeightFrac.toDouble()); put("speed", l.speed.toDouble())
@@ -220,6 +226,11 @@ object DraftStore {
                 id, s, e, o.optString("text"),
                 runCatching { Corner.valueOf(o.optString("corner")) }.getOrDefault(Corner.TOP_LEFT),
                 o.optInt("color", -1), o.optInt("bg", 0xFF000000.toInt()), o.f("size", 0.03f),
+            )
+            "wm" -> WatermarkLayer(
+                id, s, e, o.optString("text"), o.optInt("style", 0), o.optInt("color", -1), o.optInt("bg", 0),
+                o.f("opacity", 0.6f), o.f("size", 0.08f), o.optBoolean("bold", true), o.optBoolean("shadow", true),
+                o.optBoolean("round", false), o.f("x", 0.5f), o.f("y", 0.5f), o.f("rot", 0f),
             )
             "ticker" -> TickerLayer(
                 id, s, e, o.optString("text"), o.optInt("color", -1), o.optInt("bg", 0xFFD32F2F.toInt()),

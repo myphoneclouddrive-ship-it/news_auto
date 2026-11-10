@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.layout
@@ -92,6 +93,7 @@ private inline fun <reified T : Layer> Timeline.edit(id: Long, crossinline f: (T
 internal fun layerSummary(l: Layer): String = when (l) {
     is TextLayer -> l.text.replace('\n', ' ').take(20)
     is TagLayer -> l.text.take(20)
+    is WatermarkLayer -> l.text.replace('\n', ' ').take(20)
     is ImageLayer -> if (l.uri == null) "ছবি নেই" else ""
     is AdLayer -> if (l.uri == null) "ছবি নেই" else ""
     is TickerLayer -> l.text.replace('\n', ' ').take(20)
@@ -170,6 +172,17 @@ fun LayerOverlay(tl: Timeline) {
                         drawIntoCanvas { c ->
                             val r = HtmlBrand.drawTag(c.nativeCanvas, size.width, size.height, l, brandInsets.first * size.height / hPx, brandInsets.second * size.height / hPx)
                             if (r != null && l.id == tl.selectedLayerId) drawRect(ED.Amber, Offset(r.left, r.top), Size(r.width(), r.height()), style = Stroke(2f))
+                        }
+                    }
+                }
+                // ওয়াটারমার্ক: রেন্ডারের সাথে একই কোডে (WatermarkDraw)
+                is WatermarkLayer -> if (l.text.isNotBlank()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawIntoCanvas { c ->
+                            WatermarkDraw.draw(
+                                c.nativeCanvas, size.width, size.height, l,
+                                if (l.id == tl.selectedLayerId) ED.Amber.toArgb() else 0,
+                            )
                         }
                     }
                 }
@@ -314,6 +327,41 @@ fun LayerEditor(tl: Timeline, l: Layer, onReplaceImage: () -> Unit) {
                 LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<TextLayer>(l.id) { it.copy(x = v) } }
                 LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<TextLayer>(l.id) { it.copy(y = v) } }
                 RotSlider(l.rotation) { v -> tl.edit<TextLayer>(l.id) { it.copy(rotation = v) } }
+            }
+
+            is WatermarkLayer -> {
+                OutlinedTextField(
+                    value = l.text,
+                    onValueChange = { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(text = v) } },
+                    label = { Text("ওয়াটারমার্কের লেখা") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("তৈরি স্টাইল (চাপলে নিচের সব সেটিং ওই স্টাইলের মতো হয়, তারপর নিজের মতো বদলানো যায়)", fontSize = 12.sp, color = ED.Sub)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WatermarkStyle.ALL.forEachIndexed { i, p ->
+                        FilterChip(
+                            selected = l.style == i,
+                            onClick = { tl.edit<WatermarkLayer>(l.id) { WatermarkStyle.apply(it, i) } },
+                            label = { Text(p.name) },
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Checkbox(checked = l.bold, onCheckedChange = { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(bold = v) } })
+                    Text("বোল্ড", fontSize = 13.sp)
+                    Checkbox(checked = l.shadow, onCheckedChange = { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(shadow = v) } })
+                    Text("ছায়া", fontSize = 13.sp)
+                    Checkbox(checked = l.round, onCheckedChange = { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(round = v) } })
+                    Text("গোল পট্টি", fontSize = 13.sp)
+                }
+                ColorRow("লেখার রং", l.color, false) { c -> tl.edit<WatermarkLayer>(l.id) { it.copy(color = c) } }
+                ColorRow("ব্যাকগ্রাউন্ড (পট্টি)", l.bgColor, true) { c -> tl.edit<WatermarkLayer>(l.id) { it.copy(bgColor = c) } }
+                LSlider("স্বচ্ছতা (কম = ঝাপসা)", l.opacity, 0.1f..1f) { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(opacity = v) } }
+                LSlider("লেখার মাপ", l.sizeFrac, 0.03f..0.3f) { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(sizeFrac = v) } }
+                LSlider("ডান-বাম অবস্থান", l.x, 0f..1f) { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(x = v) } }
+                LSlider("ওপর-নিচ অবস্থান", l.y, 0f..1f) { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(y = v) } }
+                RotSlider(l.rotation) { v -> tl.edit<WatermarkLayer>(l.id) { it.copy(rotation = v) } }
             }
 
             is ImageLayer -> {

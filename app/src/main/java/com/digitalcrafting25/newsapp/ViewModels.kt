@@ -732,7 +732,14 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                     .setMimeType("application/vnd.android.package-archive")
                     // শেষের নোটিফিকেশন আমাদের নিজের (UpdateDoneReceiver): ট্যাপ করলে Download ফোল্ডার খোলে
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                    .setDestinationInExternalPublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS, Updater.apkFileName(info.versionCode))
+                    .setDestinationUri(
+                        Uri.fromFile(
+                            java.io.File(
+                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                Updater.apkFileName(info.versionCode),
+                            ),
+                        ),
+                    )
                 val id = dm.enqueue(req)
                 Updater.rememberDownload(app, id, info.versionCode)
 

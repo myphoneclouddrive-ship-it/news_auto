@@ -599,7 +599,7 @@ private fun wrapDeg(d: Float): Float {
 
 /**
  * স্টেজে টেনে সরানো ও দুই আঙুলে বড়-ছোট করা (HTML-এর স্টেজ ড্র্যাগ): বাছা যেকোনো ভিজ্যুয়াল লেয়ারের জন্য।
- * - লেখা, ছবি/লোগো: এক আঙুলে অবস্থান (x, y), চিমটিতে মাপ, দুই আঙুল ঘোরালে ঘোরে।
+ * - লেখা, ওয়াটারমার্ক, ছবি/লোগো: এক আঙুলে অবস্থান (x, y), চিমটিতে মাপ, দুই আঙুল ঘোরালে ঘোরে।
  * - ট্যাগ: টানলে যে কোণার দিকে নিয়ে যাবেন সেই কোণায় বসে (৪ কোণা); চিমটিতে মাপ (প্রস্থের ৩–১০%)।
  * - স্ক্রলিং লেখা: ওপর-নিচে টানলে নিচ থেকে দূরত্ব বদলায়; চিমটিতে বারের উচ্চতা।
  * - নাম/পদবি: বাঁ-ডানে টানলে পাশ বদলায় (বাম/ডান), ওপর-নিচে টানলে "ওপরে তোলা"; চিমটিতে বারের মাপ।
@@ -654,6 +654,12 @@ private fun StageDragLayer(tl: Timeline, playing: Boolean) {
                             x = (cur.x + dx).coerceIn(0f, 1f),
                             y = (cur.y + dy).coerceIn(0f, 1f),
                             sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.2f),
+                            rotation = wrapDeg(cur.rotation + rotDeg),
+                        )
+                        is WatermarkLayer -> cur.copy(
+                            x = (cur.x + dx).coerceIn(0f, 1f),
+                            y = (cur.y + dy).coerceIn(0f, 1f),
+                            sizeFrac = (cur.sizeFrac * zoom).coerceIn(0.03f, 0.3f),
                             rotation = wrapDeg(cur.rotation + rotDeg),
                         )
                         is ImageLayer -> {

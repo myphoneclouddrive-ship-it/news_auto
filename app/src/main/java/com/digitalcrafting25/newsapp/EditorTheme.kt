@@ -67,6 +67,7 @@ object ED {
             LayerKind.IMAGE -> 0xFFE8825C
             LayerKind.LOGO -> 0xFF36B5AC
             LayerKind.TAG -> 0xFF2FA4C9
+            LayerKind.WATERMARK -> 0xFF5BB5E0
             LayerKind.TICKER -> 0xFF7BB661
             LayerKind.NAME_BAR -> 0xFF4A8FE0
             LayerKind.AD_BOTTOM -> 0xFFD9A441

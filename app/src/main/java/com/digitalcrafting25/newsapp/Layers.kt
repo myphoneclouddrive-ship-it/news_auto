@@ -13,6 +13,7 @@ enum class LayerKind(val label: String, val isAudio: Boolean = false) {
     IMAGE("🖼️ ছবি"),
     LOGO("🏷️ লোগো"),
     TAG("📍 ট্যাগ"),
+    WATERMARK("💧 ওয়াটারমার্ক"),
     TICKER("📜 স্ক্রলিং লেখা"),
     NAME_BAR("👤 নাম/পদবি"),
     AD_BOTTOM("🖼️ নিচের বিজ্ঞাপন"),
@@ -95,7 +96,7 @@ fun Layer.isLogoLayer(): Boolean = this is ImageLayer && isLogo
 /** HTML-এর মতো একটাই, টাইমলাইনে বার নেই, ইন্ট্রো/আউট্রো ছাড়া পুরো ভিডিওতে: লোগো ও স্ক্রলিং লেখা */
 fun Layer.isSingletonLayer(): Boolean = isLogoLayer() || this is TickerLayer
 
-fun Layer.hiddenInCard(): Boolean = this is TickerLayer || this is AdLayer || this is TagLayer || (this is ImageLayer && isLogo)
+fun Layer.hiddenInCard(): Boolean = this is TickerLayer || this is AdLayer || this is TagLayer || this is WatermarkLayer || (this is ImageLayer && isLogo)
 
 /** "আবার দেখান"-এর শেষ সীমা: আউট্রো শুরুর ১৫ সেকেন্ড আগে (আউট্রো না থাকলে ভিডিওর শেষের ১৫ সেকেন্ড আগে) */
 fun repeatStopMs(clips: List<Clip>): Long {
@@ -159,6 +160,60 @@ data class TagLayer(
     override val kind get() = LayerKind.TAG
     override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
     override fun withId(id: Long) = copy(id = id)
+}
+
+/**
+ * ওয়াটারমার্ক: ভিডিওর ওপর (ডিফল্টে মাঝখানে) আধা-স্বচ্ছ লেখা। ৪টা তৈরি স্টাইল (WatermarkStyle) থেকে শুরু করে
+ * লেখা, রং, স্বচ্ছতা, মাপ, অবস্থান, ঘোরানো সবই বদলানো যায়। প্রিভিউ ও রেন্ডার একই কোডে (WatermarkDraw) আঁকে।
+ */
+data class WatermarkLayer(
+    override val id: Long,
+    override val startMs: Long,
+    override val endMs: Long,
+    val text: String = "ওয়াটারমার্ক",
+    val style: Int = 0,              // শেষ বাছা তৈরি স্টাইলের নম্বর (WatermarkStyle.ALL-এর index)
+    val color: Int = WHITE,          // লেখার রং
+    val bgColor: Int = 0,            // ০ = ব্যাকগ্রাউন্ড নেই
+    val opacity: Float = 0.6f,       // ০.১..১ (লেখা + ব্যাকগ্রাউন্ড একসাথে)
+    val sizeFrac: Float = 0.08f,     // ফ্রেমের ছোট দিকের (min(প্রস্থ, উচ্চতা)) ভগ্নাংশ
+    val bold: Boolean = true,
+    val shadow: Boolean = true,      // লেখার নিচে নরম ছায়া
+    val round: Boolean = false,      // ব্যাকগ্রাউন্ড গোল (ক্যাপসুল) কিনা
+    val x: Float = 0.5f,             // কেন্দ্রের অবস্থান, ফ্রেমের ভগ্নাংশ
+    val y: Float = 0.5f,
+    val rotation: Float = 0f,        // ডিগ্রি (-১৮০..১৮০), কেন্দ্র ঘিরে ঘড়ির কাঁটার দিকে +
+) : Layer {
+    override val kind get() = LayerKind.WATERMARK
+    override fun withTime(startMs: Long, endMs: Long) = copy(startMs = startMs, endMs = endMs)
+    override fun withId(id: Long) = copy(id = id)
+}
+
+/** ওয়াটারমার্কের ৪টা তৈরি স্টাইল */
+object WatermarkStyle {
+    class Preset(
+        val name: String,
+        val color: Int, val bgColor: Int, val opacity: Float, val sizeFrac: Float,
+        val bold: Boolean, val shadow: Boolean, val round: Boolean, val rotation: Float,
+    )
+
+    val ALL: List<Preset> = listOf(
+        // ০: ছায়াসহ সাদা লেখা, ব্যাকগ্রাউন্ড নেই (সবচেয়ে হালকা)
+        Preset("☁️ হালকা সাদা", WHITE, 0, 0.6f, 0.08f, true, true, false, 0f),
+        // ১: কালো ক্যাপসুল ব্যাজ
+        Preset("⚫ ব্যাজ", WHITE, BLACK, 0.65f, 0.06f, true, false, true, 0f),
+        // ২: লাল সংবাদ-পট্টি
+        Preset("🟥 লাল পট্টি", WHITE, RED, 0.85f, 0.06f, true, false, false, 0f),
+        // ৩: বড় তির্যক ঝাপসা লেখা (ভিডিও জুড়ে)
+        Preset("↗️ বড় তির্যক", WHITE, 0, 0.28f, 0.16f, true, false, false, -20f),
+    )
+
+    fun apply(l: WatermarkLayer, i: Int): WatermarkLayer {
+        val p = ALL[i.coerceIn(0, ALL.lastIndex)]
+        return l.copy(
+            style = i.coerceIn(0, ALL.lastIndex), color = p.color, bgColor = p.bgColor, opacity = p.opacity,
+            sizeFrac = p.sizeFrac, bold = p.bold, shadow = p.shadow, round = p.round, rotation = p.rotation,
+        )
+    }
 }
 
 /** নিচের বারে ডান থেকে বামে স্ক্রল করা লেখা (টিকার) */
@@ -291,7 +346,7 @@ object LayerDefaults {
     /** নতুন লেয়ারের (শুরু, শেষ)। লোগো/টিকার/ওভারলে/এডজাস্ট পুরো ভিডিও জুড়ে, বিজ্ঞাপন ৫ সেকেন্ড, বাকি ৩ সেকেন্ড */
     fun range(kind: LayerKind, playheadMs: Long, totalMs: Long): Pair<Long, Long> {
         val full = when (kind) {
-            LayerKind.LOGO, LayerKind.TICKER, LayerKind.OVERLAY, LayerKind.ADJUST -> true
+            LayerKind.LOGO, LayerKind.TICKER, LayerKind.OVERLAY, LayerKind.ADJUST, LayerKind.WATERMARK -> true
             else -> false
         }
         if (full) return 0L to totalMs
@@ -307,6 +362,7 @@ object LayerDefaults {
             LayerKind.IMAGE -> ImageLayer(id, startMs, endMs, uri)
             LayerKind.LOGO -> ImageLayer(id, startMs, endMs, uri, isLogo = true, x = 0.88f, y = 0.1f, widthFrac = 0.09f, corner = Corner.TOP_RIGHT)   // ওপরে ডানে, প্রস্থের ৯% (HTML-এ ছিল ৬%, একটু বড় করা হয়েছে)
             LayerKind.TAG -> TagLayer(id, startMs, endMs, text = text)
+            LayerKind.WATERMARK -> WatermarkLayer(id, startMs, endMs, text = text.ifBlank { "ওয়াটারমার্ক" })
             LayerKind.TICKER -> TickerLayer(id, startMs, endMs, text = text)
             LayerKind.NAME_BAR -> NameBarLayer(id, startMs, endMs, name = text, title = "আপনার পদবি")
             LayerKind.AD_BOTTOM -> AdLayer(id, startMs, endMs, uri, isTop = false)
@@ -321,6 +377,7 @@ object LayerDefaults {
     fun validate(l: Layer): String? = when (l) {
         is TextLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
         is TagLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
+        is WatermarkLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
         is TickerLayer -> if (l.text.isBlank()) "${l.kind.label}: লেখা খালি" else null
         is NameBarLayer -> if (l.name.isBlank()) "${l.kind.label}: নাম দিন" else null
         is ImageLayer -> if (l.uri == null) "${l.kind.label}: ছবি বাছা হয়নি" else null
