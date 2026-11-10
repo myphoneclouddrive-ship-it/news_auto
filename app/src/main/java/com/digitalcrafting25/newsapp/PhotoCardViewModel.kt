@@ -267,7 +267,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                 }
                 val b = mnBalance
-                val low = if (mnOn && b != null && b < 2) " ⚠️ ব্যালেন্স ২ টাকার কম। পোস্ট হবে, কিন্তু ব্যালেন্স মাইনাস হবে; ৭ দিনের মধ্যে ব্যালেন্স যোগ করুন।" else ""
+                val low = if (mnOn && b != null && b < Rates.get("mn")) " ⚠️ ব্যালেন্স ${Bn.num(Rates.get("mn"))} টাকার কম। পোস্ট হবে, কিন্তু ব্যালেন্স মাইনাস হবে; ৭ দিনের মধ্যে ব্যালেন্স যোগ করুন।" else ""
                 val fix = if (wasFixed) " ⚠️ সময় ৬:৩০–৮:৩০-এর মধ্যে ছিল না, তাই " + MnCal.clock(mnTimeMin) + " সেট হয়েছে।" else ""
                 mnMsg = "✅ সেভ হয়েছে" + (if (mnOn) "। প্রতিদিন " + MnCal.clock(mnTimeMin) + "-এর পর আপনার পেইজে পোস্ট হবে।" else "। প্রতিদিনের অটো-পোস্ট বন্ধ আছে।") + warn + low + fix
                 mnVer++
@@ -470,7 +470,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         if (!skipLink && mode == "photo" && link.isNotBlank() && !Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(link.trim()))
             return "লিংকটি http:// বা https:// দিয়ে শুরু হতে হবে"
         val b = balance
-        if (!paid && b != null && b < 1.0) return "ব্যালেন্স কম আছে (কমপক্ষে ৳১ লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"
+        if (!paid && b != null && b < Rates.get("pc")) return "ব্যালেন্স কম আছে (কমপক্ষে ${Rates.taka("pc")} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"
         return null
     }
 
@@ -582,7 +582,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         val src = title.trim()
         if (mode != "photo") return
         if (src.isEmpty()) { fcOut = "❌ আগে ফোটোকার্ড টাইটেলে কিছু লিখুন, তারপর জেনারেট চাপুন"; return }
-        balance?.let { if (it < 1.0) { fcOut = "❌ ব্যালেন্স কম আছে (কমপক্ষে ৳১ লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"; return } }
+        balance?.let { if (it < Rates.get("pt")) { fcOut = "❌ ব্যালেন্স কম আছে (কমপক্ষে ${Rates.taka("pt")} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন"; return } }
         task {
             val d = Worker.post(app, "/title-gen", JSONObject().put("title", src).put("kind", "title"), 60000)
             d.optString("title").takeIf { it.isNotBlank() }?.let { title = it }

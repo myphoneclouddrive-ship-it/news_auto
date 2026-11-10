@@ -16,7 +16,7 @@ import java.io.File
 object DraftStore {
     private val lock = Any()
     private fun store(ctx: Context) = File(ctx.filesDir, "editor_drafts.json")
-    private fun mediaDir(ctx: Context) = File(ctx.filesDir, "draft_media")
+    internal fun mediaDir(ctx: Context) = File(ctx.filesDir, "draft_media")
 
     /** ব্লকিং — IO থ্রেডে ডাকুন। অনুমতি স্থায়ী হলে একই Uri, নইলে অ্যাপের ভেতরে কপি করা ফাইলের Uri */
     fun keep(ctx: Context, uri: Uri): Uri {

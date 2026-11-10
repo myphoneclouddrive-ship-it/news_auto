@@ -13,7 +13,9 @@ object VideoCharge {
     const val PUB_FB = "pf"; const val PUB_YT = "py"; const val PUB_WP = "pw"
     const val DL_FB = "df"; const val DL_YT = "dy"
 
-    val price = mapOf(PUB_FB to 5, PUB_YT to 2, PUB_WP to 3, DL_FB to 3, DL_YT to 2)
+    /** দাম (টাকা) — অ্যাডমিন অ্যাপের 💰 রেট থেকে বদলায় (Rates); Worker-ও একই রেটে কাটে */
+    val price: Map<String, Int>
+        get() = mapOf(PUB_FB to Rates.get(PUB_FB), PUB_YT to Rates.get(PUB_YT), PUB_WP to Rates.get(PUB_WP), DL_FB to Rates.get(DL_FB), DL_YT to Rates.get(DL_YT))
     fun sum(items: Collection<String>): Int = items.sumOf { price[it] ?: 0 }
 
     class Check(val ok: Boolean, val need: Int, val balance: Double)

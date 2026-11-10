@@ -275,7 +275,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                             }
                             .clickable(enabled = canEdit && !locked) {
                                 if (free) tplEdit = TplRegistry.nextCustomId()
-                                else vm.fcOut = "⚠️ আরেকটা কাস্টম টেমপ্লেটের জন্য ৫০০ টাকা লাগে। ওয়েব অ্যাপ থেকে ব্যালেন্স দিয়ে কিনুন, তারপর এখানে ➕ চাপুন।"
+                                else vm.fcOut = "⚠️ আরেকটা কাস্টম টেমপ্লেটের জন্য ${Bn.num(Rates.get("cb"))} টাকা লাগে। ওয়েব অ্যাপ থেকে ব্যালেন্স দিয়ে কিনুন, তারপর এখানে ➕ চাপুন।"
                             }.padding(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                     ) {
@@ -283,7 +283,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                         if (free) Text("কাস্টম টেমপ্লেট\nনিজে বানান", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
                         else {
                             Text("আরেকটা কাস্টম টেমপ্লেট", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
-                            Text("৫০০ টাকা", fontSize = 14.sp, color = C.Red, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            Text(Bn.num(Rates.get("cb")) + " টাকা", fontSize = 14.sp, color = C.Red, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                             Text("ব্যালেন্স থেকে কিনুন", fontSize = 11.sp, color = C.Red, textAlign = TextAlign.Center)
                         }
                     }
@@ -488,7 +488,7 @@ private fun MorningPanel(vm: PhotoCardViewModel) {
         Box(Modifier.padding(top = 6.dp)) { CheckRow(vm.mnOn, "✅ এই কার্ড প্রতিদিন আমার Facebook পেইজে পোস্ট হবে", "") { vm.mnOn = it } }
         vm.mnBalance?.let { b ->
             val t = if (b < 0) " ⚠️ ব্যালেন্স মাইনাস (৳" + MnCal.n(b.toInt()) + ")। পোস্ট চলবে, কিন্তু মাইনাস ৭ দিনের বেশি থাকলে বন্ধ হবে। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন।"
-            else if (b < 2) " ⚠️ ব্যালেন্স ২ টাকার কম। পোস্ট হবে, ব্যালেন্স মাইনাস হবে (৭ দিনের মধ্যে যোগ করুন)।" else ""
+            else if (b < Rates.get("mn")) " ⚠️ ব্যালেন্স ${Bn.num(Rates.get("mn"))} টাকার কম। পোস্ট হবে, ব্যালেন্স মাইনাস হবে (৭ দিনের মধ্যে যোগ করুন)।" else ""
             if (t.isNotEmpty()) HSmall(t, Modifier.padding(top = 6.dp))
         }
         HBtn(if (vm.mnBusy) "⏳ সেভ হচ্ছে…" else "💾 সেভ করুন", Modifier.fillMaxWidth().padding(top = 12.dp), color = C.Green, enabled = !vm.mnBusy) { vm.saveMorning() }

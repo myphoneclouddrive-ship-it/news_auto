@@ -15,8 +15,8 @@ import java.util.UUID
 /** নতুন পোস্ট ও ফোটোকার্ডের বাড়তি অংশের সাধারণ সহায়ক (ওয়েবের একই নামের ফাংশনের নেটিভ রূপ) */
 object PostUtil {
     const val AI_TAG = "AI জেনারেটেড"   // ওয়েবের FC_AI_TAG
-    const val RW_COST = 10              // Worker-এর RW_COST
-    const val MP_COST = 5               // নিজে পোস্ট তৈরির খরচ (Worker-এর MP_COST)
+    val RW_COST: Int get() = Rates.get("rw")   // AI দিয়ে লেখার খরচ (Worker-এর RW_COST; অ্যাডমিন অ্যাপের 💰 রেট থেকে বদলায়)
+    val MP_COST: Int get() = Rates.get("mp")   // নিজে পোস্ট তৈরির খরচ (Worker-এর MP_COST)
     const val SPLIT_AT = 1800           // ওয়েবের SPLIT_AT: এর চেয়ে বড় পেস্ট করা লেখা দুই ভাগে লেখা হয়
 
     /** Worker-এর sid নিয়ম: ^[a-f0-9]{16,64}$ */

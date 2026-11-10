@@ -67,7 +67,7 @@ import org.json.JSONObject
  *  • বদল সেটিংসের নিচের "💾 সেটিংস সেভ করুন" দিয়ে সেভ হয় (ওয়েবের মতোই)।
  */
 
-private const val CB_PRICE = 500
+private val CB_PRICE: Int get() = Rates.get("cb")   // কাস্টম টেমপ্লেট স্লটের দাম (অ্যাডমিন অ্যাপের 💰 রেট)
 private val TplBorder = Color(0xFFCCCCCC)
 private val CustomRe = Regex("^custom\\d*$")
 
@@ -138,7 +138,7 @@ internal fun TplSettingsBody(np: NewPostViewModel, dash: DashboardViewModel) {
                                 if (free) Text("কাস্টম টেমপ্লেট\nনিজে বানান", fontSize = 12.sp, color = C.Red, textAlign = TextAlign.Center)
                                 else {
                                     Text("আরেকটা কাস্টম টেমপ্লেট", fontSize = 12.sp, color = C.Red, textAlign = TextAlign.Center)
-                                    Text("৫০০ টাকা", fontSize = 12.sp, color = C.Red, fontWeight = FontWeight.Bold)
+                                    Text(Bn.num(CB_PRICE) + " টাকা", fontSize = 12.sp, color = C.Red, fontWeight = FontWeight.Bold)
                                     Text("ব্যালেন্স থেকে কিনুন", fontSize = 10.sp, color = C.Red, textAlign = TextAlign.Center)
                                 }
                             }
@@ -347,7 +347,7 @@ private fun CbBuyDialog(np: NewPostViewModel, onClose: () -> Unit, onTopup: () -
 
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
-        text = { Text("ব্যালেন্স থেকে ৫০০ টাকা কেটে আরেকটা কাস্টম টেমপ্লেট কিনবেন? এটা ফেরতযোগ্য নয়।") },
+        text = { Text("ব্যালেন্স থেকে ${Bn.num(CB_PRICE)} টাকা কেটে আরেকটা কাস্টম টেমপ্লেট কিনবেন? এটা ফেরতযোগ্য নয়।") },
         confirmButton = {
             TextButton(onClick = {
                 confirm = false; busy = true; err = null

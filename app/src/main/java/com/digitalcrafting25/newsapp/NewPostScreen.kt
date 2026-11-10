@@ -559,7 +559,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
             NavBtn("✅ পোস্ট করুন", Modifier.weight(0.78f), color = C.Green, enabled = !vm.busy && !vm.mpLow) { vm.manualPost() }
             NavBtn("🗑️ ক্লিয়ার", Modifier.weight(0.22f), color = C.Gray, onClick = onClear)
         }
-        Text(if (vm.mpLow) "⚠️ ব্যালেন্স কম (কমপক্ষে ৳${PostUtil.bn(PostUtil.MP_COST)} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন।" else "এই অবস্থায় ৳${PostUtil.bn(5)} কাটে (AI ছাড়া)।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
+        Text(if (vm.mpLow) "⚠️ ব্যালেন্স কম (কমপক্ষে ৳${PostUtil.bn(PostUtil.MP_COST)} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন।" else "এই অবস্থায় ৳${PostUtil.bn(PostUtil.MP_COST)} কাটে (AI ছাড়া)।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
     } else if (vm.sec != "video") {
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NavBtn(if (vm.busy) "⏳ প্রসেসিং হচ্ছে..." else "AI দিয়ে নতুন করে লিখুন", Modifier.weight(if (hasText) 0.39f else 0.78f), enabled = !vm.busy && !vm.rwLow) { vm.rewrite() }

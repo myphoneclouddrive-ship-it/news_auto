@@ -292,21 +292,23 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }.getOrNull() ?: "ফাইল"
 
-    /** ExoPlayer দিয়ে ভিডিওর দৈর্ঘ্য (ms) মাপে; ৮ সেকেন্ডে না পেলে বা ফরম্যাট না চিনলে ০ */
-    private suspend fun probeDurationMs(uri: Uri, name: String): Long = withContext(Dispatchers.Main) {
+    class ExoProbe(val ok: Boolean, val durationMs: Long)
+
+    /** ExoPlayer ফাইলটা পড়তে পারে কিনা ও দৈর্ঘ্য কত দেখে (৮ সেকেন্ডে সাড়া না পেলে "পারে" ধরে, দৈর্ঘ্য ০) */
+    private suspend fun probeExo(uri: Uri, name: String): ExoProbe = withContext(Dispatchers.Main) {
         val p = androidx.media3.exoplayer.ExoPlayer.Builder(app).build()
         try {
             kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                kotlinx.coroutines.suspendCancellableCoroutine<Long> { cont ->
+                kotlinx.coroutines.suspendCancellableCoroutine<ExoProbe> { cont ->
                     p.addListener(object : androidx.media3.common.Player.Listener {
                         override fun onPlaybackStateChanged(state: Int) {
                             if (state == androidx.media3.common.Player.STATE_READY && cont.isActive) {
                                 val d = p.duration
-                                cont.resumeWith(Result.success(if (d == androidx.media3.common.C.TIME_UNSET) 0L else d.coerceAtLeast(0L)))
+                                cont.resumeWith(Result.success(ExoProbe(true, if (d == androidx.media3.common.C.TIME_UNSET) 0L else d.coerceAtLeast(0L))))
                             }
                         }
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                            if (cont.isActive) cont.resumeWith(Result.success(0L))
+                            if (cont.isActive) cont.resumeWith(Result.success(ExoProbe(false, 0L)))
                         }
                     })
                     val mb = androidx.media3.common.MediaItem.Builder().setUri(uri)
@@ -314,9 +316,9 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                     p.setMediaItem(mb.build())
                     p.prepare()
                 }
-            } ?: 0L
+            } ?: ExoProbe(true, 0L)
         } catch (_: Throwable) {
-            0L
+            ExoProbe(false, 0L)
         } finally {
             runCatching { p.release() }
         }
@@ -328,11 +330,14 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             // ডিফল্ট বসানো শেষ না হওয়া পর্যন্ত এডিটরে "প্রসেসিং" বক্স দেখায় (ক্লিপ যোগ হওয়ার আগেই চালু)
             if (seed) { seedStep = 0; seedMsg = "⏳ ভিডিও প্রস্তুত হচ্ছে…" }
             val added = mutableListOf<Clip>()
+            val warns = mutableListOf<String>()
             for (u in uris) {
                 val clip = withContext(Dispatchers.IO) {
                     val isImage = app.contentResolver.getType(u)?.startsWith("image/") == true
                     val nm = displayName(u)
                     var dur = 0L
+                    var useUri: Uri? = null      // রিমাক্স করা MP4 হলে তার Uri
+                    var useName = nm
                     if (!isImage) {
                         val r = MediaMetadataRetriever()
                         try {
@@ -342,13 +347,33 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                         } finally {
                             runCatching { r.release() }
                         }
+                        val mimeT = app.contentResolver.getType(u).orEmpty()
+                        val looksTs = nm.endsWith(".ts", ignoreCase = true) || mimeT.contains("mp2t", ignoreCase = true)
                         // .ts (MPEG-TS) ইত্যাদিতে MediaMetadataRetriever অনেক সময় দৈর্ঘ্য দেয় না; তখন ExoPlayer দিয়ে মাপা
-                        if (dur <= 0L) dur = probeDurationMs(u, nm)
+                        if (dur <= 0L || looksTs) {
+                            val pr = probeExo(u, nm)
+                            if (pr.ok && dur <= 0L) dur = pr.durationMs
+                            // ExoPlayer .ts না পড়তে পারলে (বা দৈর্ঘ্য না পেলে) ফোনের পার্সার দিয়ে MP4-তে রিমাক্স
+                            if (looksTs && (!pr.ok || dur <= 0L)) {
+                                seedMsg = "⏳ .ts ফাইল এডিটের উপযোগী (MP4) করা হচ্ছে…"
+                                val out = TsRemux.toMp4(app, u, DraftStore.mediaDir(app))
+                                if (out != null) {
+                                    useUri = Uri.fromFile(out.file)
+                                    useName = nm.replace(Regex("\\.ts$", RegexOption.IGNORE_CASE), "") + ".mp4"
+                                    if (out.durationMs > 0L) dur = out.durationMs
+                                    out.note?.let { warns.add("⚠️ $nm: $it") }
+                                } else if (!pr.ok) {
+                                    warns.add("⚠️ $nm: এই .ts ফাইলের ফরম্যাট (কোডেক) সাপোর্ট করা যায়নি, তাই যোগ হয়নি")
+                                    return@withContext null
+                                }
+                            }
+                        }
                     }
-                    Clip(tl.newId(), DraftStore.keep(app, u), isImage, dur, nm)
+                    Clip(tl.newId(), useUri ?: DraftStore.keep(app, u), isImage, dur, useName)
                 }
-                added.add(clip)
+                if (clip != null) added.add(clip)
             }
+            if (!seed && seedMsg != null) seedMsg = null
             if (front == null) tl.addAll(added) else tl.addAtEdge(added, front)
             if (seed && added.isNotEmpty()) {
                 // নিচের বিজ্ঞাপন/ইন্ট্রো-আউট্রো বসার আগে পপ-আপ: কোন টেমপ্লেট, কী লেখা
@@ -358,6 +383,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 seedMsg = "⏳ ইন্ট্রো-আউট্রো, বিজ্ঞাপন, লোগো, ট্যাগ বসানো হচ্ছে…"
                 seedDefaults(added.first().id, choice)
             } else if (seed) seedMsg = null
+            if (warns.isNotEmpty()) seedWarn = warns.joinToString("\n")
         }
     }
 

@@ -105,6 +105,9 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 var checking by remember { mutableStateOf(false) }
                 var offMsg by remember { mutableStateOf("") }
+                // লগইন হলে (ও নেট এলে) Worker থেকে সর্বশেষ রেট আনা — অ্যাডমিন যেটা 💰 রেট মেনুতে ঠিক করেছে
+                val rateLoggedIn by authVm.loggedIn.collectAsStateWithLifecycle()
+                LaunchedEffect(rateLoggedIn, locked) { if (rateLoggedIn && !locked) Rates.refresh(ctx) }
                 Box(Modifier.fillMaxSize()) {
                     // নিচের অ্যাপ চালু থাকে (স্টেট হারায় না); ইন্টারনেট গেলে ওপরে ওয়ার্নিং স্ক্রিন বসে সবকিছু ঢেকে দেয়
                     if (BuildConfig.IS_ADMIN) AdminRoot(authVm, updateVm, setVm, autoVm, !locked)   // অ্যাডমিন অ্যাপ: শুধু হিসাব/ব্যালেন্স/কন্ট্রোল
