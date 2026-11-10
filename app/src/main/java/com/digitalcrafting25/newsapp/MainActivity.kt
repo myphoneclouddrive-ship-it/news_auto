@@ -263,9 +263,9 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
     var editor by remember { mutableStateOf(false) }
     var pendingOpen by remember { mutableStateOf(false) }
     // "ভিডিও বাছুন" → গ্যালারি (শুধু ভিডিও) → বাছা ভিডিও টাইমলাইনে যোগ হলে এডিটর খোলে; না বাছলে এখানেই থাকে
-    val pickVideo = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
-    ) { u ->
+    // (গ্যালারি বা ফাইল — .ts সহ; চাপলে কোথা থেকে বাছবেন জিজ্ঞেস করে)
+    val pickVideo = rememberMediaPicker(images = false, single = true) { list ->
+        val u = list.firstOrNull()
         if (u != null) {
             ev.startNew()   // আগের এডিট ড্রাফটে থাকে; নতুন ভিডিও নতুন করে শুরু (আগেরটার সাথে জোড়া লাগবে না)
             ev.addUris(listOf(u), seed = true)   // ইন্ট্রো-আউট্রো, নিচের বিজ্ঞাপন, লোগো, ট্যাগ, স্ক্রলিং লেখা নিজে বসবে (পরে মোছা/এডিট করা যায়)
@@ -302,11 +302,7 @@ fun NewPostHost(ev: EditorViewModel, np: NewPostViewModel, ads: AdsViewModel, on
         VideoEditorScreen(ev, onBack = { ev.saveDraft(); editor = false }, onRendered = { o -> ev.saveDraft(); editor = false; ev.openResult(o) })
     } else {
         NewPostScreen(np, ads, onOpenVideo = {
-            pickVideo.launch(
-                androidx.activity.result.PickVisualMediaRequest(
-                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VideoOnly,
-                ),
-            )
+            pickVideo()
         }, onScheduled = onScheduled, onDelete = onDelete, header = {
             DraftList(ev, onOpen = { id -> if (ev.openDraft(id)) editor = true })
         })

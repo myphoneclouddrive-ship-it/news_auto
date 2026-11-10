@@ -140,6 +140,7 @@ class PreviewPlayer(private val ctx: Context) {
                     ?: if (c.uri.toString().endsWith(".png", true)) "image/png" else "image/jpeg"
                 b.setMimeType(mime).setImageDurationMs((c.imageSec * 1000f).toLong().coerceAtLeast(100L))
             } else {
+                c.tsMime()?.let { b.setMimeType(it) }
                 val cc = MediaItem.ClippingConfiguration.Builder().setStartPositionMs((c.startSec * 1000f).toLong())
                 if (c.endSec > 0f) cc.setEndPositionMs((c.endSec * 1000f).toLong())
                 b.setClippingConfiguration(cc.build())

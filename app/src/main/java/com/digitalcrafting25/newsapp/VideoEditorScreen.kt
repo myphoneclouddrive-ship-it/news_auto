@@ -92,7 +92,6 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     var error by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
 
-    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.addUris(it) }
     val pickLogo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> if (u != null) vm.logo = u }
     val pickMusic = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) vm.chooseMusic(u) }
 
@@ -110,7 +109,8 @@ fun VideoEditorScreen(vm: EditorViewModel, onBack: () -> Unit = {}, onRendered: 
     }
     // ক্লিপ/লেয়ারে ট্যাপ করলে শুধু বাছা হয় (প্যানেল খোলে না); ডকের ✏️ এডিট চাপলে খোলে, ✓ বা অন্য কিছু বাছলে বন্ধ
     var editOpen by remember(tl.selectedLayerId, tl.selectedId) { mutableStateOf(false) }
-    val addMedia = { pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
+    // গ্যালারি বা ফাইল (.ts সহ) — চাপলে কোথা থেকে বাছবেন জিজ্ঞেস করে
+    val addMedia = rememberMediaPicker(images = true, single = false) { vm.addUris(it) }
 
     Box(Modifier.fillMaxSize()) {
     Column(

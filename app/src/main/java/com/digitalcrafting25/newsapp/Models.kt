@@ -38,6 +38,13 @@ data class Clip(
 /** ফ্লিপ বা জুম আছে কিনা (না থাকলে রেন্ডারে কোনো বাড়তি ইফেক্ট বসে না) */
 fun Clip.hasTransform(): Boolean = flipH || flipV || zoom > 1.001f
 
+/**
+ * .ts (MPEG-TS) ভিডিওর MIME আন্দাজ: ক্লিপের নাম .ts দিয়ে শেষ হলে "video/mp2t" (প্লেয়ার ও রেন্ডারকে ফরম্যাট চেনাতে)।
+ * ফাইলের আসল Uri-তে এক্সটেনশন/MIME না থাকলেও (content://…) এতে চিনতে সুবিধা হয়। অন্য ফরম্যাটে null (নিজে চিনে নেয়)।
+ */
+fun Clip.tsMime(): String? =
+    if (!isImage && card == null && name.endsWith(".ts", ignoreCase = true)) "video/mp2t" else null
+
 /** ক্রপ করা আছে কিনা (না থাকলে রেন্ডারে/প্রিভিউতে কিছু বসে না) */
 fun Clip.hasCrop(): Boolean = cropW < 0.995f || cropH < 0.995f
 

@@ -280,7 +280,7 @@ fun EditorDockBar(
 
     // "➕ সামনে ভিডিও" / "➕ পিছনে ভিডিও": ইন্ট্রোর আগে বা আউট্রোর পরে আরও ভিডিও/ছবি (true = সামনে)
     var pickFront by rememberSaveable { mutableStateOf(true) }
-    val pickEdge = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+    val pickEdge = rememberMediaPicker(images = true, single = false) { uris ->
         if (uris.isNotEmpty()) {
             vm.addUris(uris, front = pickFront)
             onInfo(if (pickFront) "➕ সামনে যোগ হচ্ছে…" else "➕ পিছনে যোগ হচ্ছে…")
@@ -530,7 +530,7 @@ fun EditorDockBar(
                                         else {
                                             onMessage(null)
                                             pickFront = true
-                                            pickEdge.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                            pickEdge()
                                         }
                                     }
                                     DockBtn("plus", "পিছনে ভিডিও") {
@@ -538,7 +538,7 @@ fun EditorDockBar(
                                         else {
                                             onMessage(null)
                                             pickFront = false
-                                            pickEdge.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                            pickEdge()
                                         }
                                     }
                                     if (vm.cardBusy) {

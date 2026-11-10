@@ -292,6 +292,36 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }.getOrNull() ?: "ফাইল"
 
+    /** ExoPlayer দিয়ে ভিডিওর দৈর্ঘ্য (ms) মাপে; ৮ সেকেন্ডে না পেলে বা ফরম্যাট না চিনলে ০ */
+    private suspend fun probeDurationMs(uri: Uri, name: String): Long = withContext(Dispatchers.Main) {
+        val p = androidx.media3.exoplayer.ExoPlayer.Builder(app).build()
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                kotlinx.coroutines.suspendCancellableCoroutine<Long> { cont ->
+                    p.addListener(object : androidx.media3.common.Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == androidx.media3.common.Player.STATE_READY && cont.isActive) {
+                                val d = p.duration
+                                cont.resumeWith(Result.success(if (d == androidx.media3.common.C.TIME_UNSET) 0L else d.coerceAtLeast(0L)))
+                            }
+                        }
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                            if (cont.isActive) cont.resumeWith(Result.success(0L))
+                        }
+                    })
+                    val mb = androidx.media3.common.MediaItem.Builder().setUri(uri)
+                    if (name.endsWith(".ts", ignoreCase = true)) mb.setMimeType("video/mp2t")
+                    p.setMediaItem(mb.build())
+                    p.prepare()
+                }
+            } ?: 0L
+        } catch (_: Throwable) {
+            0L
+        } finally {
+            runCatching { p.release() }
+        }
+    }
+
     /** front/back = null: সাধারণ যোগ (শেষে); true = টাইমলাইনের একদম সামনে, false = একদম পিছনে ("➕ সামনে/পিছনে ভিডিও") */
     fun addUris(uris: List<Uri>, front: Boolean? = null, seed: Boolean = false) {
         viewModelScope.launch {
@@ -301,6 +331,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             for (u in uris) {
                 val clip = withContext(Dispatchers.IO) {
                     val isImage = app.contentResolver.getType(u)?.startsWith("image/") == true
+                    val nm = displayName(u)
                     var dur = 0L
                     if (!isImage) {
                         val r = MediaMetadataRetriever()
@@ -311,8 +342,10 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                         } finally {
                             runCatching { r.release() }
                         }
+                        // .ts (MPEG-TS) ইত্যাদিতে MediaMetadataRetriever অনেক সময় দৈর্ঘ্য দেয় না; তখন ExoPlayer দিয়ে মাপা
+                        if (dur <= 0L) dur = probeDurationMs(u, nm)
                     }
-                    Clip(tl.newId(), DraftStore.keep(app, u), isImage, dur, displayName(u))
+                    Clip(tl.newId(), DraftStore.keep(app, u), isImage, dur, nm)
                 }
                 added.add(clip)
             }

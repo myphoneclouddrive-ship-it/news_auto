@@ -137,7 +137,7 @@ object RenderComposer {
                 val cc = MediaItem.ClippingConfiguration.Builder()
                     .setStartPositionMs(Math.round(c.startSec * 1000.0))
                 if (c.endSec > c.startSec) cc.setEndPositionMs(Math.round(c.endSec * 1000.0))
-                val mi = MediaItem.Builder().setUri(c.uri).setClippingConfiguration(cc.build()).build()
+                val mi = MediaItem.Builder().setUri(c.uri).setMimeType(c.tsMime()).setClippingConfiguration(cc.build()).build()
                 EditedMediaItem.Builder(mi)
                     .setRemoveAudio(!spec.keepOriginalAudio || mixedAudio != null)
                     .setEffects(fit)

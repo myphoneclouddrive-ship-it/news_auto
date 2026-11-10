@@ -28,7 +28,13 @@ object DraftStore {
         return runCatching {
             val dir = mediaDir(ctx).apply { mkdirs() }
             val mime = ctx.contentResolver.getType(uri)
-            val ext = mime?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) } ?: "bin"
+            val nm = runCatching {
+                ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull().orEmpty()
+            // .ts ফাইলের MIME অনেক সময় অজানা; নাম/MIME দেখে .ts রাখা হয় (নইলে "bin")
+            val mimeExt = mime?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }?.takeIf { it != "bin" }
+            val ext = mimeExt
+                ?: if (nm.endsWith(".ts", ignoreCase = true) || mime?.contains("mp2t", ignoreCase = true) == true) "ts" else "bin"
             val f = File(dir, "${System.currentTimeMillis()}_${Math.abs(uri.hashCode())}.$ext")
             ctx.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
             Uri.fromFile(f)
