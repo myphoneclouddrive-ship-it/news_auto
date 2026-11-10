@@ -307,7 +307,7 @@ fun EditorDockBar(
             onApply = { x, y, w, h ->
                 tl.setClipCrop(cropClip.id, x, y, w, h)
                 cropOpen = false
-                onInfo(if (w >= 0.995f && h >= 0.995f) "✂️ ক্রপ বাদ" else "✂️ ক্রপ হয়েছে (ফ্রেমের মাপ একই)")
+                onInfo(if (w >= 0.995f && h >= 0.995f) "✂️ ক্রপ বাদ" else "✂️ ক্রপ হয়েছে (মূল ভিডিওর বাছা অংশ দেখাবে)")
             },
             onCancel = { cropOpen = false },
         )

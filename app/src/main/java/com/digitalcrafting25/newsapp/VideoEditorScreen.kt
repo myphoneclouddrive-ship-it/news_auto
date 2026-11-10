@@ -542,16 +542,22 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                     },
                 ),
             ) {
-            CropFrame(c) {   // ক্রপ থাকলে শুধু বাছা অংশ ফ্রেমে ফিট হয়ে দেখায় (রেন্ডারের Crop + Presentation-এর একই হিসাব)
+            // মূল ভিডিওর অনুপাত: ক্রপ থাকলে বাছা অংশ মূল ফ্রেম থেকেই কেটে ফ্রেমে ফিট হয় (রেন্ডারের Crop → Presentation-এর একই হিসাব)
+            val srcAspect: Float = if (isImg) (bmp?.let { it.width / it.height.toFloat() } ?: (aspect.w / aspect.h.toFloat())) else pp.videoAspect
+            CropFrame(
+                c, srcAspect,
+                // জুম/পজিশন/ফ্লিপ ফ্রেম-সাইজের কন্টেইনারে (ক্রপ-ফিটের পরে), রেন্ডারের clipTransform-এর মতো
+                layerTx = {
+                    scaleX = if (fh) -z else z
+                    scaleY = if (fv) -z else z
+                    translationX = -px * (z - 1f) * size.width / 2f
+                    translationY = -py * (z - 1f) * size.height / 2f
+                },
+            ) {
             bmp?.let {
                 Image(
                     it, null,
-                    Modifier.fillMaxSize().graphicsLayer {
-                        scaleX = if (fh) -z else z
-                        scaleY = if (fv) -z else z
-                        translationX = -px * (z - 1f) * size.width / 2f
-                        translationY = -py * (z - 1f) * size.height / 2f
-                    },
+                    Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
             }
@@ -567,13 +573,7 @@ private fun FramePreview(tl: Timeline, aspect: Aspect, pp: PreviewPlayer, playin
                     onRelease = { tv -> runCatching { pp.player.clearVideoTextureView(tv) } },
                     modifier = Modifier.align(Alignment.Center)
                         .requiredSize(vw, vh)
-                        .alpha(if (loc != null && !isImg) 1f else 0f)
-                        .graphicsLayer {
-                            scaleX = if (fh) -z else z
-                            scaleY = if (fv) -z else z
-                            translationX = -px * (z - 1f) * size.width / 2f
-                            translationY = -py * (z - 1f) * size.height / 2f
-                        },
+                        .alpha(if (loc != null && !isImg) 1f else 0f),
                 )
             }
             }
@@ -792,18 +792,8 @@ private fun PublishDialog(
                             maxLines = 2, minLines = 2, modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                         )
                     }
-                    Text("🎨 লেখার রং", color = Color(0xFF222222), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(0xFF000000, 0xFFDC2626, 0xFF1D4ED8, 0xFF15803D, 0xFF7E22CE).forEach { c ->
-                            val ci = c.toInt()
-                            val on = vm.fbColor == ci
-                            Box(
-                                Modifier.size(34.dp).clip(CircleShape).background(Color(ci))
-                                    .border(3.dp, if (on) Color(0xFF38BDF8) else Color.White, CircleShape)
-                                    .clickable { vm.fbColor = ci },
-                            )
-                        }
-                    }
+                    ColorPick("🎨 লেখার রং", vm.fbColor, listOf(0xFF000000, 0xFFDC2626, 0xFF1D4ED8, 0xFF15803D, 0xFF7E22CE, 0xFFFFFFFF)) { vm.fbColor = it }
+                    ColorPick("🖌️ ব্যাকগ্রাউন্ডের রং", vm.fbBg, listOf(0xFFFFFFFF, 0xFFFEF3C7, 0xFFDBEAFE, 0xFFDCFCE7, 0xFFFCE7F3, 0xFF111827)) { vm.fbBg = it }
                 }
             }
 
@@ -889,4 +879,31 @@ private fun AspectProgressDialog(vm: EditorViewModel) {
             Text("একই টেমপ্লেট-লেখা আগে বানানো থাকলে সেভ করা কার্ডই বসে, নতুন করে বানাতে হয় না।", color = ED.Muted, fontSize = 12.sp)
         }
     }
+}
+
+/** রঙের সারি: তৈরি রঙ থেকে বাছা, অথবা নিজে hex কোড লিখে (যেমন FF8800) */
+@Composable
+private fun ColorPick(title: String, value: Int, presets: List<Long>, onPick: (Int) -> Unit) {
+    Text(title, color = Color(0xFF222222), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        presets.forEach { c ->
+            val ci = c.toInt()
+            Box(
+                Modifier.size(34.dp).clip(CircleShape).background(Color(ci))
+                    .border(3.dp, if (value == ci) Color(0xFF38BDF8) else Color(0xFFBBBBBB), CircleShape)
+                    .clickable { onPick(ci) },
+            )
+        }
+    }
+    var hex by remember(value) { mutableStateOf(String.format("%06X", value and 0xFFFFFF)) }
+    OutlinedTextField(
+        value = hex,
+        onValueChange = { t ->
+            val h = t.trim().removePrefix("#").take(6).uppercase()
+            hex = h
+            if (h.length == 6 && h.all { it in "0123456789ABCDEF" }) onPick((0xFF000000L or h.toLong(16)).toInt())
+        },
+        label = { Text("নিজের রং (hex কোড, যেমন FF8800)", fontSize = 12.sp) },
+        singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+    )
 }

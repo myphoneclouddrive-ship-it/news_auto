@@ -25,10 +25,19 @@ object Updater {
     private const val PREFS = "updater"
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** আপডেট APK রাখার গোপন ফোল্ডার: অ্যাপের নিজস্ব এক্সটার্নাল ডিরেক্টরি (ফাইল ম্যানেজারে দেখা যায় না) */
-    fun apkDir(ctx: Context): File? = ctx.getExternalFilesDir("updates")
+    /** আপডেট APK রাখার পুরোনো গোপন ফোল্ডার (এখন আর ব্যবহার হয় না; আগের ভার্সনের রেখে যাওয়া ফাইল মোছার জন্য) */
+    private fun legacyDir(ctx: Context): File? = ctx.getExternalFilesDir("updates")
 
-    fun apkFile(ctx: Context, versionCode: Int): File? = apkDir(ctx)?.let { File(it, "update-$versionCode.apk") }
+    /** APK এখন ফোনের সাধারণ Download ফোল্ডারে যায় (ফাইল ম্যানেজারে দেখা যায়), যাতে সেখান থেকে হাতে ইন্সটল করা যায় */
+    fun apkFileName(versionCode: Int): String = BuildConfig.APK_NAME.removeSuffix(".apk") + "-v$versionCode.apk"
+
+    /** সিস্টেমের Download তালিকা (ফাইল ম্যানেজার/Downloads অ্যাপ) খোলে */
+    fun openDownloads(ctx: Context): Boolean = runCatching {
+        ctx.startActivity(android.content.Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
+
+    fun downloadId(ctx: Context): Long = prefs(ctx).getLong("dlId", -1L)
 
     fun rememberDownload(ctx: Context, id: Long, versionCode: Int) {
         prefs(ctx).edit().putLong("dlId", id).putInt("dlVersion", versionCode).apply()
@@ -38,7 +47,7 @@ object Updater {
     fun removePrevious(ctx: Context, dm: DownloadManager) {
         val old = prefs(ctx).getLong("dlId", -1L)
         if (old != -1L) runCatching { dm.remove(old) }
-        apkDir(ctx)?.listFiles()?.forEach { it.delete() }
+        legacyDir(ctx)?.listFiles()?.forEach { it.delete() }
         prefs(ctx).edit().remove("dlId").remove("dlVersion").apply()
     }
 
@@ -71,14 +80,19 @@ object Updater {
 
     /** ডাউনলোড করা ফাইলের SHA-256 ঠিক আছে কিনা (SHA না থাকলে true)। ব্লকিং — IO থ্রেডে ডাকুন। */
     fun verify(ctx: Context, info: UpdateInfo): Boolean {
-        val f = apkFile(ctx, info.versionCode) ?: return false
-        if (!f.exists()) return false
-        return info.sha256 == null || sha256(f).equals(info.sha256, true)
+        val id = downloadId(ctx)
+        if (id == -1L) return false
+        val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        // Download ফোল্ডারের ফাইল সরাসরি পাথে না পড়ে DownloadManager-এর মাধ্যমে খোলা হয় (নতুন Android-এও কাজ করে)
+        val pfd = runCatching { dm.openDownloadedFile(id) }.getOrNull() ?: return false
+        return pfd.use {
+            info.sha256 == null || sha256(android.os.ParcelFileDescriptor.AutoCloseInputStream(android.os.ParcelFileDescriptor.dup(it.fileDescriptor))).equals(info.sha256, true)
+        }
     }
 
-    private fun sha256(f: File): String {
+    private fun sha256(input: java.io.InputStream): String {
         val md = MessageDigest.getInstance("SHA-256")
-        f.inputStream().use { i ->
+        input.use { i ->
             val buf = ByteArray(64 * 1024)
             while (true) { val n = i.read(buf); if (n <= 0) break; md.update(buf, 0, n) }
         }
@@ -137,70 +151,7 @@ object Updater {
             val body = j.optString("body", "")
             val shaLabel = if (BuildConfig.IS_ADMIN) "sha256-admin" else "sha256"   // রিলিজ-নোটে দুই APK-র আলাদা লাইন
             val sha = assetSha ?: Regex("(?m)^\\s*" + shaLabel + ":\\s*([0-9a-fA-F]{64})\\s*$").find(body)?.groupValues?.get(1)
-            // একাধিক ভার্সন বাদ পড়ে থাকলে সবগুলোর "নতুন কী" একসাথে; না পারলে শুধু সর্বশেষটার নোট
-            val notes = runCatching { notesSince(repo, BuildConfig.VERSION_CODE) }.getOrNull().orEmpty()
-                .ifBlank { cleanNotes(body) }
-            return UpdateInfo(code, j.optString("name", tag), url ?: return null, sha, notes)
-        } finally {
-            c.disconnect()
-        }
-    }
-
-    /** রিলিজ নোটের লেখা থেকে `sha256:` লাইন বাদ */
-    private fun cleanNotes(body: String): String {
-        val t = body.lines().filterNot { val l = it.trim(); l.startsWith("sha256:") || l.startsWith("sha256-admin:") }.joinToString("\n").trim()
-        // build.yml-এর ফলব্যাক ("সংস্করণ 2.0.53") আসল নোট নয় — দেখাবো না
-        return if (Regex("^সংস্করণ\\s+\\S+$").matches(t)) "" else t
-    }
-
-    /**
-     * ইন্সটল করা ভার্সনের (installed) পরের সব রিলিজের নোট, নতুন থেকে পুরোনো। একটাই রিলিজ হলে শুধু তার নোট;
-     * একাধিক হলে প্রতিটার আগে ভার্সনের নাম। একই লেখা বারবার থাকলে একবারই দেখায়। ব্লকিং; ব্যর্থ হলে ব্যতিক্রম ছোঁড়ে।
-     */
-    private fun notesSince(repo: String, installed: Int): String {
-        val c = URL("https://api.github.com/repos/$repo/releases?per_page=20").openConnection() as HttpURLConnection
-        c.setRequestProperty("Accept", "application/vnd.github+json")
-        c.setRequestProperty("User-Agent", UA)
-        c.connectTimeout = 15000
-        c.readTimeout = 20000
-        try {
-            if (c.responseCode !in 200..299) throw IOException("releases ${c.responseCode}")
-            val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
-            val items = ArrayList<Triple<Int, String, String>>()   // কোড, নাম, নোট
-            for (i in 0 until arr.length()) {
-                val r = arr.getJSONObject(i)
-                if (r.optBoolean("draft") || r.optBoolean("prerelease")) continue
-                val tag = r.optString("tag_name")
-                val code = tag.trim().removePrefix("v").toIntOrNull() ?: continue
-                if (code <= installed) continue
-                val body = cleanNotes(r.optString("body", ""))
-                if (body.isNotBlank()) items += Triple(code, r.optString("name", tag), body)
-            }
-            items.sortByDescending { it.first }
-            // একই লাইন একাধিক রিলিজের নোটে থাকলে (নোট জমা হয়ে গেলে) নতুনটাতেই একবার দেখায়
-            val seenLines = HashSet<String>()
-            val uniq = items.mapNotNull { (code, name, body) ->
-                val kept = body.lines().filter { l -> val k = l.trim(); k.isEmpty() || seenLines.add(k) }.joinToString("\n").trim()
-                if (kept.lines().none { it.trim().isNotEmpty() && !it.trim().startsWith("#") }) null else Triple(code, name, kept)
-            }
-            return when {
-                uniq.isEmpty() -> ""
-                uniq.size == 1 -> uniq[0].third
-                else -> uniq.joinToString("\n\n") { "# ${it.second}\n${it.third}" }
-            }
-        } finally {
-            c.disconnect()
-        }
-    }
-
-    /** ওয়েব-ফলব্যাকে API ছাড়া নোট: ওই ট্যাগের কমিটের `RELEASE_NOTES.md` (raw.githubusercontent, লিমিট নেই) */
-    private fun notesFromRaw(repo: String, tag: String): String {
-        val c = URL("https://raw.githubusercontent.com/$repo/$tag/RELEASE_NOTES.md").openConnection() as HttpURLConnection
-        c.setRequestProperty("User-Agent", UA)
-        c.connectTimeout = 15000
-        c.readTimeout = 20000
-        return try {
-            if (c.responseCode in 200..299) cleanNotes(c.inputStream.bufferedReader().use { it.readText() }) else ""
+            return UpdateInfo(code, j.optString("name", tag), url ?: return null, sha, "")
         } finally {
             c.disconnect()
         }
@@ -247,8 +198,7 @@ object Updater {
         }
         // build.yml: ভার্সন কোড = ১০০ + রান নম্বর, নাম = ২.০.রান নম্বর
         val name = if (code > 100) "2.0.${code - 100}" else tag
-        val notes = runCatching { notesFromRaw(repo, tag) }.getOrDefault("")
-        return UpdateInfo(code, name, url, sha, notes)
+        return UpdateInfo(code, name, url, sha, "")
     }
 
     fun isNewer(info: UpdateInfo) = info.versionCode > BuildConfig.VERSION_CODE

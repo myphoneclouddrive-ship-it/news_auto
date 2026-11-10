@@ -146,23 +146,22 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    UpdateNotes(info.notes)
                     upd.progress?.let { p ->
                         LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                         Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
                     }
                     if (upd.progress == null && upd.message.startsWith("❌")) Text(upd.message)
-                    if (upd.downloaded) Text("✅ ডাউনলোড শেষ। স্ক্রিনের ওপরের নোটিফিকেশনে ট্যাপ করুন, তারপর ফোনের কনফার্মেশনে ‘Update’ চাপুন।")
+                    if (upd.downloaded) Text("✅ ডাউনলোড শেষ। ফোনের Download ফোল্ডারে APK সেভ হয়েছে। নিচের বাটনে ফোল্ডার খুলে APK-তে ট্যাপ করে ইন্সটল করুন (বলা হলে ‘এই উৎস থেকে অনুমতি’ দিন)।")
                 }
             },
             confirmButton = {
                 if (upd.downloaded) {
-                    Button(onClick = { uv.dismissPopup() }) { Text("ঠিক আছে") }
+                    Button(onClick = { uv.openDownloads() }) { Text("📂 Download ফোল্ডার খুলুন") }
                 } else {
                     Button(onClick = { uv.startDownload() }, enabled = !upd.busy) { Text(if (upd.busy) "ডাউনলোড হচ্ছে…" else "⬇️ ডাউনলোড") }
                 }
             },
-            dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
+            dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text(if (upd.downloaded) "বন্ধ" else "পরে") } },
         )
     }
     SideEffect { np.onOldCancelled = { sched.markGone(it) } }   // এডিট করা পোস্ট নতুন করে সিডিউল হলে পুরনোটা তালিকা থেকে সরে যায়
@@ -392,30 +391,6 @@ fun NumField(label: String, value: Float, modifier: Modifier = Modifier, onChang
     )
 }
 
-/**
- * আপডেটে নতুন কী কী ফিচার এল তার তালিকা। নোটের লেখা সাধারণ মার্কডাউন: `- ` / `* ` দিয়ে শুরু লাইন = বুলেট,
- * `#` দিয়ে শুরু লাইন = মোটা শিরোনাম (একাধিক ভার্সনের নোট একসাথে থাকলে ভার্সনের নাম)। নোট না থাকলে কিছু দেখায় না।
- */
-@Composable
-fun UpdateNotes(notes: String) {
-    if (notes.isBlank()) return
-    val heading = "নতুন যা যা এসেছে"
-    // নোটের ফাইলে নিজেই একই শিরোনাম থাকলে বাদ (ওপরে একবার দেখানো হয়)
-    val lines = notes.lines().filterNot { it.trim().trimStart('#').trim() == heading }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("✨ $heading", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        lines.forEach { raw ->
-            val t = raw.trim()
-            when {
-                t.isEmpty() -> androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
-                t.startsWith("#") -> Text(t.trimStart('#').trim(), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                t.startsWith("- ") || t.startsWith("* ") -> Text("•  " + t.drop(2).trim(), fontSize = 14.sp)
-                else -> Text(t, fontSize = 14.sp)
-            }
-        }
-    }
-}
-
 @Composable
 fun UpdateScreen(vm: UpdateViewModel, embedded: Boolean = false) {
     val st by vm.state.collectAsStateWithLifecycle()
@@ -436,9 +411,9 @@ fun UpdateScreen(vm: UpdateViewModel, embedded: Boolean = false) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    UpdateNotes(info.notes)
                     if (st.downloaded) {
-                        Text("নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন।")
+                        Text("Download ফোল্ডারে APK সেভ হয়েছে। ফোল্ডার খুলে APK-তে ট্যাপ করে ইন্সটল করুন।")
+                        Button(onClick = { vm.openDownloads() }) { Text("📂 Download ফোল্ডার খুলুন") }
                     } else {
                         Button(onClick = { vm.startDownload() }, enabled = !st.busy) { Text("⬇️ ডাউনলোড") }
                     }

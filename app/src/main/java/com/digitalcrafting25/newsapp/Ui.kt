@@ -77,6 +77,9 @@ fun AppBtn(
     color: Color = C.Red,
     enabled: Boolean = true,
     small: Boolean = false,
+    // oneLine = true: লেখা এক লাইনে থাকে, জায়গা না হলে ছোট হয় (পাশাপাশি দুই বাটনের মাপ একই রাখতে); fontSp দিলে সেই মাপ থেকে শুরু
+    oneLine: Boolean = false,
+    fontSp: Float? = null,
     onClick: () -> Unit,
 ) {
     androidx.compose.material3.Button(
@@ -90,7 +93,14 @@ fun AppBtn(
         ),
         contentPadding = if (small) PaddingValues(horizontal = 12.dp, vertical = 8.dp) else PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text(text, fontWeight = FontWeight.Bold, fontSize = if (small) 13.sp else 15.sp)
+        var fs by androidx.compose.runtime.remember(text, small, fontSp) {
+            androidx.compose.runtime.mutableFloatStateOf(fontSp ?: if (small) 13f else 15f)
+        }
+        Text(
+            text, fontWeight = FontWeight.Bold, fontSize = fs.sp,
+            maxLines = if (oneLine) 1 else Int.MAX_VALUE, softWrap = !oneLine,
+            onTextLayout = { if (oneLine && it.hasVisualOverflow && fs > 9f) fs -= 0.5f },
+        )
     }
 }
 

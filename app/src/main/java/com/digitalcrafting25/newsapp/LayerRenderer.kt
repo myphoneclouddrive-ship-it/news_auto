@@ -41,6 +41,7 @@ class LayerFrameRenderer(
     private val fbTop: String = "",
     private val fbBottom: String = "",
     private val fbColor: Int = Color.BLACK,
+    private val fbBg: Int = Color.WHITE,   // ব্যান্ডের ব্যাকগ্রাউন্ড রং
     // true হলে ওপর/নিচের ব্যানার ভিডিওর ভেতরে না এঁকে ব্যান্ডে (ওপরেরটা ওপরের ব্যান্ডে, নিচেরটা নিচের ব্যান্ডে) আঁকা হয়
     private val adsInBand: Boolean = false,
     // ইন্ট্রো/আউট্রো কার্ডের সময়: ওখানে স্ক্রলিং লেখা/বিজ্ঞাপন/ট্যাগ/লোগো এবং পুরোনো লোগো-বার আঁকা হয় না (HTML-এর মতো)
@@ -106,8 +107,8 @@ class LayerFrameRenderer(
         if (yOff > 0) {
             // ইন্ট্রো/আউট্রোতে ব্যান্ড নেই (কার্ড পুরো ক্যানভাস জুড়ে); বাকি সময় সাদা ব্যান্ড + লেখা
             if (!inCard) {
-                cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(Color.WHITE))
-                cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(Color.WHITE))
+                cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(fbBg))
+                cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(fbBg))
                 drawBandText(cv, fbTop, 0f, yOff.toFloat())
                 drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
                 // ব্যানার: ওপরেরটা ওপরের ব্যান্ডে, নিচেরটা নিচের ব্যান্ডে (HTML-এর ফেইসবুক পাস); ছবি পুরো ব্যান্ড ভরে

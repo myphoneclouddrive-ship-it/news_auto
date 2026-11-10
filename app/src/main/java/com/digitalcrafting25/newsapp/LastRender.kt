@@ -25,7 +25,7 @@ data class PubTargets(val fb: Boolean = false, val yt: Boolean = false, val wp: 
  * রেন্ডার করা ভিডিও, টাইটেল ও পাবলিশের অবস্থা ফিরে আসে। ভিডিও ফাইল আগে থেকেই `filesDir/renders`-এ থাকে; এখানে শুধু তালিকা + টাইটেল।
  */
 object LastRender {
-    class Rec(val title: String, val outputs: List<RenderOutput>, val tg: PubTargets, val pub: PubState, val draftId: Long = 0L)
+    class Rec(val title: String, val outputs: List<RenderOutput>, val tg: PubTargets, val pub: PubState, val draftId: Long = 0L, val vid: String = "")
 
     private val lock = Any()
     private fun file(ctx: Context) = File(ctx.filesDir, "last_render.json")
@@ -55,14 +55,14 @@ object LastRender {
                     pj.optString("fbId"), pj.optString("fbLink"), pj.optString("ytId"), pj.optString("ytWarn"),
                     pj.optBoolean("wpDone"), pj.optString("wpLink"), pj.optString("wpWarn"),
                 ),
-                j.optLong("draftId"),
+                j.optLong("draftId"), j.optString("vid"),
             )
         }.getOrNull()
     }
 
     private fun write(ctx: Context, r: Rec) = synchronized(lock) {
         runCatching {
-            val j = JSONObject().put("title", r.title).put("tgFb", r.tg.fb).put("tgYt", r.tg.yt).put("tgWp", r.tg.wp).put("draftId", r.draftId)
+            val j = JSONObject().put("title", r.title).put("tgFb", r.tg.fb).put("tgYt", r.tg.yt).put("tgWp", r.tg.wp).put("draftId", r.draftId).put("vid", r.vid)
             j.put("outputs", JSONArray().also { a ->
                 r.outputs.forEach { o ->
                     a.put(JSONObject().put("mode", o.mode).put("path", o.uri.path.orEmpty()).put("w", o.w).put("h", o.h).put("name", o.fileName))
@@ -90,12 +90,26 @@ object LastRender {
         val newModes = fresh.map { it.mode }.toSet()
         val tg = if (old == null) PubTargets("fb" in has, "yt" in has, wp && "yt" in has)
         else PubTargets(old.tg.fb || "fb" in newModes, old.tg.yt || "yt" in newModes, old.tg.wp && "yt" in has)
-        write(ctx, Rec(old?.title?.ifBlank { null } ?: title, outs, tg, old?.pub ?: PubState(), old?.draftId ?: draftId))
+        write(ctx, Rec(old?.title?.ifBlank { null } ?: title, outs, tg, old?.pub ?: PubState(), old?.draftId ?: draftId, old?.vid?.ifBlank { null } ?: newVid()))
     }
 
-    fun updateTitle(ctx: Context, title: String) { load(ctx)?.let { write(ctx, Rec(title, it.outputs, it.tg, it.pub, it.draftId)) } }
-    fun updatePub(ctx: Context, pub: PubState) { load(ctx)?.let { write(ctx, Rec(it.title, it.outputs, it.tg, pub, it.draftId)) } }
-    fun updateTargets(ctx: Context, tg: PubTargets) { load(ctx)?.let { write(ctx, Rec(it.title, it.outputs, tg, it.pub, it.draftId)) } }
+    fun updateTitle(ctx: Context, title: String) { load(ctx)?.let { write(ctx, Rec(title, it.outputs, it.tg, it.pub, it.draftId, it.vid)) } }
+    fun updatePub(ctx: Context, pub: PubState) { load(ctx)?.let { write(ctx, Rec(it.title, it.outputs, it.tg, pub, it.draftId, it.vid)) } }
+    fun updateTargets(ctx: Context, tg: PubTargets) { load(ctx)?.let { write(ctx, Rec(it.title, it.outputs, tg, it.pub, it.draftId, it.vid)) } }
+
+    private fun newVid(): String = java.util.UUID.randomUUID().toString().replace("-", "")
+
+    /**
+     * এই রেন্ডারের আইডি (টাকা কাটার হিসাবে "একই ভিডিও"): নতুন রেন্ডারে নতুন, পেইজ থেকে অন্য ভার্সন রেন্ডারে (merge) আগেরটাই থাকে।
+     * আগের ভার্সনে বানানো রেন্ডারে না থাকলে এখানে বানিয়ে সেভ করা হয়। রেন্ডার না থাকলে null।
+     */
+    fun ensureVid(ctx: Context): String? {
+        val r = load(ctx) ?: return null
+        if (r.vid.isNotBlank()) return r.vid
+        val v = newVid()
+        write(ctx, Rec(r.title, r.outputs, r.tg, r.pub, r.draftId, v))
+        return v
+    }
 
     /** মনে রাখা রেন্ডার ও তার ভিডিও ফাইল মোছা (ক্যাশ ক্লিয়ার / লগআউট / ড্রাফট মোছা) */
     fun clear(ctx: Context) {

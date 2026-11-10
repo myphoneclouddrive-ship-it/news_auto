@@ -9,11 +9,15 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
@@ -24,22 +28,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -53,79 +58,61 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * ভিডিও/ছবি ক্লিপের ক্রপ: ফ্রেমে (জুম-পজিশন-ফ্লিপের পরের ছবিতে) একটা আয়তক্ষেত্র বাছা হয়।
- * শুধু ওই অংশটুকু দেখা যায়; পুরো ফ্রেমের মাপ (১২৮০×৭২০ ইত্যাদি) একই থাকে — বাছা অংশ অনুপাত না বদলে ফ্রেমে ফিট হয়
- * (অনুপাত ফ্রেমের মতো হলে ফ্রেম পুরো ভরে, অন্য অনুপাতে দুই পাশে/ওপর-নিচে কালো জায়গা থাকে)।
- * ক্লিপে cropX/Y/W/H = ফ্রেমের ০..১ ভগ্নাংশে; প্রিভিউ (CropFrame) ও রেন্ডার (RenderComposer) একই হিসাব মানে।
+ * ভিডিও/ছবি ক্লিপের ক্রপ: ক্রপের সময় **মূল ভিডিওর সম্পূর্ণ ছবি** (কোনো কাটছাঁট/জুম/ফ্লিপ ছাড়া, নিজের আসল মাপে) দেখায়,
+ * তার ওপর একটা আয়তক্ষেত্র বাছা হয় — শুধু ওই অংশটুকুই ভিডিওতে দেখা যায়।
+ * বাছা অংশ অনুপাত না বদলে ফ্রেমে ফিট হয় (অনুপাত ফ্রেমের মতো হলে ফ্রেম পুরো ভরে, অন্য অনুপাতে দুই পাশে/ওপর-নিচে কালো জায়গা থাকে)।
+ * ক্লিপে cropX/Y/W/H = **মূল ভিডিও-ফ্রেমের** ০..১ ভগ্নাংশে; প্রিভিউ (CropFrame) ও রেন্ডার (RenderComposer) একই হিসাব মানে।
+ * ক্রম: মূল ভিডিও → ক্রপ → ফ্রেমে ফিট → (জুম/পজিশন/ফ্লিপ)।
  */
 object ClipCrop {
     /** প্রিভিউ ফ্রেমের অনুপাত (VideoEditorScreen.PREVIEW_ASPECT-এর মতো) */
     val FRAME_ASPECT: Float get() = FrameAspect.ratio
 
-    /** বাছা অংশ ফ্রেমে ফিট করতে সমান স্কেল */
-    fun fitScale(w: Float, h: Float): Float = min(1f / w.coerceAtLeast(0.01f), 1f / h.coerceAtLeast(0.01f))
-
-    /**
-     * ডায়ালগে দেখানোর ফ্রেম: কাঁচা ছবি ১৬:৯ ফ্রেম ভরে (ক্রপ-ফিট) বসে, তারপর ক্লিপের জুম/পজিশন/ফ্লিপ —
-     * প্রিভিউ ও রেন্ডারের মতো একই নিয়ম।
-     */
-    fun frameBitmap(src0: Bitmap, c: Clip, outW: Int = 960): Bitmap {
-        val src = if (src0.config == Bitmap.Config.HARDWARE) src0.copy(Bitmap.Config.ARGB_8888, false) ?: src0 else src0
-        val fw = outW
-        val fh = (outW / FRAME_ASPECT).toInt().coerceAtLeast(1)
-        val out = Bitmap.createBitmap(fw, fh, Bitmap.Config.ARGB_8888)
-        val cv = android.graphics.Canvas(out)
-        cv.drawColor(android.graphics.Color.BLACK)
-        val k = max(fw / src.width.toFloat(), fh / src.height.toFloat())
-        val z = c.zoom.coerceIn(1f, 4f)
-        val m = Matrix().apply {
-            postScale(k, k)
-            postTranslate((fw - src.width * k) / 2f, (fh - src.height * k) / 2f)
-            postScale(if (c.flipH) -z else z, if (c.flipV) -z else z, fw / 2f, fh / 2f)
-            postTranslate(-c.panX.coerceIn(-1f, 1f) * (z - 1f) * fw / 2f, -c.panY.coerceIn(-1f, 1f) * (z - 1f) * fh / 2f)
-        }
-        cv.drawBitmap(src, m, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
-        return out
-    }
+    /** ডায়ালগে দেখানোর জন্য মূল ফ্রেম (হার্ডওয়্যার বিটম্যাপ হলে সফটওয়্যার কপি) */
+    fun softBitmap(src0: Bitmap): Bitmap =
+        if (src0.config == Bitmap.Config.HARDWARE) src0.copy(Bitmap.Config.ARGB_8888, false) ?: src0 else src0
 }
 
 /**
- * প্রিভিউ ফ্রেমের ভেতরের ভিডিও/ছবি ক্রপ করে দেখায়। ক্রপ না থাকলেও একই কাঠামো থাকে (প্লেয়ারের TextureView নতুন করে বানাতে হয় না)।
- * বাছা অংশ ফ্রেমের মাঝে ফিট হয়; বাইরের অংশ কেটে যায় (পেছনে কালো)।
+ * প্রিভিউ ফ্রেমের ভেতরে ক্রপ-করা ভিডিও/ছবি দেখায়। ক্রপ না থাকলে content সরাসরি ফ্রেম ভরে (আগের মতোই)।
+ * ক্রপ থাকলে content-কে মূল ভিডিওর আসল অনুপাতের (srcAspect) একটা বক্সে বসানো হয়, তারপর শুধু বাছা অংশ
+ * ফ্রেমের মাঝে ফিট হয়ে দেখায় (রেন্ডারের Crop → Presentation(FIT) এর একই হিসাব)।
+ * @param layerTx জুম/পজিশন/ফ্লিপ — ফ্রেম-সাইজের কন্টেইনারের ওপর বসে (রেন্ডারে ক্রপ-ফিটের পরে বসে, তাই একই)
  */
 @Composable
-fun CropFrame(c: Clip?, content: @Composable () -> Unit) {
+fun CropFrame(
+    c: Clip?,
+    srcAspect: Float,
+    layerTx: GraphicsLayerScope.() -> Unit,
+    content: @Composable () -> Unit,
+) {
     val on = c != null && c.hasCrop()
-    val x = c?.cropX ?: 0f
-    val y = c?.cropY ?: 0f
-    val w = (c?.cropW ?: 1f).coerceIn(0.05f, 1f)
-    val h = (c?.cropH ?: 1f).coerceIn(0.05f, 1f)
-    Box(
-        Modifier.fillMaxSize().drawWithContent {
-            if (!on) {
-                drawContent()
-            } else {
-                val s = ClipCrop.fitScale(w, h)
-                val ow = w * s * size.width
-                val oh = h * s * size.height
-                val l = (size.width - ow) / 2f
-                val t = (size.height - oh) / 2f
-                clipRect(l, t, l + ow, t + oh) { this@drawWithContent.drawContent() }
-            }
-        },
-    ) {
-        Box(
-            Modifier.fillMaxSize().graphicsLayer {
-                if (on) {
-                    val s = ClipCrop.fitScale(w, h)
-                    transformOrigin = TransformOrigin(0f, 0f)
-                    scaleX = s
-                    scaleY = s
-                    translationX = size.width / 2f - (x + w / 2f) * size.width * s
-                    translationY = size.height / 2f - (y + h / 2f) * size.height * s
+    Box(Modifier.fillMaxSize().clipToBounds().graphicsLayer(layerTx)) {
+        if (!on || c == null) {
+            content()
+        } else {
+            val cx = c.cropX.coerceIn(0f, 0.95f)
+            val cy = c.cropY.coerceIn(0f, 0.95f)
+            val cw = c.cropW.coerceIn(0.05f, 1f - cx)
+            val ch = c.cropH.coerceIn(0.05f, 1f - cy)
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val fw: Dp = maxWidth
+                val fh: Dp = maxHeight
+                val fa: Float = fw / fh                                        // ফ্রেমের অনুপাত
+                val ra: Float = (cw / ch * srcAspect).coerceAtLeast(0.01f)      // বাছা অংশের (পিক্সেলের) অনুপাত
+                val winW: Dp = if (ra > fa) fw else fh * ra                     // বাছা অংশ ফ্রেমে ফিট হয়ে যতটুকু জায়গা নেয়
+                val winH: Dp = if (ra > fa) fw / ra else fh
+                val srcW: Dp = winW / cw                                        // মূল ছবি ওই জানালায় যত বড় দেখাবে
+                val srcH: Dp = winH / ch
+                Box(Modifier.align(Alignment.Center).size(winW, winH).clipToBounds()) {
+                    Box(
+                        Modifier.align(Alignment.TopStart)
+                            .requiredSize(srcW, srcH)
+                            .offset(-srcW * cx, -srcH * cy),
+                    ) { content() }
                 }
-            },
-        ) { content() }
+            }
+        }
     }
 }
 
@@ -163,7 +150,8 @@ private fun ClipCropBody(
     val minSide = with(density) { 48.dp.toPx() }
     val handleR = with(density) { 9.dp.toPx() }
 
-    val frame by produceState<Bitmap?>(null, clip.uri, srcMs, clip.zoom, clip.panX, clip.panY, clip.flipH, clip.flipV) {
+    // মূল ভিডিওর সম্পূর্ণ ফ্রেম — কোনো ক্রপ/জুম/ফ্লিপ ছাড়া, নিজের আসল অনুপাতে
+    val frame by produceState<Bitmap?>(null, clip.uri, srcMs) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val raw: Bitmap? = if (clip.isImage) {
@@ -177,40 +165,43 @@ private fun ClipCropBody(
                         runCatching { r.release() }
                     }
                 }
-                raw?.let { ClipCrop.frameBitmap(it, clip) }
+                raw?.let { ClipCrop.softBitmap(it) }
             }.getOrNull()
         }
     }
     val frameImg = remember(frame) { frame?.asImageBitmap() }
+    // মূল ভিডিওর অনুপাত (লোড হওয়ার আগে ফ্রেমের অনুপাত ধরা হয়)
+    val srcAspect: Float = frame?.let { it.width / it.height.toFloat() } ?: ClipCrop.FRAME_ASPECT
 
     var box by remember { mutableStateOf(IntSize.Zero) }
-    // ফ্রেম (১৬:৯) বক্সের ভেতরে ফিট হয়ে যেখানে বসবে
-    val imgRect: Rect = remember(box) {
+    // মূল ভিডিও (নিজের আসল অনুপাতে) বক্সের ভেতরে ফিট হয়ে যেখানে বসবে
+    val imgRect: Rect = remember(box, srcAspect) {
         if (box.width <= 0 || box.height <= 0) Rect(0f, 0f, 1f, 1f) else {
-            val s = min(box.width / ClipCrop.FRAME_ASPECT, box.height.toFloat())   // s = উচ্চতা
-            val h = s; val w = s * ClipCrop.FRAME_ASPECT
+            val h = min(box.height.toFloat(), box.width / srcAspect)
+            val w = h * srcAspect
             val l = (box.width - w) / 2f; val t = (box.height - h) / 2f
             Rect(l, t, l + w, t + h)
         }
     }
 
-    // শুরুর বক্স: আগের ক্রপ থাকলে সেটা, না থাকলে পুরো ফ্রেম
-    fun fromClip(): Rect = Rect(
-        imgRect.left + clip.cropX * imgRect.width, imgRect.top + clip.cropY * imgRect.height,
-        imgRect.left + (clip.cropX + clip.cropW) * imgRect.width, imgRect.top + (clip.cropY + clip.cropH) * imgRect.height,
-    )
-    var crop by remember(imgRect) { mutableStateOf(fromClip()) }
-    // ফ্রেমের মাপের সাথে মিললে "ফ্রেমের মাপ" লক, নইলে স্বাধীন
-    val frameLike = abs(clip.cropW * ClipCrop.FRAME_ASPECT / clip.cropH - ClipCrop.FRAME_ASPECT) < 0.02f
-    var ratioKey by remember { mutableStateOf(if (!clip.hasCrop() || frameLike) "frame" else "free") }
-    var ratio by remember { mutableStateOf<Float?>(if (!clip.hasCrop() || frameLike) ClipCrop.FRAME_ASPECT else null) }
-
+    // imgRect-এর ভেতরে r (চওড়া/উচ্চতা) অনুপাতের সবচেয়ে বড় বক্স, মাঝখানে
     fun centered(r: Float): Rect {
         val w: Float; val h: Float
         if (imgRect.width / imgRect.height > r) { h = imgRect.height; w = h * r } else { w = imgRect.width; h = w / r }
         val cx = imgRect.center.x; val cy = imgRect.center.y
         return Rect(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f)
     }
+    // ক্রপ না থাকলে ভিডিও এখন ফ্রেমে যে অংশ দেখায় (মাঝের ফ্রেম-অনুপাতের অংশ) সেটাই শুরুর বক্স
+    fun fromClip(): Rect = if (!clip.hasCrop()) centered(ClipCrop.FRAME_ASPECT) else Rect(
+        imgRect.left + clip.cropX * imgRect.width, imgRect.top + clip.cropY * imgRect.height,
+        imgRect.left + (clip.cropX + clip.cropW) * imgRect.width, imgRect.top + (clip.cropY + clip.cropH) * imgRect.height,
+    )
+    var crop by remember(imgRect) { mutableStateOf(fromClip()) }
+    // বাছা অংশের (পিক্সেলের) অনুপাত ফ্রেমের মতো হলে "ফ্রেমের মাপ" লক, নইলে স্বাধীন
+    val frameLike = abs(clip.cropW * srcAspect / clip.cropH - ClipCrop.FRAME_ASPECT) < 0.02f
+    var ratioKey by remember(srcAspect) { mutableStateOf(if (!clip.hasCrop() || frameLike) "frame" else "free") }
+    var ratio by remember(srcAspect) { mutableStateOf<Float?>(if (!clip.hasCrop() || frameLike) ClipCrop.FRAME_ASPECT else null) }
+
     fun setRatio(key: String, r: Float?) {
         ratioKey = key; ratio = r
         crop = if (r == null) imgRect else centered(r)
@@ -219,7 +210,7 @@ private fun ClipCropBody(
     Column(Modifier.fillMaxSize().background(Color(0xFF111111)).padding(top = 28.dp, bottom = 12.dp)) {
         Text("✂️ ভিডিও ক্রপ করুন", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.padding(horizontal = 14.dp))
         Text(
-            "বক্সের ভেতরে টেনে সরান (কোন অংশ দেখাবে), কোণা টেনে বা স্লাইডারে সাইজ বদলান। ফ্রেমের মাপ একই থাকবে।",
+            "মূল ভিডিওর পুরো ছবি দেখা যাচ্ছে। বক্সের ভেতরে টেনে সরান (ভিডিওর কোন অংশ দেখাবে), কোণা টেনে বা স্লাইডারে সাইজ বদলান। ভিডিওর ফ্রেমের মাপ একই থাকবে।",
             color = Color(0xFFBBBBBB), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
         )
 
@@ -324,7 +315,7 @@ private fun ClipCropBody(
         val sMax = max(0.11f, min(1f, imgRect.height * aNow / imgRect.width))
         val sNow = (crop.width / imgRect.width).coerceIn(0.1f, sMax)
         Text(
-            "ক্রপের সাইজ: ${PostUtil.bn(Math.round(crop.width / imgRect.width * 100))}% × ${PostUtil.bn(Math.round(crop.height / imgRect.height * 100))}% (ফ্রেমের)",
+            "ক্রপের সাইজ: ${PostUtil.bn(Math.round(crop.width / imgRect.width * 100))}% × ${PostUtil.bn(Math.round(crop.height / imgRect.height * 100))}% (মূল ভিডিওর)",
             color = Color(0xFFBBBBBB), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
         )
         Slider(
@@ -355,7 +346,11 @@ private fun ClipCropBody(
                 val fy = ((crop.top - imgRect.top) / h).coerceIn(0f, 1f)
                 val fw = (crop.width / w).coerceIn(0.05f, 1f - fx)
                 val fh = (crop.height / h).coerceIn(0.05f, 1f - fy)
-                onApply(fx, fy, fw, fh)
+                // বক্স ঠিক ডিফল্ট দেখানো অংশের (মাঝের ফ্রেম-অনুপাত) সমান হলে ক্রপ বাদ
+                val def = centered(ClipCrop.FRAME_ASPECT)
+                val same = abs(crop.left - def.left) < 2f && abs(crop.right - def.right) < 2f &&
+                    abs(crop.top - def.top) < 2f && abs(crop.bottom - def.bottom) < 2f
+                if (same) onApply(0f, 0f, 1f, 1f) else onApply(fx, fy, fw, fh)
             }
         }
     }

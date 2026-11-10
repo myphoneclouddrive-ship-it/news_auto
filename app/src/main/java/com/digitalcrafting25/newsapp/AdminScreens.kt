@@ -157,20 +157,19 @@ fun AdminRoot(auth: AuthViewModel, uv: UpdateViewModel, sv: SettingsViewModel, a
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("নতুন সংস্করণ: ${info.versionName}")
-                    UpdateNotes(info.notes)
                     upd.progress?.let { p ->
                         LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
                         Text("ডাউনলোড হচ্ছে… ${(p * 100).toInt()}%")
                     }
                     if (upd.progress == null && upd.message.startsWith("❌")) Text(upd.message)
-                    if (upd.downloaded) Text("✅ ডাউনলোড শেষ। স্ক্রিনের ওপরের নোটিফিকেশনে ট্যাপ করুন, তারপর ফোনের কনফার্মেশনে ‘Update’ চাপুন।")
+                    if (upd.downloaded) Text("✅ ডাউনলোড শেষ। ফোনের Download ফোল্ডারে APK সেভ হয়েছে। নিচের বাটনে ফোল্ডার খুলে APK-তে ট্যাপ করে ইন্সটল করুন (বলা হলে ‘এই উৎস থেকে অনুমতি’ দিন)।")
                 }
             },
             confirmButton = {
-                if (upd.downloaded) Button(onClick = { uv.dismissPopup() }) { Text("ঠিক আছে") }
+                if (upd.downloaded) Button(onClick = { uv.openDownloads() }) { Text("📂 Download ফোল্ডার খুলুন") }
                 else Button(onClick = { uv.startDownload() }, enabled = !upd.busy) { Text(if (upd.busy) "ডাউনলোড হচ্ছে…" else "⬇️ ডাউনলোড") }
             },
-            dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text("পরে") } },
+            dismissButton = { if (!upd.busy) TextButton(onClick = { uv.dismissPopup() }) { Text(if (upd.downloaded) "বন্ধ" else "পরে") } },
         )
     }
 

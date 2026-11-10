@@ -50,7 +50,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 /**
  * ভিডিও এডিট থেকে রেন্ডার শেষে এই পেইজ (HTML `#sv`, "২ ভিডিও" ধাপ):
  * ওপরে ধাপ-বার, রেন্ডার করা ভিডিওর প্রিভিউ, ভিডিও টাইটেল (আগে থেকে বসানো), একটাই "🚀 পাবলিশ করুন (Facebook+YouTube+WordPress)" বাটন,
- * 💾 সেভ, ← ব্যাক (এডিটে), ↩️ নতুন পোস্টে ফিরুন।
+ * ⬇️ শুধু Facebook/YouTube ডাউনলোড, ← ব্যাক (এডিটে), ↩️ নতুন পোস্টে ফিরুন।
  * পাবলিশ: `VideoPublishState` — ফেইসবুক → ইউটিউব → ওয়ার্ডপ্রেস একটার পর একটা; যা হয়ে গেছে আবার যায় না।
  * রেন্ডার ও পাবলিশের অবস্থা `LastRender`-এ মনে রাখা হয়, তাই অ্যাপ বন্ধ করে খুললেও এই পেইজ ফিরে আসে।
  */
@@ -162,20 +162,6 @@ fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: 
                     )
                 }
                 if (RenderBus.summary.isNotBlank()) Text(RenderBus.summary, color = C.Muted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp))
-                // শেয়ার: ফেইসবুক ভিডিও → Facebook অ্যাপ, ইউটিউব ভিডিও → YouTube অ্যাপ; দুটোর পাশেই যেকোনো অ্যাপে পাঠানো
-                val isFb = o.mode == "fb"
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppBtn(
-                        if (isFb) "📘 Facebook-এ পাঠান" else "▶️ YouTube-এ পাঠান", Modifier.weight(1f), color = C.Green, small = true,
-                    ) {
-                        val r = VideoShare.share(ctx, uri, vm.videoTitle, if (isFb) VideoShare.FACEBOOK else VideoShare.YOUTUBE, if (isFb) "Facebook" else "YouTube")
-                        msgOk = !r.startsWith("❌"); msg = r
-                    }
-                    AppBtn("↗️ অন্য অ্যাপে", Modifier.weight(1f), color = C.Gray, small = true) {
-                        val r = VideoShare.share(ctx, uri, vm.videoTitle)
-                        msgOk = !r.startsWith("❌"); msg = r
-                    }
-                }
             }
         }
 
@@ -261,6 +247,19 @@ fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: 
             val no = listOfNotNull(if (!hasFb) "Facebook" else null, if (!hasYt) "YouTube, WordPress" else null)
             if (no.isNotEmpty()) Text("রেন্ডারে টিক দেওয়া হয়নি, তাই যোগ করা যাবে না: " + no.joinToString(", "), color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         }
+        // খরচ (দেখানোর জন্য): যেগুলো এখনো পাবলিশ হয়নি সেগুলোর দাম; হয়ে যাওয়া ভিডিওর জন্য আর কাটে না
+        run {
+            val p = pub.pub
+            val parts = ArrayList<Pair<String, Int>>()
+            if (hasFb && tg.fb && !p.fbDone) parts += "Facebook" to VideoCharge.price.getValue(VideoCharge.PUB_FB)
+            if (hasYt && tg.yt && !p.ytDone) parts += "YouTube" to VideoCharge.price.getValue(VideoCharge.PUB_YT)
+            if (hasYt && tg.yt && tg.wp && !p.wpDone) parts += "WordPress" to VideoCharge.price.getValue(VideoCharge.PUB_WP)
+            if (parts.isNotEmpty()) Text(
+                "💰 পাবলিশ খরচ: " + parts.joinToString(" + ") { "${it.first} ৳${Bn.num(it.second)}" } + " = ৳" + Bn.num(parts.sumOf { it.second }) +
+                    " (পাবলিশ সফল হলে ব্যালেন্স থেকে কাটবে; একই ভিডিওর জন্য একবারই)",
+                color = C.Muted, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 6.dp),
+            )
+        }
         val canPub = !rendering && !pub.busy && pub.names(outs, tg).isNotEmpty()
         AppBtn(
             if (pub.busy) "⏳ পাবলিশ হচ্ছে…" else pub.label(outs, tg),
@@ -292,9 +291,16 @@ fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: 
             val base = vm.videoTitle.trim().replace(Regex("[\\\\/:*?\"<>|]+"), " ").replace(Regex("\\s+"), " ").trim().take(80).ifEmpty { "video" }
             val files = outs.values.filter { only == null || it.mode == only }.sortedBy { if (it.mode == "fb") 0 else 1 }
             if (files.isEmpty()) { msgOk = false; msg = "❌ এই ভিডিওটা রেন্ডার করা নেই"; return }
-            saving = true; msgOk = true; msg = "⏳ গ্যালারিতে সেভ হচ্ছে…"
+            saving = true; msgOk = true; msg = "⏳ ডাউনলোড হচ্ছে…"
             scope.launch {
                 try {
+                    // টাকা: ডাউনলোড Facebook ভিডিও ৩, YouTube ভিডিও ২ (একই ভিডিওর জন্য একবারই কাটে); আগে ব্যালেন্স যাচাই, সফল হলে কাটা
+                    val vid = withContext(Dispatchers.IO) { LastRender.ensureVid(ctx) } ?: throw IllegalStateException("রেন্ডার পাওয়া যায়নি, আবার রেন্ডার করুন")
+                    val items = files.map { if (it.mode == "fb") VideoCharge.DL_FB else VideoCharge.DL_YT }
+                    val ck = try { VideoCharge.check(ctx, vid, items) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+                        msgOk = false; msg = "❌ ব্যালেন্স যাচাই করা যায়নি: " + (e.message ?: "নেট সমস্যা"); return@launch
+                    }
+                    if (!ck.ok) { msgOk = false; msg = "❌ " + VideoCharge.lowMsg(ck); return@launch }
                     val done = ArrayList<String>()
                     for (o in files) {
                         if (savedModes.contains(o.mode)) { done += o.label; continue }
@@ -303,25 +309,29 @@ fun VideoResultScreen(vm: EditorViewModel, outputs: List<RenderOutput>, onBack: 
                         savedModes.add(o.mode)
                         done += o.label
                     }
+                    val paid = VideoCharge.commit(ctx, vid, items)
                     msgOk = true
-                    msg = "✅ " + done.joinToString(" ও ") + " ভিডিও ফোনে সেভ হয়েছে: Movies/NewsPublisher"
+                    msg = "✅ " + done.joinToString(" ও ") + " ভিডিও ফোনে ডাউনলোড হয়েছে: Movies/NewsPublisher" +
+                        (if (paid == null) "\n⚠️ টাকা কাটা যায়নি (নেট সমস্যা)" else if (paid.charged > 0) "\n💰 ৳" + Bn.num(paid.charged.toInt()) + " কাটা হয়েছে (ব্যালেন্স ৳" + Bn.num(paid.balance.toInt()) + ")" else "")
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    msgOk = false; msg = "❌ সেভ করা যায়নি: " + (e.message ?: "অজানা সমস্যা")
+                    msgOk = false; msg = "❌ ডাউনলোড করা যায়নি: " + (e.message ?: "অজানা সমস্যা")
                 } finally { saving = false }
             }
         }
-        AppBtn("💾 সেভ করুন", Modifier.padding(top = 8.dp), color = C.Blue, enabled = !saving && !rendering && !pub.busy) { saveRun(null) }
-        if (outs.size > 1) {
+        // ডাউনলোড: যে ভিডিও রেন্ডার করা আছে তার জন্য একটা করে বাটন
+        if (outs.isNotEmpty()) {
+            Text("💰 ডাউনলোড খরচ: Facebook ভিডিও ৳${Bn.num(VideoCharge.price.getValue(VideoCharge.DL_FB))}, YouTube ভিডিও ৳${Bn.num(VideoCharge.price.getValue(VideoCharge.DL_YT))} (একই ভিডিওর জন্য একবারই কাটে)", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppBtn("💾 শুধু Facebook", Modifier.weight(1f), color = C.Blue, small = true, enabled = !saving && !rendering && !pub.busy) { saveRun("fb") }
-                AppBtn("💾 শুধু YouTube", Modifier.weight(1f), color = C.Red, small = true, enabled = !saving && !rendering && !pub.busy) { saveRun("yt") }
+                val busyNow = saving || rendering || pub.busy
+                if (outs["fb"] != null) AppBtn("⬇️ শুধু Facebook ডাউনলোড", Modifier.weight(1f), color = C.Blue, small = true, oneLine = true, enabled = !busyNow) { saveRun("fb") }
+                if (outs["yt"] != null) AppBtn("⬇️ শুধু YouTube ডাউনলোড", Modifier.weight(1f), color = C.Red, small = true, oneLine = true, enabled = !busyNow) { saveRun("yt") }
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray, enabled = !pub.busy && !rendering) { onBack() }
-            AppBtn("↩️ নতুন পোস্টে ফিরুন", Modifier.weight(1f), color = C.Gray, enabled = !pub.busy && !rendering) { onNewPost() }
+            AppBtn("← ব্যাক", Modifier.weight(1f), color = C.Gray, oneLine = true, fontSp = 14f, enabled = !pub.busy && !rendering) { onBack() }
+            AppBtn("↩️ নতুন পোস্টে ফিরুন", Modifier.weight(1f), color = C.Gray, oneLine = true, fontSp = 14f, enabled = !pub.busy && !rendering) { onNewPost() }
         }
     }
 }

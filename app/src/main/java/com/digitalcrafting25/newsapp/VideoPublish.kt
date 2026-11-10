@@ -91,10 +91,41 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
         if (needFb && fbOk == false) { needFb = false; skipped += "fb" }
         if (needWp && (wpOk == false || (!pub.ytDone && !needYt))) { needWp = false; skipped += "wp" }
         if (skipped.isNotEmpty() && !needFb && !needYt && !needWp) {
-            say("⚠️ " + skipped.joinToString(", ") { nm(it) } + "-এর সংযোগ সেটিংসে দেওয়া নেই, তাই পাবলিশ করা গেল না। সেটিংসে সংযোগ দিন, অথবা নিচের \"সেভ করুন\" দিয়ে ভিডিও নামিয়ে নিন।", 2)
+            say("⚠️ " + skipped.joinToString(", ") { nm(it) } + "-এর সংযোগ সেটিংসে দেওয়া নেই, তাই পাবলিশ করা গেল না। সেটিংসে সংযোগ দিন, অথবা নিচের ডাউনলোড বাটনে ভিডিও নামিয়ে নিন।", 2)
             return null
         }
+        // টাকা: যেগুলো যাবে সেগুলোর দাম (Facebook ৫, YouTube ২, WordPress ৩) আগে যাচাই; কাটা হয় প্রতিটা সফল হওয়ার পর
+        val items = buildList { if (needFb) add(VideoCharge.PUB_FB); if (needYt) add(VideoCharge.PUB_YT); if (needWp) add(VideoCharge.PUB_WP) }
+        val vid = LastRender.ensureVid(app)
+        if (vid == null) { say("❌ রেন্ডার পাওয়া যায়নি, আবার রেন্ডার করুন", 3); return null }
+        val ck = try {
+            VideoCharge.check(app, vid, items)
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            say("❌ ব্যালেন্স যাচাই করা যায়নি: " + (e.message ?: "নেট সমস্যা") + "। কিছুই পাবলিশ হয়নি, আবার চেষ্টা করুন", 3); return null
+        }
+        if (!ck.ok) { say("❌ " + VideoCharge.lowMsg(ck) + "। কিছুই পাবলিশ হয়নি", 3); return null }
+        chargeVid = vid
         return Need(needFb, needYt, needWp, skipped)
+    }
+
+    private var chargeVid: String? = null
+    private var spent = 0.0
+    private var balNow: Double? = null
+    private var chargeMiss = false
+
+    /** একটা প্ল্যাটফর্মে সফল হওয়ার পর তার টাকা কাটা (একই ভিডিওর জন্য একবারই কাটে) */
+    private suspend fun charge(item: String) {
+        val vid = chargeVid ?: return
+        val d = VideoCharge.commit(app, vid, listOf(item))
+        if (d == null) chargeMiss = true else { spent += d.charged; balNow = d.balance }
+    }
+
+    private fun money(): String {
+        val sb = StringBuilder()
+        if (spent > 0) sb.append("\n💰 ৳").append(Bn.num(spent.toInt())).append(" কাটা হয়েছে")
+            .append(balNow?.let { " (ব্যালেন্স ৳" + Bn.num(it.toInt()) + ")" } ?: "")
+        if (chargeMiss) sb.append("\n⚠️ কিছু টাকা কাটা যায়নি (নেট সমস্যা)")
+        return sb.toString()
     }
 
     private fun nm(k: String) = when (k) { "fb" -> "Facebook"; "yt" -> "YouTube"; else -> "WordPress" }
@@ -105,6 +136,7 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
     fun run(need: Need, token: String?, title: String, outs: Map<String, RenderOutput>) {
         if (busy) return
         busy = true; say("", 0)
+        spent = 0.0; balNow = null; chargeMiss = false
         UploadKeepAliveService.start(app)   // ব্যাকগ্রাউন্ডে গেলেও আপলোড চলবে (ফোরগ্রাউন্ড সার্ভিস + লক)
         for (k in listOf("fb", "yt", "wp")) rows.remove(k)
         if (need.fb) rows["fb"] = Row(0, 0, "অপেক্ষায়...")
@@ -125,6 +157,7 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                         }
                         val link = r.link.ifBlank { "https://www.facebook.com/" + r.id }
                         save(pub.copy(fbId = r.id.ifBlank { "ok" }, fbLink = link))
+                        charge(VideoCharge.PUB_FB)
                         rows["fb"] = Row(1, 100, "✅ Facebook-এ পোস্ট হয়েছে", link)
                     } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         failed += "Facebook"; rows["fb"] = Row(2, 0, "❌ " + (e.message ?: "আপলোড হয়নি"))
@@ -140,6 +173,7 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                         val warn = if (r.privacy.isBlank() || r.privacy == "public") ""
                         else "YouTube ভিডিওটি \"${r.privacy}\" রেখেছে (নতুন API প্রজেক্টের অডিট না হলে এমন হয়)। YouTube Studio থেকে Public করুন, নইলে WordPress-এ চলবে না।"
                         save(pub.copy(ytId = r.id, ytWarn = warn))
+                        charge(VideoCharge.PUB_YT)
                         rows["yt"] = Row(if (warn.isBlank()) 1 else 3, 100, "✅ YouTube-এ পোস্ট হয়েছে" + if (warn.isBlank()) "" else "\n⚠️ $warn", r.link)
                     } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         failed += "YouTube"; rows["yt"] = Row(2, 0, "❌ " + (e.message ?: "আপলোড হয়নি"))
@@ -159,6 +193,7 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                             val link = r.optString("link")
                             val w = r.optString("warn")
                             save(pub.copy(wpDone = true, wpLink = link, wpWarn = w))
+                            charge(VideoCharge.PUB_WP)
                             rows["wp"] = Row(if (w.isBlank()) 1 else 3, 100, "✅ WordPress-এ পোস্ট হয়েছে" + if (w.isBlank()) " (YouTube iframe সহ)" else "\n⚠️ $w", link)
                         } catch (e: CancellationException) { throw e } catch (e: Exception) {
                             failed += "WordPress"; rows["wp"] = Row(2, 0, "❌ " + (e.message ?: "WordPress-এ পোস্ট হয়নি"))
@@ -167,9 +202,9 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                 }
             } finally { busy = false; UploadKeepAliveService.stop(app) }
             UploadKeepAliveService.finished(app, if (failed.isEmpty()) "✅ পাবলিশ সম্পন্ন" else "⚠️ হয়নি: " + failed.joinToString(", ") + "। অ্যাপ খুলে আবার চেষ্টা করুন।")
-            if (failed.isNotEmpty()) say("⚠️ হয়নি: " + failed.joinToString(", ") + "। আবার \"পাবলিশ\" চাপলে শুধু এগুলো চেষ্টা হবে। যেগুলো হয়ে গেছে সেগুলো আবার যাবে না।", 3)
-            else if (need.skipped.isNotEmpty()) say("✅ যেগুলোর সেটিংস আছে সেগুলো পাবলিশ হয়েছে। সেটিংস না থাকায় বাদ: " + need.skipped.joinToString(", ") { nm(it) } + "। চাইলে \"সেভ করুন\" দিয়ে ভিডিও নামিয়ে নিন।", 2)
-            else say("✅ সব পাবলিশ সম্পন্ন।", 1)
+            if (failed.isNotEmpty()) say("⚠️ হয়নি: " + failed.joinToString(", ") + "। আবার \"পাবলিশ\" চাপলে শুধু এগুলো চেষ্টা হবে। যেগুলো হয়ে গেছে সেগুলো আবার যাবে না।" + money(), 3)
+            else if (need.skipped.isNotEmpty()) say("✅ যেগুলোর সেটিংস আছে সেগুলো পাবলিশ হয়েছে। সেটিংস না থাকায় বাদ: " + need.skipped.joinToString(", ") { nm(it) } + "। চাইলে ডাউনলোড বাটনে ভিডিও নামিয়ে নিন।" + money(), 2)
+            else say("✅ সব পাবলিশ সম্পন্ন।" + money(), 1)
         }
     }
 }

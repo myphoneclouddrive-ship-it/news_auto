@@ -66,7 +66,7 @@ object RenderComposer {
         val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs || (it is NameBarLayer && it.repeatSec > 0) }
         val renderer = LayerFrameRenderer(
             ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
-            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor,
+            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor, fbBg = spec.fbBg,
             adsInBand = spec.fbAdsInBand && band > 0,
             cardRanges = cardRangesMs(spec.clips),
             cuts = ClipTr.cuts(spec.clips),
@@ -96,23 +96,26 @@ object RenderComposer {
         }
 
         val items = spec.clips.map { c ->
-            // প্রতিটি ক্লিপ একই মাপে (ক্রপসহ ফিট) আনা হয়; তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন থাকলে ওই ফ্রেমের ওপর
+            // প্রতিটি ক্লিপ একই মাপে আনা হয়: ক্রপ থাকলে মূল ফ্রেম → ক্রপ → ফিট, না থাকলে ফ্রেম ভরে (ক্রপসহ ফিট); তারপর (ধাপ ৬) ফ্লিপ/জুম/পজিশন
             val fxList = mutableListOf<Effect>()
             if (band > 0 && c.card != null) {
                 // ইন্ট্রো/আউট্রো কার্ড (HTML-এর মতো): ব্যান্ড ছাড়া পুরো ক্যানভাস জুড়ে; কার্ডের ভিডিও আগেই w×outH মাপে বানানো (ViewModels.startRender)
                 fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
             } else {
-                fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
-                if (c.hasTransform()) fxList += clipTransform(c)
-                // ক্রপ: বাছা অংশ কেটে নিয়ে অনুপাত না বদলে আবার পুরো w×h ফ্রেমে ফিট (আউটপুটের মাপ একই; অনুপাত অন্যরকম হলে কালো জায়গা)
                 if (c.hasCrop()) {
+                    // ক্রপ: **মূল ভিডিও-ফ্রেম** থেকে বাছা অংশ কেটে নেওয়া হয় (ফ্রেমে ফিট হওয়ার আগে, তাই ফ্রেমের বাইরের অংশও বাছা যায়),
+                    // তারপর অনুপাত না বদলে w×h ফ্রেমে ফিট (আউটপুটের মাপ একই; অনুপাত অন্যরকম হলে কালো জায়গা)
                     val cx = c.cropX.coerceIn(0f, 0.95f)
                     val cy = c.cropY.coerceIn(0f, 0.95f)
                     val cw = c.cropW.coerceIn(0.05f, 1f - cx)
                     val ch = c.cropH.coerceIn(0.05f, 1f - cy)
                     fxList += Crop(-1f + 2f * cx, -1f + 2f * (cx + cw), 1f - 2f * (cy + ch), 1f - 2f * cy)
                     fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT)
+                } else {
+                    fxList += Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
                 }
+                // ধাপ ৬: ফ্লিপ/জুম/পজিশন থাকলে ওই w×h ফ্রেমের ওপর (ক্রপ-ফিটের পরে)
+                if (c.hasTransform()) fxList += clipTransform(c)
                 // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
                 if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
             }

@@ -187,6 +187,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     var fbTop by mutableStateOf("")
     var fbBottom by mutableStateOf("")
     var fbColor by mutableIntStateOf(0xFF000000.toInt())
+    var fbBg by mutableIntStateOf(0xFFFFFFFF.toInt())   // ব্যান্ডের ব্যাকগ্রাউন্ড
 
     // ---- রেন্ডারের পরের "২ ভিডিও" পেইজ: শেষ রেন্ডার মনে রাখা, টাইটেল আগে থেকে বসা, একটাই পাবলিশ বাটন ----
     /** এক বাটনে Facebook+YouTube+WordPress পাবলিশ (ViewModel-এর স্কোপে চলে) */
@@ -282,7 +283,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** ইন্ট্রোর লেখা ও টাইটেল/ব্যানার/লোগো ডিফল্টে (ওয়েবের vcResetVideoData)। অসমাপ্ত এডিট (ক্লিপ) থাকলে তার লোগো/টাইটেল ছোঁয়া হয় না */
     fun resetVideoDefaults() {
-        caption = ""; fbTop = ""; fbBottom = ""; fbColor = 0xFF000000.toInt()
+        caption = ""; fbTop = ""; fbBottom = ""; fbColor = 0xFF000000.toInt(); fbBg = 0xFFFFFFFF.toInt()
         if (clips.isEmpty()) { videoTitle = ""; logo = null; music = null; musicName = ""; musicVolume = 0.3f; keepAudio = true }
     }
     private fun displayName(uri: Uri): String = runCatching {
@@ -588,6 +589,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val mv = musicVolume
         val ka = keepAudio
         val fc = fbColor
+        val fbg = fbBg
         // পাসের তালিকা: ফেইসবুক আগে, ইউটিউব পরে (HTML-এর মতো)
         class Plan(val mode: String, val band: Int, val layers: List<Layer>, val fbTop: String, val fbBottom: String)
         val plans = ArrayList<Plan>()
@@ -620,7 +622,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                         p.mode,
                         RenderSpec(
                             clipsForPass, asp, cap, lg, mu, mv, ka, p.layers,
-                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBandPx = p.band, fbAdsInBand = p.band > 0,
+                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBg = fbg, fbBandPx = p.band, fbAdsInBand = p.band > 0,
                         ),
                     )
                 }
@@ -706,10 +708,15 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun dismissPopup() = _state.update { it.copy(showPopup = false) }
 
+    /** Download ফোল্ডার খোলে; না পারলে বার্তা */
+    fun openDownloads() {
+        if (!Updater.openDownloads(app)) _state.update { it.copy(message = "Download ফোল্ডার খোলা যায়নি — ফাইল ম্যানেজারে Download ফোল্ডারে দেখুন") }
+    }
+
     /**
      * অ্যাপের ভেতর থেকে ডাউনলোড শুরু (সিস্টেমের DownloadManager দিয়ে), প্রগ্রেস বার সহ।
-     * APK যায় অ্যাপের গোপন ফোল্ডারে। শেষ হলে নোটিফিকেশনে ট্যাপ করে ইন্সটল করতে হবে।
-     * অ্যাপে কোনো ইন্সটল-পারমিশন লাগে না।
+     * APK যায় ফোনের সাধারণ Download ফোল্ডারে। শেষ হলে ফোল্ডার খুলে APK-তে ট্যাপ করে ইন্সটল করতে হয়
+     * (অ্যাপ নিজে ইন্সটলার খোলে না, তাই কোনো ইন্সটল-পারমিশন লাগে না)।
      */
     fun startDownload() {
         val info = _state.value.available ?: return
@@ -721,10 +728,11 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 Updater.removePrevious(app, dm)
                 val req = DownloadManager.Request(Uri.parse(info.apkUrl))
                     .setTitle("নিউজ পাবলিশার ${info.versionName}")
-                    .setDescription("আপডেট — ডাউনলোড শেষে ট্যাপ করে ইন্সটল করুন")
+                    .setDescription("আপডেট — Download ফোল্ডারে সেভ হচ্ছে")
                     .setMimeType("application/vnd.android.package-archive")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalFilesDir(app, "updates", "update-${info.versionCode}.apk")
+                    // শেষের নোটিফিকেশন আমাদের নিজের (UpdateDoneReceiver): ট্যাপ করলে Download ফোল্ডার খোলে
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                    .setDestinationInExternalPublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS, Updater.apkFileName(info.versionCode))
                 val id = dm.enqueue(req)
                 Updater.rememberDownload(app, id, info.versionCode)
 
@@ -748,7 +756,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 _state.update {
                     it.copy(
                         busy = false, progress = null, downloaded = true,
-                        message = "✅ ডাউনলোড শেষ। নোটিফিকেশনে ট্যাপ করে ইন্সটল করুন",
+                        message = "✅ ডাউনলোড শেষ। Download ফোল্ডারে সেভ হয়েছে",
                     )
                 }
             } catch (e: Exception) {
