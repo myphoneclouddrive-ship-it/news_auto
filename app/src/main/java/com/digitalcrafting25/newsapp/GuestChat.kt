@@ -38,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -105,8 +107,10 @@ private const val RUNNER_JS = """
   function busy(){ return !!firstVis(['button[data-testid="stop-button"]','button[aria-label*="Stop"]','button[aria-label*="stop"]']); }
   function fbText(){
     var m = document.querySelector('main') || document.body; var t = (m.innerText || '');
-    var i = t.lastIndexOf(prompt); if (i < 0) return '';
-    return t.slice(i + prompt.length).trim();
+    var last = (prompt.trim().split('\n').pop() || '').trim();
+    if (!last) return '';
+    var i = t.lastIndexOf(last); if (i < 0) return '';
+    return t.slice(i + last.length).trim();
   }
   function pressEnter(el){
     ['keydown','keypress','keyup'].forEach(function(t){
@@ -217,6 +221,54 @@ private fun makeWebView(ctx: Context, bridge: GuestBridge): WebView =
         }
     }
 
+
+// ───────── লিংক থেকে নিউজ রিরাইট ─────────
+
+private class Article(val title: String, val text: String)
+
+private fun fetchArticle(url: String): Article? = runCatching {
+    val r = httpCall("GET", url, null, mapOf(
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+        "Accept-Language" to "bn,en;q=0.8",
+    ), readMs = 20000)
+    if (r.code !in 200..299) return@runCatching null
+    val opt = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    var h = r.text
+    fun plain(x: String) = android.text.Html.fromHtml(x, android.text.Html.FROM_HTML_MODE_LEGACY).toString().replace('\u00a0', ' ').trim()
+    val title = Regex("<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)", opt).find(h)?.groupValues?.get(1)
+        ?: Regex("<title[^>]*>(.*?)</title>", opt).find(h)?.groupValues?.get(1) ?: ""
+    h = h.replace(Regex("<(script|style|noscript|nav|footer|aside|header|form|svg)[^>]*>.*?</\\1>", opt), " ")
+    val art = Regex("<article[^>]*>(.*?)</article>", opt).findAll(h).map { it.groupValues[1] }.maxByOrNull { it.length } ?: h
+    val paras = Regex("<p[^>]*>(.*?)</p>", opt).findAll(art).map { plain(it.groupValues[1]) }.filter { it.length >= 40 }.toList()
+    val text = paras.joinToString("\n").take(7000)
+    if (text.length < 300) null else Article(plain(title), text)
+}.getOrNull()
+
+private fun buildNewsPrompt(a: Article?, url: String): String {
+    val rules = "তুমি একজন পেশাদার বাংলাদেশি নিউজ রিপোর্টার। নিচের খবরটি পড়ে নিজের ভাষায় নতুন করে লেখো, হুবহু কপি করবে না, তবে সব তথ্য ঠিক রাখবে।\n" +
+        "নিয়ম:\n" +
+        "১) শুধু খবরটাই লিখবে। কোনো ভূমিকা, মন্তব্য, ব্যাখ্যা, পরামর্শ, প্রশ্ন, ইমোজি বা মার্কডাউন (**, #) থাকবে না।\n" +
+        "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
+        "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে একটি আকর্ষণীয় শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n\n"
+    val src = if (a != null) "মূল খবরের শিরোনাম: ${a.title}\nমূল খবর:\n${a.text}\n\n"
+              else "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
+    return rules + src + "শুধু উপরের ফরম্যাটে নিউজটি লিখুন, আর কিছু নয়।"
+}
+
+/** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
+private fun parseNews(raw: String): Pair<String, String> {
+    var lines = raw.replace("\r", "").lines().map { it.replace("**", "").replace(Regex("^#+\\s*"), "").trimEnd() }
+    lines = lines.dropWhile { it.isBlank() || Regex("^(ChatGPT said:?|Gemini said:?|You said:?)\\s*\$", RegexOption.IGNORE_CASE).matches(it.trim()) }
+    val ti = lines.indexOfFirst { Regex("^\\s*(শিরোনাম|Title)\\s*[:：]").containsMatchIn(it) }
+    val title: String; val rest: List<String>
+    if (ti >= 0) {
+        title = lines[ti].replace(Regex("^\\s*(শিরোনাম|Title)\\s*[:：]\\s*"), "").trim().trim('"', '“', '”')
+        rest = lines.drop(ti + 1)
+    } else { title = lines.firstOrNull()?.trim() ?: ""; rest = lines.drop(1) }
+    val body = rest.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+    return title to body
+}
+
 /** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে */
 @Composable
 fun GuestChatBody() {
@@ -249,6 +301,11 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     var runId by remember { mutableStateOf(0) }
     var showWeb by remember { mutableStateOf(true) }
     var copied by remember { mutableStateOf(false) }
+    var newsUrl by rememberSaveable { mutableStateOf("") }
+    var newsMode by remember { mutableStateOf(false) }
+    var newsTitle by remember { mutableStateOf("") }
+    var newsBody by remember { mutableStateOf("") }
+    var copiedKey by remember { mutableStateOf("") }
 
     val timeoutSec = 180
     val currentRunning by androidx.compose.runtime.rememberUpdatedState(running)
@@ -260,7 +317,9 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             onSent = { sent = true },
             onDone = { text, ok ->
                 running = false
-                answer = text
+                if (newsMode && text.isNotBlank()) {
+                    val (t, b) = parseNews(text); newsTitle = t; newsBody = b; answer = ""
+                } else answer = text
                 status = when {
                     ok -> "✅ উত্তর পাওয়া গেছে (${text.length} অক্ষর)"
                     text.isNotBlank() -> "⚠️ সময় শেষ — যতটুকু এসেছে ততটুকু দেখানো হলো"
@@ -287,10 +346,8 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         w.loadUrl(s.url)
     }
 
-    fun start() {
+    fun launchPrompt(p: String) {
         val s = SITES[siteKey] ?: return
-        val p = prompt.trim()
-        if (p.isEmpty()) { status = "⚠️ প্রম্পট লিখুন"; return }
         answer = ""; copied = false; sent = false; running = true; runId++
         val w = web
         if (w != null) {
@@ -303,6 +360,26 @@ private fun GuestChatScreen(onClose: () -> Unit) {
                 web = nw
                 begin(nw, s, p)
             }
+        }
+    }
+
+    fun start() {
+        val p = prompt.trim()
+        if (p.isEmpty()) { status = "⚠️ প্রম্পট লিখুন"; return }
+        newsMode = false; newsTitle = ""; newsBody = ""
+        launchPrompt(p)
+    }
+
+    // শুধু এই বাটন চাপলেই লিংক পড়া ও AI চালু হয়
+    fun startNews() {
+        val u = newsUrl.trim()
+        if (!Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)) { status = "⚠️ সঠিক লিংক দিন (https://...)"; return }
+        newsMode = true; newsTitle = ""; newsBody = ""; answer = ""; running = true
+        status = "📰 লিংক থেকে খবর পড়ছি..."
+        scope.launch {
+            val art = withContext(Dispatchers.IO) { fetchArticle(u) }
+            if (art == null) status = "⚠️ লিংক থেকে খবরের লেখা আনা যায়নি; AI-কে লিংক দিয়েই পড়তে বলছি (নাও পারতে পারে)"
+            launchPrompt(buildNewsPrompt(art, u))
         }
     }
 
@@ -342,6 +419,33 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             }
 
             if (status.isNotEmpty()) Text(status, fontSize = 13.sp, color = if (status.startsWith("✅")) C.Green else if (status.startsWith("⚠️")) C.Red else C.Muted)
+
+
+            FieldLabel("📰 লিংক থেকে নিউজ রিরাইট")
+            AppField(newsUrl, { newsUrl = it }, placeholder = "নিউজের লিংক পেস্ট করুন (https://...)")
+            AppBtn(if (running && newsMode) "⏳ লেখা হচ্ছে..." else "📰 নিউজ পড়ে নতুন করে লিখুন", color = C.Red, enabled = !running, onClick = { startNews() })
+
+            if (newsTitle.isNotEmpty() || newsBody.isNotEmpty()) {
+                fun cp(key: String, text: String) {
+                    runCatching {
+                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("news", text))
+                        copiedKey = key
+                    }
+                }
+                FieldLabel("শিরোনাম")
+                SelectionContainer {
+                    Text(newsTitle, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth().border(1.dp, C.Border, RoundedCornerShape(8.dp)).padding(10.dp))
+                }
+                AppBtn(if (copiedKey == "t") "✅ কপি হয়েছে" else "📋 শিরোনাম কপি", color = C.Blue, onClick = { cp("t", newsTitle) })
+                FieldLabel("বডি")
+                SelectionContainer {
+                    Text(newsBody, fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().border(1.dp, C.Border, RoundedCornerShape(8.dp)).padding(10.dp))
+                }
+                AppBtn(if (copiedKey == "b") "✅ কপি হয়েছে" else "📋 বডি কপি", color = C.Blue, onClick = { cp("b", newsBody) })
+                AppBtn(if (copiedKey == "a") "✅ কপি হয়েছে" else "📋 শিরোনাম + বডি একসাথে কপি", color = C.Green, onClick = { cp("a", newsTitle + "\n\n" + newsBody) })
+            }
 
             if (answer.isNotEmpty()) {
                 FieldLabel("উত্তর")
