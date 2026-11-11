@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -110,7 +112,11 @@ private const val RUNNER_JS = """
     var last = (prompt.trim().split('\n').pop() || '').trim();
     if (!last) return '';
     var i = t.lastIndexOf(last); if (i < 0) return '';
-    return t.slice(i + last.length).trim();
+    var r = t.slice(i + last.length);
+    ['Log in for more','Sign up for free','ChatGPT is AI','Get smarter responses','Stay logged out'].forEach(function(m){
+      var k = r.toLowerCase().indexOf(m.toLowerCase()); if (k >= 0) r = r.slice(0, k);
+    });
+    return r.trim();
   }
   function pressEnter(el){
     ['keydown','keypress','keyup'].forEach(function(t){
@@ -255,6 +261,14 @@ private fun buildNewsPrompt(a: Article?, url: String): String {
     return rules + src + "শুধু উপরের ফরম্যাটে নিউজটি লিখুন, আর কিছু নয়।"
 }
 
+/** গেস্ট ChatGPT/Gemini পেজের নিচের বাড়তি লেখা (লগইন অনুরোধ ইত্যাদি) কেটে ফেলে */
+private fun cleanTail(t: String): String {
+    val marks = listOf("Log in for more", "Sign up for free", "ChatGPT is AI", "Get smarter responses", "Stay logged out")
+    var cut = t.length
+    for (m in marks) { val i = t.indexOf(m, ignoreCase = true); if (i in 0 until cut) cut = i }
+    return t.substring(0, cut).trim()
+}
+
 /** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
 private fun parseNews(raw: String): Pair<String, String> {
     var lines = raw.replace("\r", "").lines().map { it.replace("**", "").replace(Regex("^#+\\s*"), "").trimEnd() }
@@ -299,7 +313,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var sent by remember { mutableStateOf(false) }
     var runId by remember { mutableStateOf(0) }
-    var showWeb by remember { mutableStateOf(true) }
+    var showWeb by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var newsUrl by rememberSaveable { mutableStateOf("") }
     var newsMode by remember { mutableStateOf(false) }
@@ -311,12 +325,25 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     val currentRunning by androidx.compose.runtime.rememberUpdatedState(running)
     val currentSent by androidx.compose.runtime.rememberUpdatedState(sent)
 
+    // WebView প্রথমবার তৈরি হতে অনেক সময় নেয়; তাই স্ক্রিন খোলার সময় নয়, বাটন চাপার পরে তৈরি হয়
+    var web by remember { mutableStateOf<WebView?>(null) }
+    val scope = rememberCoroutineScope()
+
+    /** কাজ শেষে ওয়েব ভিউ বন্ধ: আগে স্ক্রিন থেকে সরায়, একটু পরে destroy */
+    fun closeWeb() {
+        val w0 = web ?: return
+        web = null; showWeb = false
+        scope.launch { delay(400); runCatching { w0.stopLoading(); w0.destroy() } }
+    }
+
     val bridge = remember {
         GuestBridge(
             onStatus = { status = it },
             onSent = { sent = true },
-            onDone = { text, ok ->
+            onDone = { text0, ok ->
+                val text = cleanTail(text0)
                 running = false
+                closeWeb()
                 if (newsMode && text.isNotBlank()) {
                     val (t, b) = parseNews(text); newsTitle = t; newsBody = b; answer = ""
                 } else answer = text
@@ -329,9 +356,6 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         )
     }
 
-    // WebView প্রথমবার তৈরি হতে অনেক সময় নেয় (স্ক্রিন আটকে থাকে); তাই স্ক্রিন খোলার সময় নয়, "পাঠান" চাপার পরে তৈরি হয়
-    var web by remember { mutableStateOf<WebView?>(null) }
-    val scope = rememberCoroutineScope()
     DisposableEffect(Unit) { onDispose { runCatching { web?.stopLoading(); web?.destroy() } } }
 
     fun begin(w: WebView, s: GuestSite, p: String) {
@@ -387,7 +411,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     LaunchedEffect(runId) {
         if (runId == 0) return@LaunchedEffect
         delay((timeoutSec + 25) * 1000L)
-        if (running) { running = false; status = "⚠️ সময় শেষ, উত্তর আসেনি" }
+        if (running) { running = false; status = "⚠️ সময় শেষ, উত্তর আসেনি"; closeWeb() }
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
@@ -414,7 +438,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             )
             if (running) {
                 AppBtn("⏹️ থামান", color = C.Gray, onClick = {
-                    running = false; web?.stopLoading(); web?.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"
+                    running = false; web?.stopLoading(); web?.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"; closeWeb()
                 })
             }
 
@@ -464,20 +488,21 @@ private fun GuestChatScreen(onClose: () -> Unit) {
                 })
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("🌐 ব্রাউজার (যাচাই/ক্যাপচা এলে এখানে করুন)", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            androidx.compose.material3.TextButton(onClick = { showWeb = !showWeb }) { Text(if (showWeb) "লুকান" else "দেখান") }
-        }
+        // ব্রাউজার ব্যাকগ্রাউন্ডে চলে (দেখা যায় না)। শুধু যাচাই/ক্যাপচা এলে চলার সময় "দেখান" চেপে নিজে করা যাবে
         val w = web
-        if (w == null) {
-            androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Text("🌐 \"পাঠান\" চাপলে ব্রাউজার এখানে খুলবে", color = C.Muted)
+        if (w != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(if (showWeb) "🌐 ব্রাউজার (যাচাই/ক্যাপচা এখানে করুন)" else "", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { showWeb = !showWeb }) { Text(if (showWeb) "লুকান" else "🌐 যাচাই চাইলে ব্রাউজার দেখান") }
             }
-        } else {
-            AndroidView(
-                factory = { w },
-                modifier = if (showWeb) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().height(1.dp),
-            )
+            androidx.compose.foundation.layout.Box(
+                if (showWeb) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().height(1.dp).clipToBounds(),
+            ) {
+                AndroidView(
+                    factory = { w },
+                    modifier = if (showWeb) Modifier.fillMaxSize() else Modifier.fillMaxWidth().requiredHeight(640.dp),
+                )
+            }
         }
     }
 }
