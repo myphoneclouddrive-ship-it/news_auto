@@ -61,7 +61,14 @@ private val SITES = linkedMapOf(
     ),
     "chatgpt" to GuestSite(
         "ChatGPT", "https://chatgpt.com/",
-        input = listOf("#prompt-textarea", "div[contenteditable=\"true\"]#prompt-textarea", "textarea[name=\"prompt-textarea\"]"),
+        input = listOf(
+            "#prompt-textarea",
+            "div.ProseMirror[contenteditable=\"true\"]",
+            "textarea[name=\"prompt-textarea\"]",
+            "div[contenteditable=\"true\"]",
+            "div[role=\"textbox\"]",
+            "textarea",
+        ),
         answer = listOf("[data-message-author-role=\"assistant\"]"),
         send = listOf("button[data-testid=\"send-button\"]", "button[aria-label*=\"Send\"]"),
     ),
@@ -97,6 +104,20 @@ private const val RUNNER_JS = """
       el.dispatchEvent(new KeyboardEvent(t, {key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable:true}));
     });
   }
+  function dismiss(){
+    var texts = ['Stay logged out','No thanks','Not now','Skip','Reject all'];
+    var els = document.querySelectorAll('a,button,div[role="button"]');
+    for (var i = 0; i < els.length; i++){
+      var t = (els[i].innerText || '').trim();
+      if (texts.indexOf(t) >= 0 && vis(els[i])){ els[i].click(); B.status('পপআপ বন্ধ করা হয়েছে: ' + t); return true; }
+    }
+    return false;
+  }
+  function diag(){
+    var ce = document.querySelectorAll('[contenteditable="true"]').length, ta = document.querySelectorAll('textarea').length;
+    var body = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').slice(0, 150);
+    return 'পেজ: ' + location.hostname + ' | title: ' + document.title + ' | contenteditable=' + ce + ' textarea=' + ta + ' | লেখা: ' + body;
+  }
   var t0 = Date.now(), phase = 0, baseline = 0, lastTxt = '', lastChange = 0, sendAt = 0, sentAt = 0, retried = false, box = null;
   var iv = setInterval(function(){
     try {
@@ -104,8 +125,13 @@ private const val RUNNER_JS = """
         clearInterval(iv); window.__gcActive = false; B.done(lastTxt, false); return;
       }
       if (phase === 0){
+        dismiss();
         box = firstVis(cfg.input);
-        if (!box){ B.status('লেখার বক্স খুঁজছি... (যাচাই/লগইন পপআপ এলে নিচের ব্রাউজারে নিজে করুন)'); return; }
+        if (!box){
+          if (Date.now() - t0 > 15000) B.status('⚠️ লেখার বক্স পাওয়া যায়নি। ' + diag());
+          else B.status('লেখার বক্স খুঁজছি... (যাচাই/লগইন পপআপ এলে নিচের ব্রাউজারে নিজে করুন)');
+          return;
+        }
         baseline = count(cfg.answer);
         box.focus();
         if (box.isContentEditable){
@@ -163,6 +189,18 @@ private fun buildScript(s: GuestSite, prompt: String, timeoutSec: Int): String {
         .replace("%TIMEOUT%", timeoutSec.toString())
 }
 
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+private fun makeWebView(ctx: Context, bridge: GuestBridge): WebView =
+    WebView(ctx).apply {
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        addJavascriptInterface(bridge, "GCBridge")
+        setOnTouchListener { v, ev ->
+            if (ev.action == MotionEvent.ACTION_DOWN || ev.action == MotionEvent.ACTION_MOVE) v.parent?.requestDisallowInterceptTouchEvent(true)
+            false
+        }
+    }
+
 /** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে */
 @Composable
 fun GuestChatBody() {
@@ -183,7 +221,6 @@ fun GuestChatBody() {
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
 private fun GuestChatScreen(onClose: () -> Unit) {
     val ctx = LocalContext.current
@@ -217,35 +254,33 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         )
     }
 
-    val web = remember {
-        WebView(ctx).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            addJavascriptInterface(bridge, "GCBridge")
-            setOnTouchListener { v, ev ->
-                if (ev.action == MotionEvent.ACTION_DOWN || ev.action == MotionEvent.ACTION_MOVE) v.parent?.requestDisallowInterceptTouchEvent(true)
-                false
-            }
-        }
+    // WebView প্রথমবার তৈরি হতে সময় নেয়; তাই স্ক্রিন আগে দেখিয়ে তারপর তৈরি করা হয় (নইলে সাদা পেজ থাকে)
+    var web by remember { mutableStateOf<WebView?>(null) }
+    LaunchedEffect(Unit) {
+        delay(150)
+        web = makeWebView(ctx, bridge)
     }
-    DisposableEffect(Unit) { onDispose { runCatching { web.stopLoading(); web.destroy() } } }
+    DisposableEffect(Unit) { onDispose { runCatching { web?.stopLoading(); web?.destroy() } } }
 
     fun start() {
         val s = SITES[siteKey] ?: return
+        val w = web
+        if (w == null) { status = "ব্রাউজার তৈরি হচ্ছে, একটু অপেক্ষা করে আবার চাপুন"; return }
         val p = prompt.trim()
         if (p.isEmpty()) { status = "⚠️ প্রম্পট লিখুন"; return }
         answer = ""; copied = false; sent = false; running = true; runId++
         status = "খুলছি: ${s.url}"
-        web.webViewClient = object : WebViewClient() {
+        w.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 if (currentRunning && !currentSent) {
                     view.evaluateJavascript(buildScript(s, p, timeoutSec), null)
                 }
             }
         }
-        web.loadUrl(s.url)
+        w.loadUrl(s.url)
     }
 
+    // JS মরে গেলেও (পেজ বদলে) যেন আটকে না থাকে
     LaunchedEffect(runId) {
         if (runId == 0) return@LaunchedEffect
         delay((timeoutSec + 25) * 1000L)
@@ -255,7 +290,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("🧪 গেস্ট AI টেস্ট", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            androidx.compose.material3.TextButton(onClick = { if (running) web.stopLoading(); onClose() }) { Text("✖ বন্ধ") }
+            androidx.compose.material3.TextButton(onClick = { if (running) web?.stopLoading(); onClose() }) { Text("✖ বন্ধ") }
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -270,13 +305,13 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
 
             AppBtn(
-                if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
-                color = C.Green, enabled = !running,
+                if (running) "⏳ চলছে..." else if (web == null) "⏳ ব্রাউজার তৈরি হচ্ছে..." else "🚀 পাঠান ও উত্তর আনুন",
+                color = C.Green, enabled = !running && web != null,
                 onClick = { start() },
             )
             if (running) {
                 AppBtn("⏹️ থামান", color = C.Gray, onClick = {
-                    running = false; web.stopLoading(); web.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"
+                    running = false; web?.stopLoading(); web?.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"
                 })
             }
 
@@ -303,9 +338,16 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             Text("🌐 ব্রাউজার (যাচাই/ক্যাপচা এলে এখানে করুন)", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             androidx.compose.material3.TextButton(onClick = { showWeb = !showWeb }) { Text(if (showWeb) "লুকান" else "দেখান") }
         }
-        AndroidView(
-            factory = { web },
-            modifier = if (showWeb) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().height(1.dp),
-        )
+        val w = web
+        if (w == null) {
+            androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Text("⏳ ব্রাউজার তৈরি হচ্ছে...", color = C.Muted)
+            }
+        } else {
+            AndroidView(
+                factory = { w },
+                modifier = if (showWeb) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().height(1.dp),
+            )
+        }
     }
 }
