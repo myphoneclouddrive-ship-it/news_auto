@@ -94,6 +94,8 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     // ওয়েবের #sp প্রসেসিং প্যানেল: বার (%), লাইভ ৩ লাইনের লগ
     var rewriting by mutableStateOf(false)
     var procPct by mutableStateOf(0f)
+    /** প্রসেসিং প্যানেলের লেবেল: ১ = ওয়েবভিউ (গেস্ট Gemini/ChatGPT), ২ = পেইড API */
+    var procMode by mutableIntStateOf(0)
     var procLines by mutableStateOf<List<String>>(emptyList())
     private val procRaw = StringBuilder()
     private var procExpect = 4000
@@ -454,7 +456,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         val v = src.trim(); val n = notes.trim()
         lastInput = v; lastNotes = n
         startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
-        rewriting = true; procReset()
+        rewriting = true; procReset(); procMode = 1
         viewModelScope.launch {
             try { fetchGuestTok(); guestJob = GuestJob(++guestSeq, v, n) } catch (e: Exception) { fail(e); endBusy() }
         }
@@ -522,7 +524,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun runRewrite(v: String, n: String) {
         lastInput = v; lastNotes = n
         startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
-        rewriting = true; procReset()
+        rewriting = true; procReset(); procMode = 2
         viewModelScope.launch {
             try {
                 val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(v)

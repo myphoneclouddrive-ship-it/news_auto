@@ -151,8 +151,6 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
             AccCard("💳 ব্যালেন্স যোগের অনুরোধ", open == "wallet", { toggle("wallet") }) { WalletReqBody(vm) }
         }
         AccCard("🎬 ভিডিও ক্যাশ ও ডাটা", open == "vclear", { toggle("vclear") }) { VideoClearBody(vm, ev) { ask = it } }
-        // শুধু অ্যাপে আছে (ওয়েবে নেই)
-        AccCard("Guest AI Test (no login)", open == "guestai", { toggle("guestai") }) { GuestChatBody() }
         AccCard("🔄 অ্যাপ আপডেট", open == "update", { toggle("update") }) { UpdateScreen(uv, embedded = true) }
 
         if (ads.dirty) {
