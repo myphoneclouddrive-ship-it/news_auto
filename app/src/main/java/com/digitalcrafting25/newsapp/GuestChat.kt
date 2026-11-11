@@ -71,7 +71,7 @@ private val SITES = linkedMapOf(
             "div[role=\"textbox\"]",
             "textarea",
         ),
-        answer = listOf("[data-message-author-role=\"assistant\"]"),
+        answer = listOf("[data-message-author-role=\"assistant\"]", "article[data-turn=\"assistant\"]", "div.markdown", ".markdown.prose"),
         send = listOf("button[data-testid=\"send-button\"]", "button[aria-label*=\"Send\"]"),
     ),
 )
@@ -100,6 +100,13 @@ private const val RUNNER_JS = """
       if (n.length) return (n[n.length - 1].innerText || '').trim();
     }
     return '';
+  }
+  function boxText(el){ if(!el) return ''; return ((el.value !== undefined && el.tagName !== 'DIV') ? el.value : (el.innerText || '')).trim(); }
+  function busy(){ return !!firstVis(['button[data-testid="stop-button"]','button[aria-label*="Stop"]','button[aria-label*="stop"]']); }
+  function fbText(){
+    var m = document.querySelector('main') || document.body; var t = (m.innerText || '');
+    var i = t.lastIndexOf(prompt); if (i < 0) return '';
+    return t.slice(i + prompt.length).trim();
   }
   function pressEnter(el){
     ['keydown','keypress','keyup'].forEach(function(t){
@@ -156,12 +163,19 @@ private const val RUNNER_JS = """
         return;
       }
       if (phase === 2){
-        if (count(cfg.answer) <= baseline){
-          if (!retried && Date.now() - sentAt > 6000){ retried = true; pressEnter(box); B.status('আবার Enter চাপা হয়েছে...'); }
-          return;
+        var tx = '';
+        if (count(cfg.answer) > baseline){
+          tx = lastText(cfg.answer);
+        } else {
+          var left = boxText(box);
+          // Enter আবার চাপা হবে শুধু যদি লেখার বক্সে প্রম্পট তখনও থেকে যায় (মানে সত্যিই যায়নি)
+          if (!retried && left.length > 0 && Date.now() - sentAt > 6000){ retried = true; pressEnter(box); B.status('আবার Enter চাপা হয়েছে...'); return; }
+          // বক্স খালি = পাঠানো হয়ে গেছে; সিলেক্টর না মিললে পেজের লেখা থেকে উত্তর নিই
+          if (left.length === 0 && Date.now() - sentAt > 8000) tx = fbText();
+          if (!tx){ B.status('উত্তরের অপেক্ষা...'); return; }
         }
-        var tx = lastText(cfg.answer);
         if (tx !== lastTxt){ lastTxt = tx; lastChange = Date.now(); B.status('উত্তর আসছে... (' + tx.length + ' অক্ষর)'); }
+        else if (busy()){ lastChange = Date.now(); }
         else if (tx && Date.now() - lastChange >= 5000){ clearInterval(iv); window.__gcActive = false; B.done(tx, true); }
       }
     } catch (e) { B.status('JS ত্রুটি: ' + e); }
