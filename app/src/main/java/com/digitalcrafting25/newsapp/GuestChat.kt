@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -170,9 +171,29 @@ private fun buildScript(s: GuestSite, prompt: String, timeoutSec: Int): String {
         .replace("%TIMEOUT%", timeoutSec.toString())
 }
 
-@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+/** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে (স্ক্রল-করা কার্ডের ভেতরে WebView বসালে চেহারা ভেঙে যাচ্ছিল) */
 @Composable
 fun GuestChatBody() {
+    var open by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Small("লগইন ছাড়া Gemini/ChatGPT ওয়েবে প্রম্পট পাঠিয়ে উত্তর আনে। পরীক্ষামূলক — সাইট বদলালে বা গেস্ট সীমা/ক্যাপচা এলে কাজ নাও করতে পারে।")
+        AppBtn("🧪 গেস্ট AI টেস্ট খুলুন", color = C.Green, onClick = { open = true })
+    }
+    if (open) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { open = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+        ) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = androidx.compose.ui.graphics.Color.White) {
+                GuestChatScreen(onClose = { open = false })
+            }
+        }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+@Composable
+private fun GuestChatScreen(onClose: () -> Unit) {
     val ctx = LocalContext.current
     var siteKey by rememberSaveable { mutableStateOf("gemini") }
     var prompt by rememberSaveable { mutableStateOf("বাংলাদেশের রাজধানী কোথায়? এক বাক্যে বলো") }
@@ -242,9 +263,15 @@ fun GuestChatBody() {
         if (running) { running = false; status = "⚠️ সময় শেষ, উত্তর আসেনি" }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Small("লগইন ছাড়া Gemini/ChatGPT ওয়েবে প্রম্পট পাঠিয়ে উত্তর আনে। পরীক্ষামূলক — সাইট বদলালে বা গেস্ট সীমা/ক্যাপচা এলে কাজ নাও করতে পারে।")
-
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("🧪 গেস্ট AI টেস্ট", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton(onClick = { if (running) web.stopLoading(); onClose() }) { Text("✖ বন্ধ") }
+        }
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SITES.forEach { (k, s) ->
                 FilterChip(selected = siteKey == k, onClick = { if (!running) siteKey = k }, label = { Text(s.label) })
@@ -283,14 +310,14 @@ fun GuestChatBody() {
             })
         }
 
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("🌐 ব্রাউজার (যাচাই/ক্যাপচা এলে এখানে করুন)", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             androidx.compose.material3.TextButton(onClick = { showWeb = !showWeb }) { Text(if (showWeb) "লুকান" else "দেখান") }
         }
         AndroidView(
             factory = { web },
-            modifier = Modifier.fillMaxWidth().height(if (showWeb) 460.dp else 1.dp),
+            modifier = if (showWeb) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().height(1.dp),
         )
-        Spacer(Modifier.height(4.dp))
     }
 }
