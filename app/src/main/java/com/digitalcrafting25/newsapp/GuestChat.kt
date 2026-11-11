@@ -14,7 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,16 +42,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 🧪 গেস্ট AI টেস্ট — লগইন ছাড়া Gemini / ChatGPT ওয়েবে প্রম্পট পাঠিয়ে উত্তর নেওয়া (পরীক্ষামূলক)।
- *
- * কীভাবে কাজ করে: অ্যাপের ভেতরের একটা WebView-তে সাইট খোলে, লেখার বক্সে প্রম্পট বসায়, সেন্ড চাপে,
- * তারপর শেষ উত্তরের লেখা ৫ সেকেন্ড না বদলালে সেটাকে শেষ উত্তর ধরে অ্যাপে ফেরত দেয়।
- * (guest_chat.py-র একই লজিক, শুধু Playwright-এর জায়গায় WebView + JavaScript।)
- *
- * সীমা:
- *  - সাইট নিজের ডিজাইন বদলালে সিলেক্টর (নিচের SITES) ভেঙে যেতে পারে।
- *  - গেস্ট সীমা বা ক্যাপচা/যাচাই এলে WebView-তে নিজে করে দিতে হবে; এখানে সেটা পাশ কাটানোর কোনো কৌশল নেই।
- *  - ওয়েবসাইটের শর্তে স্বয়ংক্রিয় ব্যবহার সাধারণত নিষিদ্ধ — শুধু নিজের পরীক্ষার জন্য, কম পরিমাণে।
+ * গেস্ট AI টেস্ট — লগইন ছাড়া Gemini / ChatGPT ওয়েবে প্রম্পট পাঠিয়ে উত্তর নেওয়া (পরীক্ষামূলক)।
+ * অ্যাপের ভেতরের WebView-তে সাইট খোলে, প্রম্পট বসায়, সেন্ড চাপে, উত্তর ৫ সেকেন্ড না বদলালে শেষ ধরে।
+ * ক্যাপচা/যাচাই এলে WebView-তে নিজে করতে হবে; পাশ কাটানোর কোনো কৌশল নেই।
  */
 private class GuestSite(val label: String, val url: String, val input: List<String>, val answer: List<String>, val send: List<String>)
 
@@ -74,7 +67,6 @@ private val SITES = linkedMapOf(
     ),
 )
 
-/** পেজের ভেতরে চলা JS: বক্স খোঁজা → প্রম্পট বসানো → সেন্ড → উত্তর স্থির হওয়া পর্যন্ত অপেক্ষা */
 private const val RUNNER_JS = """
 (function(cfg, prompt, timeoutSec){
   if (window.__gcActive) return;
@@ -171,7 +163,7 @@ private fun buildScript(s: GuestSite, prompt: String, timeoutSec: Int): String {
         .replace("%TIMEOUT%", timeoutSec.toString())
 }
 
-/** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে (স্ক্রল-করা কার্ডের ভেতরে WebView বসালে চেহারা ভেঙে যাচ্ছিল) */
+/** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে */
 @Composable
 fun GuestChatBody() {
     var open by remember { mutableStateOf(false) }
@@ -230,7 +222,6 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             addJavascriptInterface(bridge, "GCBridge")
-            // স্ক্রল-করা কলামের ভেতরে WebView নিজে স্ক্রল/টাচ পাক
             setOnTouchListener { v, ev ->
                 if (ev.action == MotionEvent.ACTION_DOWN || ev.action == MotionEvent.ACTION_MOVE) v.parent?.requestDisallowInterceptTouchEvent(true)
                 false
@@ -239,7 +230,6 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     }
     DisposableEffect(Unit) { onDispose { runCatching { web.stopLoading(); web.destroy() } } }
 
-    // যাচাই/রিডাইরেক্টে পেজ বদলালে JS হারিয়ে যায়, তাই প্রম্পট যাওয়ার আগ পর্যন্ত প্রতিবার পেজ লোড শেষে আবার বসানো হয়
     fun start() {
         val s = SITES[siteKey] ?: return
         val p = prompt.trim()
@@ -256,7 +246,6 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         web.loadUrl(s.url)
     }
 
-    // JS মরে গেলেও (পেজ বদলে) যেন আটকে না থাকে
     LaunchedEffect(runId) {
         if (runId == 0) return@LaunchedEffect
         delay((timeoutSec + 25) * 1000L)
@@ -272,44 +261,43 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SITES.forEach { (k, s) ->
-                FilterChip(selected = siteKey == k, onClick = { if (!running) siteKey = k }, label = { Text(s.label) })
-            }
-        }
-
-        AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
-
-        AppBtn(
-            if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
-            color = C.Green, enabled = !running,
-            onClick = { start() },
-        )
-        if (running) {
-            AppBtn("⏹️ থামান", color = C.Gray, onClick = {
-                running = false; web.stopLoading(); web.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"
-            })
-        }
-
-        if (status.isNotEmpty()) Text(status, fontSize = 13.sp, color = if (status.startsWith("✅")) C.Green else if (status.startsWith("⚠️")) C.Red else C.Muted)
-
-        if (answer.isNotEmpty()) {
-            FieldLabel("উত্তর")
-            SelectionContainer {
-                Text(
-                    answer, fontSize = 15.sp,
-                    modifier = Modifier.fillMaxWidth().border(1.dp, C.Border, RoundedCornerShape(8.dp)).padding(10.dp),
-                )
-            }
-            AppBtn(if (copied) "✅ কপি হয়েছে" else "📋 উত্তর কপি করুন", color = C.Blue, onClick = {
-                runCatching {
-                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                        .setPrimaryClip(ClipData.newPlainText("answer", answer))
-                    copied = true
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SITES.forEach { (k, s) ->
+                    FilterChip(selected = siteKey == k, onClick = { if (!running) siteKey = k }, label = { Text(s.label) })
                 }
-            })
-        }
+            }
 
+            AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
+
+            AppBtn(
+                if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
+                color = C.Green, enabled = !running,
+                onClick = { start() },
+            )
+            if (running) {
+                AppBtn("⏹️ থামান", color = C.Gray, onClick = {
+                    running = false; web.stopLoading(); web.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"
+                })
+            }
+
+            if (status.isNotEmpty()) Text(status, fontSize = 13.sp, color = if (status.startsWith("✅")) C.Green else if (status.startsWith("⚠️")) C.Red else C.Muted)
+
+            if (answer.isNotEmpty()) {
+                FieldLabel("উত্তর")
+                SelectionContainer {
+                    Text(
+                        answer, fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().border(1.dp, C.Border, RoundedCornerShape(8.dp)).padding(10.dp),
+                    )
+                }
+                AppBtn(if (copied) "✅ কপি হয়েছে" else "📋 উত্তর কপি করুন", color = C.Blue, onClick = {
+                    runCatching {
+                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                            .setPrimaryClip(ClipData.newPlainText("answer", answer))
+                        copied = true
+                    }
+                })
+            }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("🌐 ব্রাউজার (যাচাই/ক্যাপচা এলে এখানে করুন)", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
