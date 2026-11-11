@@ -338,6 +338,11 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         vm.error?.let { Text("⚠️ $it", color = C.Red, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
         vm.notice?.let { Text(it, color = if (it.startsWith("⚠️")) Color(0xFFB26A00) else C.Green, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
 
+        // গেস্ট AI-র অদৃশ্য রানার: কিছু আঁকে না, শুধু প্রসেসিং প্যানেলের বার/লগ চালায়
+        vm.guestJob?.let { job ->
+            GuestHiddenRunner(job, onSent = { vm.guestSent() }, onPartial = { vm.guestPartial(it) },
+                onDone = { t, b -> vm.guestDone(t, b) }, onFail = { vm.guestFailed() })
+        }
         if (vm.rewriting) ProcPanel(vm) else when (vm.step) {
             1 -> Step1(vm, onOpenVideo, onClear = { vm.clearAll() }, header = header)
             2 -> Step2(vm, onNext = { if (vm.title.isBlank() || vm.body.text.isBlank()) vm.error = "শিরোনাম ও বডি লিখুন" else warn = true },
@@ -562,7 +567,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
         Text(if (vm.mpLow) "⚠️ ব্যালেন্স কম (কমপক্ষে ৳${PostUtil.bn(PostUtil.MP_COST)} লাগবে)। ড্যাশবোর্ড থেকে ব্যালেন্স যোগ করুন।" else "এই অবস্থায় ৳${PostUtil.bn(PostUtil.MP_COST)} কাটে (AI ছাড়া)।", fontSize = 12.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
     } else if (vm.sec != "video") {
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NavBtn(if (vm.busy) "⏳ প্রসেসিং হচ্ছে..." else "AI দিয়ে নতুন করে লিখুন", Modifier.weight(if (hasText) 0.39f else 0.78f), enabled = !vm.busy && !vm.rwLow) { vm.rewrite() }
+            NavBtn(if (vm.busy) "⏳ প্রসেসিং হচ্ছে..." else "AI দিয়ে নতুন করে লিখুন", Modifier.weight(if (hasText) 0.39f else 0.78f), enabled = !vm.busy && !vm.rwLow) { vm.startGuest() }
             if (hasText) NavBtn("নেক্সট →", Modifier.weight(0.39f), color = C.Green) { vm.step = 2; vm.saveDraft() }
             NavBtn("🗑️ ক্লিয়ার", Modifier.weight(0.22f), color = C.Gray, onClick = onClear)
         }

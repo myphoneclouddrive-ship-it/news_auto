@@ -7,7 +7,9 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.border
@@ -27,6 +29,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +56,7 @@ import org.json.JSONObject
  * অ্যাপের ভেতরের WebView-তে সাইট খোলে, প্রম্পট বসায়, সেন্ড চাপে, উত্তর ৫ সেকেন্ড না বদলালে শেষ ধরে।
  * ক্যাপচা/যাচাই এলে WebView-তে নিজে করতে হবে; পাশ কাটানোর কোনো কৌশল নেই।
  */
-private class GuestSite(val label: String, val url: String, val input: List<String>, val answer: List<String>, val send: List<String>)
+private class GuestSite(val label: String, val url: String, val input: List<String>, val answer: List<String>, val send: List<String>, val domains: List<String> = emptyList())
 
 private val SITES = linkedMapOf(
     "gemini" to GuestSite(
@@ -64,6 +68,7 @@ private val SITES = linkedMapOf(
         ),
         answer = listOf("model-response message-content", "message-content .markdown", ".model-response-text"),
         send = listOf("button[aria-label*=\"Send\"]", "button.send-button"),
+        domains = listOf("gemini.google.com", "accounts.google.com", "google.com"),
     ),
     "chatgpt" to GuestSite(
         "ChatGPT", "https://chatgpt.com/",
@@ -77,6 +82,7 @@ private val SITES = linkedMapOf(
         ),
         answer = listOf("[data-message-author-role=\"assistant\"]", "article[data-turn=\"assistant\"]", "div.markdown", ".markdown.prose"),
         send = listOf("button[data-testid=\"send-button\"]", "button[aria-label*=\"Send\"]"),
+        domains = listOf("chatgpt.com", "openai.com"),
     ),
 )
 
@@ -118,6 +124,12 @@ private const val RUNNER_JS = """
     });
     return r.trim();
   }
+  function fail(msg){ clearInterval(iv); window.__gcActive = false; B.fail(msg); }
+  function captcha(){
+    if (document.querySelector('iframe[src*="captcha"],iframe[src*="recaptcha"],iframe[src*="turnstile"],iframe[src*="challenges.cloudflare"],.cf-turnstile,#challenge-form,#challenge-running')) return true;
+    var t = (document.body ? document.body.innerText : '').slice(0, 2000).toLowerCase();
+    return /verify you are human|are you a robot|unusual traffic|captcha|checking your browser|just a moment/.test(t);
+  }
   function pressEnter(el){
     ['keydown','keypress','keyup'].forEach(function(t){
       el.dispatchEvent(new KeyboardEvent(t, {key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true, cancelable:true}));
@@ -147,8 +159,10 @@ private const val RUNNER_JS = """
         dismiss();
         box = firstVis(cfg.input);
         if (!box){
-          if (Date.now() - t0 > 15000) B.status('⚠️ লেখার বক্স পাওয়া যায়নি। ' + diag());
-          else B.status('লেখার বক্স খুঁজছি... (যাচাই/লগইন পপআপ এলে নিচের ব্রাউজারে নিজে করুন)');
+          var el0 = Date.now() - t0;
+          if (el0 > 6000 && captcha()) return fail('ক্যাপচা/যাচাই এসেছে');
+          if (el0 > 25000) return fail('লেখার বক্স পাওয়া যায়নি');
+          B.status('লেখার বক্স খুঁজছি...');
           return;
         }
         baseline = count(cfg.answer);
@@ -181,10 +195,15 @@ private const val RUNNER_JS = """
           // Enter আবার চাপা হবে শুধু যদি লেখার বক্সে প্রম্পট তখনও থেকে যায় (মানে সত্যিই যায়নি)
           if (!retried && left.length > 0 && Date.now() - sentAt > 6000){ retried = true; pressEnter(box); B.status('আবার Enter চাপা হয়েছে...'); return; }
           // বক্স খালি = পাঠানো হয়ে গেছে; সিলেক্টর না মিললে পেজের লেখা থেকে উত্তর নিই
+          if (retried && left.length > 0 && Date.now() - sentAt > 20000) return fail('প্রম্পট সাবমিট হয়নি');
           if (left.length === 0 && Date.now() - sentAt > 8000) tx = fbText();
-          if (!tx){ B.status('উত্তরের অপেক্ষা...'); return; }
+          if (!tx){
+            if (Date.now() - sentAt > 8000 && captcha()) return fail('ক্যাপচা/যাচাই এসেছে');
+            if (Date.now() - sentAt > 75000) return fail('উত্তর আসেনি');
+            B.status('উত্তরের অপেক্ষা...'); return;
+          }
         }
-        if (tx !== lastTxt){ lastTxt = tx; lastChange = Date.now(); B.status('উত্তর আসছে... (' + tx.length + ' অক্ষর)'); }
+        if (tx !== lastTxt){ lastTxt = tx; lastChange = Date.now(); B.status('উত্তর আসছে... (' + tx.length + ' অক্ষর)'); if (B.partial) B.partial(tx); }
         else if (busy()){ lastChange = Date.now(); }
         else if (tx && Date.now() - lastChange >= 5000){ clearInterval(iv); window.__gcActive = false; B.done(tx, true); }
       }
@@ -197,11 +216,15 @@ private class GuestBridge(
     private val onStatus: (String) -> Unit,
     private val onSent: () -> Unit,
     private val onDone: (String, Boolean) -> Unit,
+    private val onFail: (String) -> Unit,
+    private val onPartial: (String) -> Unit = {},
 ) {
     private val h = Handler(Looper.getMainLooper())
     @JavascriptInterface fun status(m: String) { h.post { onStatus(m) } }
     @JavascriptInterface fun sent() { h.post { onSent() } }
     @JavascriptInterface fun done(text: String, ok: Boolean) { h.post { onDone(text, ok) } }
+    @JavascriptInterface fun fail(m: String) { h.post { onFail(m) } }
+    @JavascriptInterface fun partial(t: String) { h.post { onPartial(t) } }
 }
 
 private fun buildScript(s: GuestSite, prompt: String, timeoutSec: Int): String {
@@ -250,15 +273,35 @@ private fun fetchArticle(url: String): Article? = runCatching {
     if (text.length < 300) null else Article(plain(title), text)
 }.getOrNull()
 
-private fun buildNewsPrompt(a: Article?, url: String): String {
+private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): String {
     val rules = "তুমি একজন পেশাদার বাংলাদেশি নিউজ রিপোর্টার। নিচের খবরটি পড়ে নিজের ভাষায় নতুন করে লেখো, হুবহু কপি করবে না, তবে সব তথ্য ঠিক রাখবে।\n" +
         "নিয়ম:\n" +
         "১) শুধু খবরটাই লিখবে। কোনো ভূমিকা, মন্তব্য, ব্যাখ্যা, পরামর্শ, প্রশ্ন, ইমোজি বা মার্কডাউন (**, #) থাকবে না।\n" +
         "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
         "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে একটি আকর্ষণীয় শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n\n"
-    val src = if (a != null) "মূল খবরের শিরোনাম: ${a.title}\nমূল খবর:\n${a.text}\n\n"
-              else "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
+    var src = if (a != null) (if (a.title.isNotBlank()) "মূল খবরের শিরোনাম: ${a.title}\n" else "") + "মূল খবর:\n${a.text}\n\n"
+              else if (url.isNotBlank()) "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
+              else ""
+    if (notes.isNotBlank()) src += "প্রতিবেদকের নিজের সংগ্রহ করা তথ্য (খবরে মিলিয়ে নেবে, এর বাইরে কিছু যোগ করবে না):\n${notes.trim().take(3000)}\n\n"
     return rules + src + "শুধু উপরের ফরম্যাটে নিউজটি লিখুন, আর কিছু নয়।"
+}
+
+/** ব্যর্থ সাইটের কুকি, লোকাল স্টোরেজ ও ক্যাশ মুছে ফেলে (অন্য সাইটের কুকি ছোঁয়া হয় না)।
+ *  "; Secure" লাগে কারণ __Secure-/__Host- প্রিফিক্সের কুকি Secure ছাড়া মুছতে দেয় না (ChatGPT-র সেশন কুকি এরকম)। */
+private fun clearSiteData(s: GuestSite, w: WebView?) {
+    runCatching {
+        val cm = CookieManager.getInstance()
+        for (d in s.domains) {
+            val url = "https://$d"
+            val names = (cm.getCookie(url) ?: "").split(";").map { it.substringBefore("=").trim() }.filter { it.isNotEmpty() }
+            for (n in names) for (dom in listOf("", "; Domain=$d", "; Domain=.$d")) {
+                cm.setCookie(url, "$n=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/$dom; Secure")
+            }
+            WebStorage.getInstance().deleteOrigin(url)
+        }
+        cm.flush()
+    }
+    runCatching { w?.clearCache(true); w?.clearFormData(); w?.clearHistory() }
 }
 
 /** গেস্ট ChatGPT/Gemini পেজের নিচের বাড়তি লেখা (লগইন অনুরোধ ইত্যাদি) কেটে ফেলে */
@@ -283,6 +326,136 @@ private fun parseNews(raw: String): Pair<String, String> {
     return title to body
 }
 
+// ───────── নতুন পোস্টের "AI দিয়ে নতুন করে লিখুন": প্রসেসিং প্যানেলের পেছনে অদৃশ্য রানার ─────────
+
+/** একটা গেস্ট লেখার কাজ। ভিউমডেল ধরে রাখে; স্ক্রিনে থাকলে [GuestHiddenRunner] চালায় */
+class GuestJob(val id: Int, val input: String, val notes: String)
+
+/** চলমান উত্তরের শেষ ৩ লাইন (প্রসেসিং প্যানেলের লাইভ লগের জন্য)। সাইটের নাম কখনো দেখায় না */
+fun guestLiveLines(raw: String): List<String> {
+    val (t, b) = parseNews(cleanTail(raw))
+    val out = ArrayList<String>()
+    if (t.isNotBlank()) out += "📰 শিরোনাম: $t"
+    b.lines().map { it.trim() }.filter { it.isNotEmpty() }.forEach { out += it }
+    return out
+        .filter { !it.contains("chatgpt", ignoreCase = true) && !it.contains("gemini", ignoreCase = true) }
+        .takeLast(3).map { if (it.length > 150) "…" + it.takeLast(150) else it }
+}
+
+private class GuestRun {
+    var web: WebView? = null
+    var running = true
+    var sent = false
+    var runKey = ""
+    var prompt = ""
+    val tried = mutableSetOf<String>()
+}
+
+/**
+ * কোনো বাটন/লেখা/ব্রাউজার দেখায় না। ১dp উচ্চতার স্বচ্ছ বক্সে WebView চলে।
+ * একটা সাইটে ব্যর্থ (ক্যাপচা, সাবমিট হয়নি, সময় শেষ ইত্যাদি) হলে কুকি-ক্যাশ মুছে অন্য সাইটে একই প্রম্পট;
+ * সবগুলো ব্যর্থ হলে [onFail] (ভিউমডেল তখন আগের মতো API দিয়ে লেখে)।
+ */
+@Composable
+fun GuestHiddenRunner(
+    job: GuestJob,
+    onSent: () -> Unit,
+    onPartial: (String) -> Unit,
+    onDone: (title: String, body: String) -> Unit,
+    onFail: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val st = remember(job.id) { GuestRun() }
+    var web by remember(job.id) { mutableStateOf<WebView?>(null) }
+    var runId by remember(job.id) { mutableStateOf(0) }
+    val cbSent by rememberUpdatedState(onSent)
+    val cbPartial by rememberUpdatedState(onPartial)
+    val cbDone by rememberUpdatedState(onDone)
+    val cbFail by rememberUpdatedState(onFail)
+    val timeoutSec = 180
+
+    fun begin(w: WebView, s: GuestSite, p: String) {
+        st.sent = false; runId++
+        w.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (st.running && !st.sent) view.evaluateJavascript(buildScript(s, p, timeoutSec), null)
+            }
+        }
+        w.loadUrl(s.url)
+    }
+
+    fun handleFail() {
+        if (!st.running) return
+        val failed = SITES[st.runKey]
+        val w = st.web
+        if (failed != null) clearSiteData(failed, w)
+        val next = SITES.keys.firstOrNull { it !in st.tried }
+        val ns = next?.let { SITES[it] }
+        if (next == null || ns == null || w == null) { st.running = false; cbFail(); return }
+        st.tried.add(next); st.runKey = next
+        begin(w, ns, st.prompt)
+    }
+
+    val bridge = remember(job.id) {
+        GuestBridge(
+            onStatus = {},   // ইচ্ছে করেই কিছু দেখানো হয় না
+            onSent = { st.sent = true; if (st.running) cbSent() },
+            onPartial = { if (st.running) cbPartial(it) },
+            onDone = { raw, ok ->
+                if (st.running) {
+                    val text = cleanTail(raw)
+                    if (text.isBlank() || (!ok && text.length < 400)) handleFail()   // সময় শেষে অল্প লেখা এলে গ্রহণ করি না
+                    else {
+                        val (t, b) = parseNews(text)
+                        if (t.isBlank() || b.isBlank()) handleFail() else { st.running = false; cbDone(t, b) }
+                    }
+                }
+            },
+            onFail = { handleFail() },
+        )
+    }
+
+    LaunchedEffect(job.id) {
+        val u = job.input.trim()
+        val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)
+        val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
+                  else if (u.length >= 100) Article("", u.take(7000)) else null
+        st.prompt = buildNewsPrompt(art, if (isUrl) u else "", job.notes)
+        val firstKey = SITES.keys.first()
+        st.tried.clear(); st.tried.add(firstKey); st.runKey = firstKey
+        delay(300)   // WebView প্রথমবার তৈরি হতে সময় নেয়
+        if (!st.running) return@LaunchedEffect
+        val nw = makeWebView(ctx, bridge)
+        st.web = nw; web = nw
+        begin(nw, SITES.getValue(firstKey), st.prompt)
+    }
+
+    // JS মরে গেলেও (পেজ বদলে) যেন আটকে না থাকে
+    LaunchedEffect(runId) {
+        if (runId == 0) return@LaunchedEffect
+        delay((timeoutSec + 25) * 1000L)
+        if (st.running) handleFail()
+    }
+
+    DisposableEffect(job.id) {
+        onDispose {
+            st.running = false
+            val w = st.web; st.web = null
+            if (w != null) {
+                runCatching { w.stopLoading() }
+                Handler(Looper.getMainLooper()).postDelayed({ runCatching { w.destroy() } }, 500)   // স্ক্রিন থেকে সরার পর destroy
+            }
+        }
+    }
+
+    val w = web
+    if (w != null) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().height(1.dp).clipToBounds().alpha(0f)) {
+            AndroidView(factory = { w }, modifier = Modifier.fillMaxWidth().requiredHeight(640.dp))
+        }
+    }
+}
+
 /** সেটিংসের কার্ডে শুধু একটা বাটন; চাপলে নিজের পুরো স্ক্রিনে খোলে */
 @Composable
 fun GuestChatBody() {
@@ -303,8 +476,24 @@ fun GuestChatBody() {
     }
 }
 
+/** নতুন পোস্টের "ফ্রি গেস্ট AI" (ইউজার ও অ্যাডমিন দুই অ্যাপেই): খবর/লিংক/নোট দিয়ে লিখিয়ে শিরোনাম+বডি ফেরত দেয় */
+/** onFallback: Gemini ও ChatGPT দুটোই ব্যর্থ হলে ডায়ালগ বন্ধ করে আগের মতো API দিয়ে লেখার জন্য */
+class GuestRewrite(val input: String, val notes: String, val onUse: (title: String, body: String) -> Unit, val onFallback: (() -> Unit)? = null)
+
 @Composable
-private fun GuestChatScreen(onClose: () -> Unit) {
+fun GuestRewriteDialog(input: String, notes: String, onUse: (String, String) -> Unit, onClose: () -> Unit, onFallback: (() -> Unit)? = null) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = androidx.compose.ui.graphics.Color.White) {
+            GuestChatScreen(onClose = onClose, rw = GuestRewrite(input, notes, onUse, onFallback))
+        }
+    }
+}
+
+@Composable
+private fun GuestChatScreen(onClose: () -> Unit, rw: GuestRewrite? = null) {
     val ctx = LocalContext.current
     var siteKey by rememberSaveable { mutableStateOf("gemini") }
     var prompt by rememberSaveable { mutableStateOf("বাংলাদেশের রাজধানী কোথায়? এক বাক্যে বলো") }
@@ -315,11 +504,16 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     var runId by remember { mutableStateOf(0) }
     var showWeb by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
-    var newsUrl by rememberSaveable { mutableStateOf("") }
+    var newsUrl by rememberSaveable { mutableStateOf(rw?.input ?: "") }
+    val newsNotes = rw?.notes ?: ""
     var newsMode by remember { mutableStateOf(false) }
     var newsTitle by remember { mutableStateOf("") }
     var newsBody by remember { mutableStateOf("") }
     var copiedKey by remember { mutableStateOf("") }
+    var failReason by remember { mutableStateOf<String?>(null) }
+    var runKey by remember { mutableStateOf("") }
+    var runPrompt by remember { mutableStateOf("") }
+    val tried = remember { mutableSetOf<String>() }
 
     val timeoutSec = 180
     val currentRunning by androidx.compose.runtime.rememberUpdatedState(running)
@@ -342,17 +536,18 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             onSent = { sent = true },
             onDone = { text0, ok ->
                 val text = cleanTail(text0)
-                running = false
-                closeWeb()
-                if (newsMode && text.isNotBlank()) {
-                    val (t, b) = parseNews(text); newsTitle = t; newsBody = b; answer = ""
-                } else answer = text
-                status = when {
-                    ok -> "✅ উত্তর পাওয়া গেছে (${text.length} অক্ষর)"
-                    text.isNotBlank() -> "⚠️ সময় শেষ — যতটুকু এসেছে ততটুকু দেখানো হলো"
-                    else -> "⚠️ উত্তর পাওয়া যায়নি। গেস্ট সীমা শেষ, যাচাই বাকি, বা সাইটের ডিজাইন বদলেছে — নিচের ব্রাউজার দেখুন"
+                if (text.isBlank()) {
+                    failReason = "উত্তর পাওয়া যায়নি"   // অন্য সাইটে চেষ্টা (নিচের LaunchedEffect)
+                } else {
+                    running = false
+                    closeWeb()
+                    if (newsMode) {
+                        val (t, b) = parseNews(text); newsTitle = t; newsBody = b; answer = ""
+                    } else answer = text
+                    status = if (ok) "✅ উত্তর পাওয়া গেছে (${text.length} অক্ষর)" else "⚠️ সময় শেষ — যতটুকু এসেছে ততটুকু দেখানো হলো"
                 }
             },
+            onFail = { failReason = it },
         )
     }
 
@@ -372,6 +567,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
 
     fun launchPrompt(p: String) {
         val s = SITES[siteKey] ?: return
+        tried.clear(); tried.add(siteKey); runKey = siteKey; runPrompt = p
         answer = ""; copied = false; sent = false; running = true; runId++
         val w = web
         if (w != null) {
@@ -397,26 +593,51 @@ private fun GuestChatScreen(onClose: () -> Unit) {
     // শুধু এই বাটন চাপলেই লিংক পড়া ও AI চালু হয়
     fun startNews() {
         val u = newsUrl.trim()
-        if (!Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)) { status = "⚠️ সঠিক লিংক দিন (https://...)"; return }
+        val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)
+        if (rw == null && !isUrl) { status = "⚠️ সঠিক লিংক দিন (https://...)"; return }
+        if (rw != null && !isUrl && u.length < 100 && newsNotes.trim().length < 60) { status = "⚠️ লিংক দিন, অথবা পুরো খবর/বিস্তারিত নোট লিখুন"; return }
         newsMode = true; newsTitle = ""; newsBody = ""; answer = ""; running = true
-        status = "📰 লিংক থেকে খবর পড়ছি..."
+        status = if (isUrl) "📰 লিংক থেকে খবর পড়ছি..." else "📰 খবর সাজাচ্ছি..."
         scope.launch {
-            val art = withContext(Dispatchers.IO) { fetchArticle(u) }
-            if (art == null) status = "⚠️ লিংক থেকে খবরের লেখা আনা যায়নি; AI-কে লিংক দিয়েই পড়তে বলছি (নাও পারতে পারে)"
-            launchPrompt(buildNewsPrompt(art, u))
+            val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
+                      else if (u.length >= 100) Article("", u.take(7000)) else null
+            if (isUrl && art == null) status = "⚠️ লিংক থেকে খবরের লেখা আনা যায়নি; AI-কে লিংক দিয়েই পড়তে বলছি (নাও পারতে পারে)"
+            launchPrompt(buildNewsPrompt(art, if (isUrl) u else "", newsNotes))
         }
+    }
+
+    // ক্যাপচা / সাবমিট ব্যর্থ / লেখা আনতে না পারা → ব্যর্থ সাইটের কুকি-ক্যাশ মুছে অন্য সাইটে (একই প্রম্পট) চেষ্টা
+    LaunchedEffect(failReason) {
+        val r = failReason ?: return@LaunchedEffect
+        failReason = null
+        if (!running) return@LaunchedEffect
+        val failed = SITES[runKey]
+        val w = web
+        if (failed != null) clearSiteData(failed, w)
+        val next = SITES.keys.firstOrNull { it !in tried }
+        val ns = next?.let { SITES[it] }
+        if (next == null || ns == null || w == null) {
+            running = false
+            status = "⚠️ ${failed?.label ?: "সাইট"} ব্যর্থ ($r)। অন্য সাইটেও হয়নি। কুকি-ক্যাশ মুছে দেওয়া হয়েছে, একটু পরে আবার চেষ্টা করুন"
+            closeWeb()
+            if (rw?.onFallback != null && newsMode) rw.onFallback.invoke()   // দুই সাইটই ব্যর্থ → আগের মতো API দিয়ে লেখা
+            return@LaunchedEffect
+        }
+        tried.add(next); runKey = next; siteKey = next; sent = false; runId++
+        begin(w, ns, runPrompt)
+        status = "⚠️ ${failed?.label} ব্যর্থ ($r) — কুকি-ক্যাশ মুছে ${ns.label}-এ চেষ্টা করছি..."
     }
 
     // JS মরে গেলেও (পেজ বদলে) যেন আটকে না থাকে
     LaunchedEffect(runId) {
         if (runId == 0) return@LaunchedEffect
         delay((timeoutSec + 25) * 1000L)
-        if (running) { running = false; status = "⚠️ সময় শেষ, উত্তর আসেনি"; closeWeb() }
+        if (running) failReason = "সময় শেষ, উত্তর আসেনি"   // অন্য সাইটে চেষ্টা; সবগুলো ব্যর্থ হলে ওপরের LaunchedEffect শেষ করে/API-তে যায়
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("🧪 গেস্ট AI টেস্ট", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(if (rw != null) "🆓 ফ্রি AI দিয়ে লিখুন" else "🧪 গেস্ট AI টেস্ট", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             androidx.compose.material3.TextButton(onClick = { if (running) web?.stopLoading(); onClose() }) { Text("✖ বন্ধ") }
         }
         Column(
@@ -429,13 +650,15 @@ private fun GuestChatScreen(onClose: () -> Unit) {
                 }
             }
 
-            AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
+            if (rw == null) {
+                AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
 
-            AppBtn(
-                if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
-                color = C.Green, enabled = !running,
-                onClick = { start() },
-            )
+                AppBtn(
+                    if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
+                    color = C.Green, enabled = !running,
+                    onClick = { start() },
+                )
+            }
             if (running) {
                 AppBtn("⏹️ থামান", color = C.Gray, onClick = {
                     running = false; web?.stopLoading(); web?.evaluateJavascript("window.__gcActive=false", null); status = "থামানো হয়েছে"; closeWeb()
@@ -445,8 +668,9 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             if (status.isNotEmpty()) Text(status, fontSize = 13.sp, color = if (status.startsWith("✅")) C.Green else if (status.startsWith("⚠️")) C.Red else C.Muted)
 
 
-            FieldLabel("📰 লিংক থেকে নিউজ রিরাইট")
-            AppField(newsUrl, { newsUrl = it }, placeholder = "নিউজের লিংক পেস্ট করুন (https://...)")
+            FieldLabel(if (rw != null) "📰 খবরের লিংক অথবা পুরো খবর" else "📰 লিংক থেকে নিউজ রিরাইট")
+            AppField(newsUrl, { newsUrl = it }, placeholder = if (rw != null) "লিংক (https://...) অথবা খবরের লেখা" else "নিউজের লিংক পেস্ট করুন (https://...)", singleLine = rw == null)
+            if (rw != null && newsNotes.isNotBlank()) Small("📍 আপনার মাঠের তথ্যও সাথে যাবে।")
             AppBtn(if (running && newsMode) "⏳ লেখা হচ্ছে..." else "📰 নিউজ পড়ে নতুন করে লিখুন", color = C.Red, enabled = !running, onClick = { startNews() })
 
             if (newsTitle.isNotEmpty() || newsBody.isNotEmpty()) {
@@ -468,6 +692,12 @@ private fun GuestChatScreen(onClose: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().border(1.dp, C.Border, RoundedCornerShape(8.dp)).padding(10.dp))
                 }
                 AppBtn(if (copiedKey == "b") "✅ কপি হয়েছে" else "📋 বডি কপি", color = C.Blue, onClick = { cp("b", newsBody) })
+                if (rw != null) {
+                    AppBtn("✅ এই লেখা পোস্টে বসান", color = C.Green, enabled = !running && newsTitle.isNotBlank() && newsBody.isNotBlank(), onClick = {
+                        rw.onUse(newsTitle, newsBody); onClose()
+                    })
+                    Small("বসানোর পর ২ নম্বর ধাপে শিরোনাম ও বডি নিজে এডিট করতে পারবেন। এতে ব্যালেন্স কাটে না।")
+                }
                 AppBtn(if (copiedKey == "a") "✅ কপি হয়েছে" else "📋 শিরোনাম + বডি একসাথে কপি", color = C.Green, onClick = { cp("a", newsTitle + "\n\n" + newsBody) })
             }
 

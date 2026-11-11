@@ -146,6 +146,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         job?.cancel(); tickJob?.cancel()
+        guestJob = null; guestTok = null
         editItem = null
         step = 1; src = ""; notes = ""; webNews = false; mTitle = ""; mBody = TextFieldValue(""); showManual = false; sec = "src"
         title = ""; body = TextFieldValue(""); cardTitle = ""; category = ""; tag = ""; tplId = "dark"; useAd = true
@@ -420,6 +421,90 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         if (v.isEmpty() && n.length < 60) { popup = "শুধু মাঠের তথ্য দিলে একটু বিস্তারিত লিখুন (কমপক্ষে দুই-তিন লাইন)"; return }
         if (rwLow) { popup = "ব্যালেন্স কম আছে"; return }
         runRewrite(v, n)
+    }
+
+    /** "AI দিয়ে নতুন করে লিখুন" চাপলে গেস্ট চ্যাট খোলার আগের পরীক্ষা (ব্যালেন্স কম হলে আটকায়); ঠিক থাকলে true */
+    fun guestOk(): Boolean {
+        val v = src.trim(); val n = notes.trim()
+        if (v.isEmpty() && n.isEmpty()) { popup = "লিংক, খবর অথবা মাঠের তথ্য দিন"; return false }
+        if (v.isEmpty() && n.length < 60) { popup = "শুধু মাঠের তথ্য দিলে একটু বিস্তারিত লিখুন (কমপক্ষে দুই-তিন লাইন)"; return false }
+        if (rwLow) { popup = "ব্যালেন্স কম আছে"; return false }
+        return true
+    }
+
+    private var guestTok: String? = null
+    private var guestTokAt = 0L
+
+    private suspend fun fetchGuestTok(): String {
+        val d = Worker.post(app, "/rewrite-guest", JSONObject(), 20000)
+        if (d.has("balance")) balance = d.optDouble("balance")
+        val t = d.optString("charge_token")
+        if (t.isBlank()) throw ApiError("টাকা কাটার টোকেন পাওয়া যায়নি, আবার চেষ্টা করুন")
+        guestTok = t; guestTokAt = System.currentTimeMillis()
+        return t
+    }
+
+    /** চলমান গেস্ট কাজ; স্ক্রিনে থাকলে NewPostScreen অদৃশ্য রানার চালায় (ব্রাউজার/বাটন/সাইটের নাম কিছুই দেখা যায় না) */
+    var guestJob by mutableStateOf<GuestJob?>(null)
+    private var guestSeq = 0
+
+    /** "AI দিয়ে নতুন করে লিখুন": আগের মতোই প্রসেসিং প্যানেল দেখায়; সার্ভারে ব্যালেন্স যাচাই + টাকা-কাটার টোকেন নিয়ে তবেই লেখা শুরু */
+    fun startGuest() {
+        if (!guestOk()) return
+        val v = src.trim(); val n = notes.trim()
+        lastInput = v; lastNotes = n
+        startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
+        rewriting = true; procReset()
+        viewModelScope.launch {
+            try { fetchGuestTok(); guestJob = GuestJob(++guestSeq, v, n) } catch (e: Exception) { fail(e); endBusy() }
+        }
+    }
+
+    /** প্রম্পট পাঠানো হয়েছে */
+    fun guestSent() { procSet(15f) }
+
+    /** উত্তর আসছে: বার ও লাইভ লগ আগের মতো চলে (আসল অক্ষর-সংখ্যার অনুপাতে) */
+    fun guestPartial(raw: String) {
+        procLast = System.currentTimeMillis()
+        procSet(25f + 65f * minOf(1f, raw.length.toFloat() / 2500f))
+        procLines = guestLiveLines(raw)
+    }
+
+    fun guestDone(t: String, b: String) {
+        guestJob = null
+        procPct = 100f
+        applyGuest(t, b)
+    }
+
+    /** গেস্টের সব সাইট ব্যর্থ → আগের মতো API দিয়ে লেখা */
+    fun guestFailed() {
+        guestJob = null
+        endBusy()
+        fallbackApi()
+    }
+
+    /** গেস্ট Gemini ও ChatGPT দুটোই ব্যর্থ হলে আগের মতো API দিয়ে লেখা (এর নিজের টোকেনে টাকা কাটে; গেস্টের টোকেন ফেলে দেওয়া হয়, তাই দুইবার কাটে না) */
+    fun fallbackApi() {
+        guestTok = null
+        rewrite()
+    }
+
+    /** গেস্ট AI-র লেখা বসানো; আগের পেইড লেখার মতোই টাকা কাটে (/rewrite-confirm, সফল বসার পর); এরপর ২ নম্বর ধাপে এডিট */
+    fun applyGuest(t: String, b: String) {
+        startBusy("⏳ লেখা বসানো হচ্ছে...")
+        viewModelScope.launch {
+            try {
+                var tok = guestTok
+                if (tok.isNullOrBlank() || System.currentTimeMillis() - guestTokAt > 25 * 60 * 1000L) tok = fetchGuestTok()   // টোকেন ৩০ মিনিটে মরে
+                guestTok = null
+                lastInput = src.trim(); lastNotes = notes.trim()
+                title = t.trim(); body = TextFieldValue(b.trim()); undo.clear()
+                cardTitle = title
+                aiPrompt = ""; promptEdited = false
+                step = 2; saveDraft()
+                settle(tok)
+            } catch (e: Exception) { fail(e) } finally { endBusy() }
+        }
     }
 
     /** "🔁 আবার লিখুন"-এর আগের পরীক্ষা (ওয়েবের s2retry); ঠিক থাকলে true, নইলে error বসে */
