@@ -269,5 +269,5 @@ object PostUtil {
         return (a.trim() + "\n\n" + keep.joinToString("\n\n")).trim()
     }
 
-    fun bn(n: Number): String = if (Lang.isEn) n.toString() else n.toString().map { if (it in '0'..'9') "০১২৩৪৫৬৭৮৯"[it - '0'] else it }.joinToString("")
+    fun bn(n: Number): String = n.toString().map { if (it in '0'..'9') "০১২৩৪৫৬৭৮৯"[it - '0'] else it }.joinToString("")
 }

@@ -33,6 +33,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,8 +89,11 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
     // লেখা / টেমপ্লেট / ছবি / সাইটের তথ্য বদলালেই প্রিভিউ নতুন করে আঁকা হয়
     LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.rashi, vm.mnSite, vm.mnVer, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }
 
+    var geminiHand by remember { mutableStateOf(false) }   // Gemini-তে পাঠানো হয়েছে — আপলোডের বাটন দেখাবে
+    var geminiPick by remember { mutableStateOf(false) }   // এই বাছাইটা Gemini-র ছবির জন্য
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { uris ->
-        if (uris.isNotEmpty()) vm.setPhotos(uris)
+        val fromGemini = geminiPick; geminiPick = false
+        if (uris.isNotEmpty()) { if (fromGemini) vm.expectGeminiImage(); vm.setPhotos(uris) }
     }
     fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     val ocrPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? -> if (uri != null) vm.ocr(uri) }
@@ -325,8 +329,18 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                     Text("কেমন ছবি চান? (প্রম্পট লিখুন)", fontWeight = FontWeight.Bold)
                     HtmlField(vm.aiPrompt, { vm.aiPrompt = it }, Modifier.padding(top = 6.dp), placeholder = "যেমন: রোড এক্সিডেন্ট, একটা বাস ফুটপাতের ওপর উঠে গেছে", singleLine = false, minLines = 3)
                     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HBtn(if (vm.aiBusy) "⏳ বানাচ্ছি…" else "🎨 ছবি বানাও", Modifier.weight(1f), color = C.Green, padH = 6.dp, padV = 10.dp, size = 14.sp, enabled = !locked && !vm.aiBusy) { vm.aiImage() }
+                        HBtn(if (vm.aiBusy) "⏳ বানাচ্ছি…" else "🎨 ছবি বানাও", Modifier.weight(1f), color = C.Green, padH = 6.dp, padV = 10.dp, size = 14.sp, enabled = !locked && !vm.aiBusy) {
+                            val pr = vm.aiPrompt.trim()
+                            if (pr.isNotEmpty() && GeminiHandoff.installed(ctx) && GeminiHandoff.send(ctx, pr)) {
+                                geminiHand = true
+                                vm.aiMsg = "✅ Gemini খুলেছে। ১) Send চাপুন (প্রম্পট কপি আছে, না এলে পেস্ট করুন) ২) ছবি ডাউনলোড করুন ৩) এখানে ফিরে \"ছবি আপলোড\" চাপুন।"
+                            } else vm.aiImage()
+                        }
                         HBtn("বন্ধ করুন", Modifier.weight(1f), color = C.Gray, padH = 6.dp, padV = 10.dp, size = 14.sp) { vm.aiOpen = false }
+                    }
+                    if (geminiHand) Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        HBtn("📁 Gemini-র ছবি আপলোড করুন", Modifier.fillMaxWidth(), color = FpickBlue, padH = 12.dp, padV = 10.dp, size = 14.sp, enabled = !locked) { geminiPick = true; pick() }
+                        HBtn("⚠️ Gemini-তে সমস্যা? সাধারণ পদ্ধতিতে বানান", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Gray, padH = 12.dp, padV = 8.dp, size = 13.sp, enabled = !locked && !vm.aiBusy) { geminiHand = false; vm.aiImage() }
                     }
                     HSmall(
                         vm.aiMsg.ifEmpty { "বাংলাদেশের প্রেক্ষাপটে বাস্তব ছবির ধাঁচে ছবি হবে (কার্টুন নয়)। ছবির ট্যাগে \"AI জেনারেটেড\" লেখা বসবে। ছবি পছন্দ না হলে আবার চাপুন।" },

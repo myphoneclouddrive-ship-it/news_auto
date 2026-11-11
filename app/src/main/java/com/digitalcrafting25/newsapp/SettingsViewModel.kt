@@ -32,9 +32,6 @@ data class KeyCheck(val state: String, val msg: String)
 /** Worker /cslot-list-এর একটা ঘর: ইউজারের ব্যালেন্স যোগের অনুরোধ (অনুমোদনের অপেক্ষায়) */
 data class WalletReq(val key: String, val email: String, val amount: Double, val phone: String, val trx: String, val at: Long)
 
-/** SMS-এ ধরা পড়েছে কিন্তু এই TrxID-র কোনো অনুরোধ আসেনি (Worker /bkash-orphans) */
-data class BkOrphan(val trx: String, val amount: Double, val from: String, val provider: String, val at: Long)
-
 /** ওয়েবের AIP: provider আইডি Worker-এর provOf()-এর সাথে মেলে */
 enum class AiProv(
     val id: String,
@@ -337,42 +334,6 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     /** (সফল?, লেখা) */
     var csMsg by mutableStateOf<Pair<Boolean, String>?>(null)
 
-    /** অনুরোধ-ছাড়া SMS-এর তালিকা + এখন যেটার বোতাম চলছে */
-    var bkItems by mutableStateOf<List<BkOrphan>>(emptyList())
-        private set
-    var bkBusyTrx by mutableStateOf<String?>(null)
-        private set
-
-    fun loadBkOrphans() {
-        viewModelScope.launch {
-            try {
-                val d = Worker.post(app, "/bkash-orphans", JSONObject(), 20000)
-                val a = d.optJSONArray("items") ?: JSONArray()
-                bkItems = List(a.length()) { i ->
-                    val o = a.getJSONObject(i)
-                    BkOrphan(o.optString("trx"), o.optDouble("amount", 0.0), o.optString("from"), o.optString("provider"), o.optLong("at", 0L))
-                }
-            } catch (e: Exception) { /* তালিকা না এলে বাকি স্ক্রিন যেমন আছে তেমন থাকে */ }
-        }
-    }
-
-    /** reason = "personal" (ব্যক্তিগত ট্রানজেকশন) বা "manual" (ম্যানুয়ালি এড হয়েছে): দুটোতেই এই TrxID আর কেউ অনুরোধে দিতে পারবে না, তালিকাতেও আসবে না */
-    fun bkDismiss(item: BkOrphan, reason: String) {
-        if (bkBusyTrx != null) return
-        bkBusyTrx = item.trx; csMsg = null
-        viewModelScope.launch {
-            try {
-                Worker.post(app, "/bkash-dismiss", JSONObject().put("trx", item.trx).put("reason", reason), 20000)
-                csMsg = true to "✅ বাদ দেওয়া হয়েছে। এই TrxID দিয়ে আর অনুরোধ করা যাবে না।"
-            } catch (e: Exception) {
-                csMsg = false to ("⚠️ " + (e.message ?: "সমস্যা হয়েছে"))
-            } finally {
-                bkBusyTrx = null
-                loadBkOrphans()
-            }
-        }
-    }
-
     /** Worker /cslot-get দিয়ে অ্যাডমিন কিনা জানা; অ্যাডমিন হলে অনুরোধের তালিকাও আনে */
     fun loadWallet() {
         viewModelScope.launch {
@@ -388,7 +349,6 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val d = Worker.post(app, "/cslot-list", JSONObject(), 20000)
-                loadBkOrphans()   // অনুরোধ-ছাড়া SMS-এর তালিকাও একসাথে হালনাগাদ
                 val a = d.optJSONArray("items") ?: JSONArray()
                 csItems = List(a.length()) { i ->
                     val o = a.getJSONObject(i)

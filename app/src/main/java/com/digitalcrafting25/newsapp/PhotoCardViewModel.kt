@@ -287,6 +287,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
             collItems = emptyList(); fileMsg = FC_FILE_HINT
             photo = PostUtil.shrink(bmp, 1600); hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f
             if (tagAi) { tagAi = false; tagTouched = false; tag = cfg.photoTag }
+                if (geminiPending) { geminiPending = false; tag = PostUtil.AI_TAG; tagTouched = true; tagAi = true }
             photoVer++
         }
     }
@@ -449,6 +450,9 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     private var catTouched = false
     private var tagTouched = false
     private var tagAi = false
+    private var geminiPending = false
+    /** Gemini থেকে বানানো ছবি আপলোড হতে যাচ্ছে — ছবি বসলে "AI জেনারেটেড" ট্যাগ বসবে */
+    fun expectGeminiImage() { geminiPending = true }
     private var sid = PostUtil.newSid()       // একটা কার্ডের জন্য মোট ১ টাকা: একই sid-এ আর কাটে না
     var paid by mutableStateOf(false)         // এই কার্ডের ১ টাকা কাটা হয়ে গেছে; ফর্ম লক (ওয়েবের fcPaid)
         private set
@@ -642,6 +646,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 photo = withContext(Dispatchers.Default) { PostUtil.collageItems(items, collVertical) }
                 hasPhoto = true; notice = null; fx = 0.5f; fy = 0.5f
                 if (tagAi) { tagAi = false; tagTouched = false; tag = cfg.photoTag }
+                if (geminiPending) { geminiPending = false; tag = PostUtil.AI_TAG; tagTouched = true; tagAi = true }
                 photoVer++
                 fileMsg = "✅ " + PostUtil.bn(bmps.size) + "টি ছবির কোলাজ হয়েছে — ছবি টেনে পজিশন ঠিক করুন"
             } catch (e: Exception) { fileMsg = "⚠️ " + (e.message ?: "ছবি যোগ করা যায়নি") + " — আবার চেষ্টা করুন" }

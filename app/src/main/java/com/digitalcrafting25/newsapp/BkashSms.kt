@@ -67,9 +67,7 @@ object BkashSend {
             when {
                 r.optBoolean("ignored") -> if (!dup) { /* টাকা-পাওয়ার SMS নয়: কিছু লিখি না, নইলে ক্যাশ-ইন ইত্যাদিতে "শেষ SMS" ভরে যায় */ }
                 r.optBoolean("auto") -> {
-                    // ইউজার TrxID ভুল লিখলেও টাকা ও নম্বর মেলায় Worker অটো ধরেছে: কী লিখেছিল সেটাও দেখানো
-                    val typedNote = if (r.optBoolean("fuzzy")) "\nইউজার লিখেছিল: " + r.optString("typed") + " (ভুল TrxID, টাকা ও নম্বর মেলায় অটো ধরা হয়েছে)" else ""
-                    val msg = who + " ৳" + Bn.num(r.optDouble("amount")) + " • TrxID " + r.optString("trx") + typedNote
+                    val msg = who + " ৳" + Bn.num(r.optDouble("amount")) + " • TrxID " + r.optString("trx")
                     BkashPrefs.setLast(ctx, "✅ অটো যোগ হয়েছে: $msg")
                     Notif.post(ctx, 7000 + (r.optString("trx").hashCode() and 0xFFF), Notif.CH_UPDATE, "💳 ব্যালেন্স অটো যোগ হয়েছে", msg + "\nপাঠানো নম্বর: " + r.optString("from"))
                 }

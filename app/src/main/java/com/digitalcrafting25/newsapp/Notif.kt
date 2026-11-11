@@ -17,9 +17,9 @@ object Notif {
 
     fun init(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CH_RENDER, Lang.t("ভিডিও রেন্ডার"), NotificationManager.IMPORTANCE_LOW))
-        nm.createNotificationChannel(NotificationChannel(CH_AI, Lang.t("AI লেখা"), NotificationManager.IMPORTANCE_LOW))
-        nm.createNotificationChannel(NotificationChannel(CH_UPDATE, Lang.t("অ্যাপ আপডেট"), NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel(CH_RENDER, "ভিডিও রেন্ডার", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CH_AI, "AI লেখা", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "অ্যাপ আপডেট", NotificationManager.IMPORTANCE_HIGH))
     }
 
     fun canPost(ctx: Context) = Build.VERSION.SDK_INT < 33 ||
@@ -36,8 +36,8 @@ object Notif {
         if (!canPost(ctx)) return
         val n = NotificationCompat.Builder(ctx, CH_RENDER)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle(Lang.t(title))
-            .setContentText(Lang.t(text))
+            .setContentTitle(title)
+            .setContentText(text)
             .setProgress(100, pct.coerceIn(0, 100), false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -54,9 +54,9 @@ object Notif {
         if (!canPost(ctx)) return
         val n = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(Lang.t(title))
-            .setContentText(Lang.t(text))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(Lang.t(text)))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()

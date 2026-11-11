@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- SMS-এর অনুমতি ও রিসিভার শুধু অ্যাডমিন অ্যাপে (app/src/admin/AndroidManifest.xml); ইউজারের অ্যাপে SMS-এর কোনো অনুমতি নেই -->
 
+    <!-- ফোনে Gemini অ্যাপ আছে কিনা দেখতে (ছবি বানানোর হ্যান্ডঅফ) -->
+    <queries>
+        <package android:name="com.google.android.apps.bard" />
+    </queries>
+
     <application
         android:name=".NewsApp"
         android:allowBackup="false"

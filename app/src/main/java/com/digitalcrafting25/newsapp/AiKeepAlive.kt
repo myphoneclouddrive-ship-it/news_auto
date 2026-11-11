@@ -44,8 +44,8 @@ class AiKeepAliveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val n: Notification = NotificationCompat.Builder(this, Notif.CH_AI)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle(Lang.t("AI খবর লিখছে…"))
-            .setContentText(Lang.t("অ্যাপ ব্যাকগ্রাউন্ডে গেলেও লেখা চলবে।"))
+            .setContentTitle("AI খবর লিখছে…")
+            .setContentText("অ্যাপ ব্যাকগ্রাউন্ডে গেলেও লেখা চলবে।")
             .setOngoing(true)
             .setContentIntent(Notif.openApp(this))
             .build()

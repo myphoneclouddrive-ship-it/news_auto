@@ -278,7 +278,7 @@ class RenderService : Service() {
         return NotificationCompat.Builder(this, Notif.CH_RENDER)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("নিউজ পাবলিশার")
-            .setContentText(Lang.t(text))
+            .setContentText(text)
             .setProgress(100, progress, false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

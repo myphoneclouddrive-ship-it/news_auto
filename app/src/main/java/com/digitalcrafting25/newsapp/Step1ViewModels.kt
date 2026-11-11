@@ -25,9 +25,7 @@ import java.util.Locale
 
 /** বাংলা সংখ্যা ও তারিখ (ওয়েবের toLocaleString('bn-BD') এর মতো) */
 object Bn {
-    private val bnLoc: Locale = Locale.Builder().setLanguage("bn").setRegion("BD").build()
-    /** ভাষা English হলে সংখ্যা/তারিখ ইংরেজিতে (Lang.isEn কম্পোজিশনে পড়া হলে ভাষা বদলালে স্ক্রিন নিজে আপডেট হয়) */
-    private val loc: Locale get() = if (Lang.isEn) Locale.ENGLISH else bnLoc
+    private val loc: Locale = Locale.Builder().setLanguage("bn").setRegion("BD").build()
     fun num(n: Number): String = NumberFormat.getInstance(loc).format(n)
     fun today(): String = SimpleDateFormat("EEEE, d MMMM, yyyy", loc).format(Date())
     fun dateTime(ms: Long): String = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, loc).format(Date(ms))

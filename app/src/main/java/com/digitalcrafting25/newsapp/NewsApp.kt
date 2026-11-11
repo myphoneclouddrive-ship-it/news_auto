@@ -5,7 +5,6 @@ import android.app.Application
 class NewsApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        Lang.init(this)         // সংরক্ষিত ভাষা (বাংলা/English) — নোটিফিকেশন চ্যানেলের নামের আগেই
         Notif.init(this)
         BrandFont.init(this)    // Noto Sans Bengali (HTML-এর ফন্ট)
         Net.start(this)         // ইন্টারনেট আছে কিনা নজর রাখা

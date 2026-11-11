@@ -21,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -133,7 +134,6 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
         site.notice?.let { n -> NoticeBar(n) { site.notice = null } }
         ads.notice?.let { n -> NoticeBar(n) { ads.notice = null } }
 
-        AccCard("🌐 ভাষা / Language", open == "lang", { toggle("lang") }) { LanguageSetting() }
         AccCard("🖼️ ফোটোকার্ড টেমপ্লেট", open == "tpl", { toggle("tpl") }) { TplSettingsBody(np, dash) }
         AccCard("🏷️ লোগো ও সাইটের তথ্য", open == "site", { toggle("site") }) { SiteInfoBody(site) }
         AccCard("📢 বিজ্ঞাপন সেকশন", open == "ads", { toggle("ads") }) { AdsBody(ads) }
@@ -221,43 +221,7 @@ private fun WalletReqBody(vm: SettingsViewModel) {
         Text(if (vm.csLoading) "লোড হচ্ছে..." else "কোনো অনুরোধ নেই।", fontSize = 14.sp, color = C.Muted, modifier = Modifier.padding(top = 10.dp))
     }
     vm.csItems.forEach { r -> WalletReqRow(vm, r) }
-    BkOrphanSection(vm)
     AppBtn("🔄 রিফ্রেশ", Modifier.padding(top = 12.dp), color = C.Gray, enabled = !vm.csLoading && vm.csBusyKey == null) { vm.csMsg = null; vm.loadCsList() }
-}
-
-/** 📩 SMS ধরা পড়েছে কিন্তু অনুরোধ নেই: ব্যক্তিগত লেনদেন বা হাতে যোগ করা হলে বাটন চেপে বাদ দিন — এই TrxID আর কেউ অনুরোধে দিতে পারবে না */
-@Composable
-private fun BkOrphanSection(vm: SettingsViewModel) {
-    var confirm by remember { mutableStateOf<Pair<BkOrphan, String>?>(null) }
-    Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(1.dp).background(Color(0xFFEEEEEE)))
-    Text("📩 অনুরোধ ছাড়া SMS", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
-    Small("এই লেনদেনগুলোর SMS ধরা পড়েছে, কিন্তু এই TrxID-র কোনো অনুরোধ আসেনি। কোনো বোতামে চাপলে এই TrxID দিয়ে আর কেউ অনুরোধ করতে পারবে না, আর এটা এখানে দেখাবে না।")
-    if (vm.bkItems.isEmpty()) Text("অনুরোধ ছাড়া কোনো SMS নেই।", fontSize = 14.sp, color = C.Muted, modifier = Modifier.padding(top = 8.dp))
-    vm.bkItems.forEach { o ->
-        val who = if (o.provider == "nagad") "নগদ" else "বিকাশ"
-        val busy = vm.bkBusyTrx != null
-        Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-            Text(who + " ৳" + Bn.num(o.amount) + " • TrxID " + o.trx, fontWeight = FontWeight.Bold)
-            Small("পাঠানো নম্বর: " + o.from + (if (o.at > 0) " · " + Bn.dateTime(o.at) else ""))
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppBtn(if (vm.bkBusyTrx == o.trx) "অপেক্ষা করুন..." else "👤 ব্যক্তিগত ট্রানজেকশন", Modifier.weight(1f), color = C.Gray, small = true, oneLine = true, enabled = !busy) { confirm = o to "personal" }
-                AppBtn("✋ ম্যানুয়ালি এড হয়েছে", Modifier.weight(1f), color = C.Green, small = true, oneLine = true, enabled = !busy) { confirm = o to "manual" }
-            }
-        }
-    }
-    confirm?.let { (item, reason) ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            text = {
-                Text(
-                    if (reason == "personal") "TrxID " + item.trx + " আপনার ব্যক্তিগত লেনদেন হিসেবে বাদ দেবেন? এই TrxID দিয়ে আর কেউ অনুরোধ করতে পারবে না।"
-                    else "TrxID " + item.trx + "-র টাকা আপনি ইউজারের ব্যালেন্সে হাতে যোগ করে ফেলেছেন? এই TrxID দিয়ে আর কেউ অনুরোধ করতে পারবে না।",
-                )
-            },
-            confirmButton = { TextButton(onClick = { confirm = null; vm.bkDismiss(item, reason) }) { Text("হ্যাঁ", color = C.Red, fontWeight = FontWeight.Bold) } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("না") } },
-        )
-    }
 }
 
 @Composable
@@ -624,7 +588,6 @@ fun AdminSettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel, auto: AutoPo
     ) {
         H1("⚙️ অ্যাডমিন সেটিংস")
         vm.notice?.let { n -> NoticeBar(n) { vm.notice = null } }
-        AccCard("🌐 ভাষা / Language", open == "lang", { toggle("lang") }) { LanguageSetting() }
         if (vm.aiOwner == true) {
             AccCard("🤖 AI কী (সবার জন্য)", open == "ai", { toggle("ai") }) { AiBody(vm) { ask = it } }
         } else if (vm.aiOwner == null) {

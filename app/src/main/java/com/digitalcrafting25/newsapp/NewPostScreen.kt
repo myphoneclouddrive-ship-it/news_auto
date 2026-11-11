@@ -34,6 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.withStyle
 import androidx.compose.runtime.Composable
@@ -398,8 +399,8 @@ private fun AiWarnDialog(onRead: () -> Unit, onGo: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(buildAnnotatedString {
-                        append(Lang.t("এই নিউজটি ")); withStyle(bd) { append(Lang.t("AI দিয়ে তৈরি")) }
-                        append(Lang.t("। মূল পোস্ট থেকে তথ্য নিয়ে লেখা হয়েছে। পোস্ট করার আগে নিচের শর্তগুলো মনোযোগ দিয়ে পড়ুন।"))
+                        append("এই নিউজটি "); withStyle(bd) { append("AI দিয়ে তৈরি") }
+                        append("। মূল পোস্ট থেকে তথ্য নিয়ে লেখা হয়েছে। পোস্ট করার আগে নিচের শর্তগুলো মনোযোগ দিয়ে পড়ুন।")
                     }, fontSize = 15.sp, lineHeight = 27.sp)
                     listOf(
                         "পুরো আর্টিকেল নিজে পড়ুন।" to " AI মাঝে মাঝে ভুল করতে পারে, তাই নাম, তারিখ, সংখ্যা ও তথ্য ঠিক আছে কি না যাচাই করে নিন।",
@@ -407,7 +408,7 @@ private fun AiWarnDialog(onRead: () -> Unit, onGo: () -> Unit) {
                         "দায় আপনার।" to " ভুল বা আপত্তিকর তথ্য প্রকাশিত হলে তার দায় AI বা অ্যাপ কর্তৃপক্ষ নেবে না।",
                     ).forEachIndexed { i, (h, t) ->
                         Text(buildAnnotatedString {
-                            append(PostUtil.bn(i + 1) + ". "); withStyle(bd) { append(Lang.t(h)) }; append(Lang.t(t))
+                            append(PostUtil.bn(i + 1) + ". "); withStyle(bd) { append(h) }; append(t)
                         }, fontSize = 15.sp, lineHeight = 27.sp, modifier = Modifier.padding(start = 6.dp))
                     }
                 }

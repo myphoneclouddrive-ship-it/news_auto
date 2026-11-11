@@ -77,7 +77,7 @@ object SettingsMedia {
             color = android.graphics.Color.parseColor("#334155"); textAlign = android.graphics.Paint.Align.CENTER
         }
         val fm = t.fontMetrics
-        c.drawText(Lang.t("বিজ্ঞাপন এরিয়া ${w}×${h} px"), w / 2f, h / 2f + 2f - (fm.ascent + fm.descent) / 2f, t)
+        c.drawText("বিজ্ঞাপন এরিয়া ${w}×${h} px", w / 2f, h / 2f + 2f - (fm.ascent + fm.descent) / 2f, t)
         return bmp
     }
 

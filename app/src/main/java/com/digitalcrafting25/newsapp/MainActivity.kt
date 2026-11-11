@@ -44,6 +44,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -99,8 +100,6 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NewsTheme {
-                // প্রথমবার (ভাষা বাছা নেই): আগে ভাষা বাছাই স্ক্রিন; বাছলে সেটাই সেভ থাকে (সেটিংস → 🌐 ভাষা থেকে বদলানো যায়)
-                if (!Lang.chosen) { LanguageChooserScreen(); return@NewsTheme }
                 val locked by Net.locked.collectAsStateWithLifecycle()
                 val ctx = LocalContext.current
                 val scope = rememberCoroutineScope()

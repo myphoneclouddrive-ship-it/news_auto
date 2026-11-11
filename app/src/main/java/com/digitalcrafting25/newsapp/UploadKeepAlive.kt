@@ -32,8 +32,8 @@ class UploadKeepAliveService : Service() {
         private fun build(ctx: Context): Notification {
             val b = NotificationCompat.Builder(ctx, Notif.CH_RENDER)
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
-                .setContentTitle(Lang.t("ভিডিও পাবলিশ হচ্ছে…"))
-                .setContentText(Lang.t(label))
+                .setContentTitle("ভিডিও পাবলিশ হচ্ছে…")
+                .setContentText(label)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(Notif.openApp(ctx))
