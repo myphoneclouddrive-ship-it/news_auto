@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- ক্যামেরায় তোলা পেমেন্টের ছবি (ব্যালেন্স যোগের ফর্ম): cache/payshots -->
+    <cache-path name="payshots" path="payshots/" />
+    <!-- রেন্ডার করা ভিডিও (গ্যালারিতে নিজে সেভ হয় না; শেয়ারের জন্য এখান থেকে দেওয়া হয়): files/renders -->
+    <files-path name="renders" path="renders/" />
+</paths>
