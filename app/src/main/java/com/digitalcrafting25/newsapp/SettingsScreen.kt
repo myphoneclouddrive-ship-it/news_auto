@@ -152,6 +152,7 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
         }
         AccCard("🎬 ভিডিও ক্যাশ ও ডাটা", open == "vclear", { toggle("vclear") }) { VideoClearBody(vm, ev) { ask = it } }
         // শুধু অ্যাপে আছে (ওয়েবে নেই)
+        AccCard("Guest AI Test (no login)", open == "guestai", { toggle("guestai") }) { GuestChatBody() }
         AccCard("🔄 অ্যাপ আপডেট", open == "update", { toggle("update") }) { UpdateScreen(uv, embedded = true) }
 
         if (ads.dirty) {
@@ -596,6 +597,7 @@ fun AdminSettingsScreen(vm: SettingsViewModel, uv: UpdateViewModel, auto: AutoPo
         if (auto.allowed != false) {
             AccCard("🌅 অটো \"শুভ সকাল\" পোস্ট", open == "auto", { toggle("auto") }) { AutoPostBody(auto) }
         }
+        AccCard("Guest AI Test (no login)", open == "guestai", { toggle("guestai") }) { GuestChatBody() }
         AccCard("🔄 অ্যাপ আপডেট", open == "update", { toggle("update") }) { UpdateScreen(uv, embedded = true) }
         Spacer(Modifier.height(20.dp))
     }
