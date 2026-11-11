@@ -341,7 +341,7 @@ fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Un
         // গেস্ট AI-র অদৃশ্য রানার: কিছু আঁকে না, শুধু প্রসেসিং প্যানেলের বার/লগ চালায়
         vm.guestJob?.let { job ->
             GuestHiddenRunner(job, onSent = { vm.guestSent() }, onPartial = { vm.guestPartial(it) },
-                onDone = { t, b -> vm.guestDone(t, b) }, onFail = { vm.guestFailed() })
+                onDone = { t, b -> vm.guestDone(t, b) }, onFail = { vm.guestFailed() }, onStage = { vm.guestStage(it) })
         }
         if (vm.rewriting) ProcPanel(vm) else when (vm.step) {
             1 -> Step1(vm, onOpenVideo, onClear = { vm.clearAll() }, header = header)

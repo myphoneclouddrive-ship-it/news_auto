@@ -119,7 +119,7 @@ private const val RUNNER_JS = """
     if (!last) return '';
     var i = t.lastIndexOf(last); if (i < 0) return '';
     var r = t.slice(i + last.length);
-    ['Log in for more','Sign up for free','ChatGPT is AI','Get smarter responses','Stay logged out'].forEach(function(m){
+    ['Log in for more','Sign up for free','ChatGPT is AI','Get smarter responses','Stay logged out','Sign in to connect','Sign in','Gemini can make mistakes'].forEach(function(m){
       var k = r.toLowerCase().indexOf(m.toLowerCase()); if (k >= 0) r = r.slice(0, k);
     });
     return r.trim();
@@ -196,7 +196,7 @@ private const val RUNNER_JS = """
           if (!retried && left.length > 0 && Date.now() - sentAt > 6000){ retried = true; pressEnter(box); B.status('আবার Enter চাপা হয়েছে...'); return; }
           // বক্স খালি = পাঠানো হয়ে গেছে; সিলেক্টর না মিললে পেজের লেখা থেকে উত্তর নিই
           if (retried && left.length > 0 && Date.now() - sentAt > 20000) return fail('প্রম্পট সাবমিট হয়নি');
-          if (left.length === 0 && Date.now() - sentAt > 8000) tx = fbText();
+          if (left.length === 0 && Date.now() - sentAt > 8000) { tx = fbText(); if (tx && !/[\u0980-\u09FF]/.test(tx)) tx = ''; }
           if (!tx){
             if (Date.now() - sentAt > 8000 && captcha()) return fail('ক্যাপচা/যাচাই এসেছে');
             if (Date.now() - sentAt > 75000) return fail('উত্তর আসেনি');
@@ -306,7 +306,7 @@ private fun clearSiteData(s: GuestSite, w: WebView?) {
 
 /** গেস্ট ChatGPT/Gemini পেজের নিচের বাড়তি লেখা (লগইন অনুরোধ ইত্যাদি) কেটে ফেলে */
 private fun cleanTail(t: String): String {
-    val marks = listOf("Log in for more", "Sign up for free", "ChatGPT is AI", "Get smarter responses", "Stay logged out")
+    val marks = listOf("Log in for more", "Sign up for free", "ChatGPT is AI", "Get smarter responses", "Stay logged out", "Sign in to connect", "Sign in", "Gemini can make mistakes")
     var cut = t.length
     for (m in marks) { val i = t.indexOf(m, ignoreCase = true); if (i in 0 until cut) cut = i }
     return t.substring(0, cut).trim()
@@ -331,9 +331,14 @@ private fun parseNews(raw: String): Pair<String, String> {
 /** একটা গেস্ট লেখার কাজ। ভিউমডেল ধরে রাখে; স্ক্রিনে থাকলে [GuestHiddenRunner] চালায় */
 class GuestJob(val id: Int, val input: String, val notes: String)
 
+/** খবরের লেখায় অন্তত কিছু বাংলা অক্ষর থাকতেই হবে; না থাকলে সেটা সাইটের সাইন-ইন/ব্যানারের লেখা, উত্তর নয় */
+private fun hasBangla(t: String) = t.any { it in '\u0980'..'\u09FF' }
+
 /** চলমান উত্তরের শেষ ৩ লাইন (প্রসেসিং প্যানেলের লাইভ লগের জন্য)। সাইটের নাম কখনো দেখায় না */
 fun guestLiveLines(raw: String): List<String> {
-    val (t, b) = parseNews(cleanTail(raw))
+    val clean = cleanTail(raw)
+    if (!hasBangla(clean)) return emptyList()   // সাইন-ইন ব্যানারের ইংরেজি লেখা কখনো শিরোনাম হিসেবে দেখাবে না
+    val (t, b) = parseNews(clean)
     val out = ArrayList<String>()
     if (t.isNotBlank()) out += "📰 শিরোনাম: $t"
     b.lines().map { it.trim() }.filter { it.isNotEmpty() }.forEach { out += it }
@@ -363,6 +368,7 @@ fun GuestHiddenRunner(
     onPartial: (String) -> Unit,
     onDone: (title: String, body: String) -> Unit,
     onFail: () -> Unit,
+    onStage: (Int) -> Unit = {},   // ১ = Gemini, ২ = ChatGPT (প্যানেলে শুধু নম্বর দেখায়, নাম নয়)
 ) {
     val ctx = LocalContext.current
     val st = remember(job.id) { GuestRun() }
@@ -372,10 +378,12 @@ fun GuestHiddenRunner(
     val cbPartial by rememberUpdatedState(onPartial)
     val cbDone by rememberUpdatedState(onDone)
     val cbFail by rememberUpdatedState(onFail)
+    val cbStage by rememberUpdatedState(onStage)
     val timeoutSec = 180
 
     fun begin(w: WebView, s: GuestSite, p: String) {
         st.sent = false; runId++
+        cbStage(SITES.keys.indexOf(st.runKey) + 1)
         w.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 if (st.running && !st.sent) view.evaluateJavascript(buildScript(s, p, timeoutSec), null)
@@ -404,7 +412,7 @@ fun GuestHiddenRunner(
             onDone = { raw, ok ->
                 if (st.running) {
                     val text = cleanTail(raw)
-                    if (text.isBlank() || (!ok && text.length < 400)) handleFail()   // সময় শেষে অল্প লেখা এলে গ্রহণ করি না
+                    if (text.isBlank() || !hasBangla(text) || (!ok && text.length < 400)) handleFail()   // সময় শেষে অল্প লেখা এলে গ্রহণ করি না
                     else {
                         val (t, b) = parseNews(text)
                         if (t.isBlank() || b.isBlank()) handleFail() else { st.running = false; cbDone(t, b) }
