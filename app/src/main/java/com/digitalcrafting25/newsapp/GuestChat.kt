@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -254,21 +256,12 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         )
     }
 
-    // WebView প্রথমবার তৈরি হতে সময় নেয়; তাই স্ক্রিন আগে দেখিয়ে তারপর তৈরি করা হয় (নইলে সাদা পেজ থাকে)
+    // WebView প্রথমবার তৈরি হতে অনেক সময় নেয় (স্ক্রিন আটকে থাকে); তাই স্ক্রিন খোলার সময় নয়, "পাঠান" চাপার পরে তৈরি হয়
     var web by remember { mutableStateOf<WebView?>(null) }
-    LaunchedEffect(Unit) {
-        delay(150)
-        web = makeWebView(ctx, bridge)
-    }
+    val scope = rememberCoroutineScope()
     DisposableEffect(Unit) { onDispose { runCatching { web?.stopLoading(); web?.destroy() } } }
 
-    fun start() {
-        val s = SITES[siteKey] ?: return
-        val w = web
-        if (w == null) { status = "ব্রাউজার তৈরি হচ্ছে, একটু অপেক্ষা করে আবার চাপুন"; return }
-        val p = prompt.trim()
-        if (p.isEmpty()) { status = "⚠️ প্রম্পট লিখুন"; return }
-        answer = ""; copied = false; sent = false; running = true; runId++
+    fun begin(w: WebView, s: GuestSite, p: String) {
         status = "খুলছি: ${s.url}"
         w.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
@@ -278,6 +271,25 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             }
         }
         w.loadUrl(s.url)
+    }
+
+    fun start() {
+        val s = SITES[siteKey] ?: return
+        val p = prompt.trim()
+        if (p.isEmpty()) { status = "⚠️ প্রম্পট লিখুন"; return }
+        answer = ""; copied = false; sent = false; running = true; runId++
+        val w = web
+        if (w != null) {
+            begin(w, s, p)
+        } else {
+            status = "ব্রাউজার চালু হচ্ছে (প্রথমবার কয়েক সেকেন্ড লাগতে পারে, অপেক্ষা করুন)..."
+            scope.launch {
+                delay(300)
+                val nw = makeWebView(ctx, bridge)
+                web = nw
+                begin(nw, s, p)
+            }
+        }
     }
 
     // JS মরে গেলেও (পেজ বদলে) যেন আটকে না থাকে
@@ -305,8 +317,8 @@ private fun GuestChatScreen(onClose: () -> Unit) {
             AppField(prompt, { prompt = it }, placeholder = "প্রম্পট লিখুন...", singleLine = false)
 
             AppBtn(
-                if (running) "⏳ চলছে..." else if (web == null) "⏳ ব্রাউজার তৈরি হচ্ছে..." else "🚀 পাঠান ও উত্তর আনুন",
-                color = C.Green, enabled = !running && web != null,
+                if (running) "⏳ চলছে..." else "🚀 পাঠান ও উত্তর আনুন",
+                color = C.Green, enabled = !running,
                 onClick = { start() },
             )
             if (running) {
@@ -341,7 +353,7 @@ private fun GuestChatScreen(onClose: () -> Unit) {
         val w = web
         if (w == null) {
             androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Text("⏳ ব্রাউজার তৈরি হচ্ছে...", color = C.Muted)
+                Text("🌐 \"পাঠান\" চাপলে ব্রাউজার এখানে খুলবে", color = C.Muted)
             }
         } else {
             AndroidView(
