@@ -278,7 +278,9 @@ private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): Strin
         "নিয়ম:\n" +
         "১) শুধু খবরটাই লিখবে। কোনো ভূমিকা, মন্তব্য, ব্যাখ্যা, পরামর্শ, প্রশ্ন, ইমোজি বা মার্কডাউন (**, #) থাকবে না।\n" +
         "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
-        "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে একটি আকর্ষণীয় শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n\n"
+        "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে নতুন শিরোনাম, দ্বিতীয় লাইনে \"কার্ড: \" লিখে ফোটোকার্ডের ছোট শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n" +
+        "৪) শিরোনাম মূল শিরোনাম থেকে আলাদা হবে: তথ্যনির্ভর, আকর্ষণীয়, কিন্তু ক্লিকবেইট নয়। শিরোনাম পূর্ণ হবে (৮ থেকে ১৫ শব্দ): কে, কোথায়, কী করলেন বা কী ঘটল, এই তিনটি থাকবে। শুধু স্থান ও পদবি দিয়ে থামিয়ে অসম্পূর্ণ রাখবে না।\n" +
+        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n\n"
     var src = if (a != null) (if (a.title.isNotBlank()) "মূল খবরের শিরোনাম: ${a.title}\n" else "") + "মূল খবর:\n${a.text}\n\n"
               else if (url.isNotBlank()) "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
               else ""
@@ -313,7 +315,10 @@ private fun cleanTail(t: String): String {
 }
 
 /** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
-private fun parseNews(raw: String): Pair<String, String> {
+private fun parseNews(raw: String): Pair<String, String> = parseNews3(raw).let { it.first to it.third }
+
+/** (শিরোনাম, কার্ড-শিরোনাম, বডি); "কার্ড:" লাইন না থাকলে কার্ড-শিরোনাম ফাঁকা */
+private fun parseNews3(raw: String): Triple<String, String, String> {
     var lines = raw.replace("\r", "").lines().map { it.replace("**", "").replace(Regex("^#+\\s*"), "").trimEnd() }
     lines = lines.dropWhile { it.isBlank() || Regex("^(ChatGPT said:?|Gemini said:?|You said:?)\\s*\$", RegexOption.IGNORE_CASE).matches(it.trim()) }
     val ti = lines.indexOfFirst { Regex("^\\s*(শিরোনাম|Title)\\s*[:：]").containsMatchIn(it) }
@@ -322,8 +327,15 @@ private fun parseNews(raw: String): Pair<String, String> {
         title = lines[ti].replace(Regex("^\\s*(শিরোনাম|Title)\\s*[:：]\\s*"), "").trim().trim('"', '“', '”')
         rest = lines.drop(ti + 1)
     } else { title = lines.firstOrNull()?.trim() ?: ""; rest = lines.drop(1) }
-    val body = rest.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
-    return title to body
+    val cardRe = Regex("^\\s*(কার্ড(\\s*শিরোনাম)?|ফোটোকার্ড(\\s*শিরোনাম)?|Card(\\s*title)?)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
+    val ci = rest.indexOfFirst { it.isNotBlank() }
+    var card = ""; var rest2 = rest
+    if (ci in 0..2 && cardRe.containsMatchIn(rest[ci])) {
+        card = rest[ci].replace(cardRe, "").trim().trim('"', '“', '”')
+        rest2 = rest.drop(ci + 1)
+    }
+    val body = rest2.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+    return Triple(title, card, body)
 }
 
 // ───────── নতুন পোস্টের "AI দিয়ে নতুন করে লিখুন": প্রসেসিং প্যানেলের পেছনে অদৃশ্য রানার ─────────
@@ -366,7 +378,7 @@ fun GuestHiddenRunner(
     job: GuestJob,
     onSent: () -> Unit,
     onPartial: (String) -> Unit,
-    onDone: (title: String, body: String) -> Unit,
+    onDone: (title: String, card: String, body: String) -> Unit,
     onFail: () -> Unit,
     onStage: (Int) -> Unit = {},   // ১ = Gemini, ২ = ChatGPT (প্যানেলে শুধু নম্বর দেখায়, নাম নয়)
 ) {
@@ -414,8 +426,8 @@ fun GuestHiddenRunner(
                     val text = cleanTail(raw)
                     if (text.isBlank() || !hasBangla(text) || (!ok && text.length < 400)) handleFail()   // সময় শেষে অল্প লেখা এলে গ্রহণ করি না
                     else {
-                        val (t, b) = parseNews(text)
-                        if (t.isBlank() || b.isBlank()) handleFail() else { st.running = false; cbDone(t, b) }
+                        val (t, c, b) = parseNews3(text)
+                        if (t.isBlank() || b.isBlank()) handleFail() else { st.running = false; cbDone(t, c, b) }
                     }
                 }
             },

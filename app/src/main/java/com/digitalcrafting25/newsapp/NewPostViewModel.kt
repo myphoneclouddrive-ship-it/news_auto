@@ -478,10 +478,10 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
         procLines = guestLiveLines(raw)
     }
 
-    fun guestDone(t: String, b: String) {
+    fun guestDone(t: String, c: String, b: String) {
         guestJob = null
         procPct = 100f
-        applyGuest(t, b)
+        applyGuest(t, c, b)
     }
 
     /** গেস্টের সব সাইট ব্যর্থ → আগের মতো API দিয়ে লেখা */
@@ -498,7 +498,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** গেস্ট AI-র লেখা বসানো; আগের পেইড লেখার মতোই টাকা কাটে (/rewrite-confirm, সফল বসার পর); এরপর ২ নম্বর ধাপে এডিট */
-    fun applyGuest(t: String, b: String) {
+    fun applyGuest(t: String, c: String, b: String) {
         startBusy("⏳ লেখা বসানো হচ্ছে...")
         viewModelScope.launch {
             try {
@@ -507,7 +507,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
                 guestTok = null
                 lastInput = src.trim(); lastNotes = notes.trim()
                 title = t.trim(); body = TextFieldValue(b.trim()); undo.clear()
-                cardTitle = title
+                cardTitle = c.trim().ifBlank { title }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
                 aiPrompt = ""; promptEdited = false
                 step = 2; saveDraft()
                 settle(tok)
