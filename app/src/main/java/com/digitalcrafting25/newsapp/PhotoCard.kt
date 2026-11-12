@@ -56,6 +56,9 @@ fun cardTpls(mode: String) = when (mode) {
     else -> TplRegistry.photoTpls()
 }
 
+/** ফোটোকার্ড মেনুর (🖼️ ট্যাব) সারি — ফটোকার্ডে ডাউনলোড করা শেয়ার্ডও থাকে; বাকি মোডে cardTpls-এর মতোই */
+fun menuTpls(mode: String) = if (mode == "photo") TplRegistry.menuTpls() else cardTpls(mode)
+
 /** ওয়েবের TPL.draw-এর হুবহু হিসাব (১০৮০×১৩৫০). scale দিলে ছোট থাম্বনেইল হয় */
 object CardRender {
     const val W = 1080
@@ -175,7 +178,7 @@ private class CardPainter(val c: Canvas, val d: CardData) {
     private var curId = ""
     /** ওয়েবের tcolors(): সেটিংসের টেমপ্লেট-মোডালে বদলানো রঙ (tpls[id].c[key]); না থাকলে আসল ডিফল্ট */
     private fun tc(k: String, d: String): String {
-        val ts = ov?.ts ?: TplRegistry.store.tpls.optJSONObject(curId)
+        val ts = ov?.ts ?: TplRegistry.tsOf(curId)
         val v = ts?.optJSONObject("c")?.optString(k).orEmpty()
         return if (Regex("^#[0-9a-fA-F]{6}$").matches(v)) v else d
     }
@@ -427,7 +430,7 @@ private class CardPainter(val c: Canvas, val d: CardData) {
 
     /** ওয়েবের logoSlot(force, shape): এলিমেন্টে বেছে নেওয়া লোগো ধরন, আর টেমপ্লেটের লোগো মোড/সাইজ (tpls[id]) */
     private fun logoEl(id: String, x: Float, y: Float, w: Float, h: Float, align: Char, force: String, shape: String, lt: Int) {
-        val ts = ov?.ts ?: TplRegistry.store.tpls.optJSONObject(id)
+        val ts = ov?.ts ?: TplRegistry.tsOf(id)
         val m = ts?.optString("mode", "auto")?.ifBlank { "auto" } ?: "auto"
         val hasWide = d.logo != null; val hasIcon = d.icon != null
         val pref = if (id == "white") listOf("icon", "wide") else listOf("wide", "icon")

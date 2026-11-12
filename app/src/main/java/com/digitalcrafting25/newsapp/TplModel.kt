@@ -34,12 +34,18 @@ object TplRegistry {
     /** এডিট করা/কাস্টম লেআউট থাকলে সেটা, নইলে null (তখন আগের ডিফল্ট আঁকা হয়) */
     fun layout(id: String): JSONObject? {
         val st = store
-        val o = if (isDef(id)) st.dtpl.optJSONObject(id) else if (customRe.matches(id)) st.customs.optJSONObject(id) else null
+        val o = if (isDef(id)) st.dtpl.optJSONObject(id) else if (customRe.matches(id)) st.customs.optJSONObject(id)
+        else if (SharedTpls.isShared(id)) SharedTpls.layout(id) else null   // sh_… = ডাউনলোড করা শেয়ার্ড টেমপ্লেট (ফোনের filesDir/shtpl)
         return o?.takeIf { it.optJSONArray("els") != null }
     }
 
+    /** টেমপ্লেটের লোগো-মোড/সাইজ/রঙ (ts): ডিফল্ট ও কাস্টমের জন্য cfg.tpls[id]; শেয়ার্ডের জন্য লেআউটের ভেতরের "ts" */
+    fun tsOf(id: String): JSONObject? =
+        if (SharedTpls.isShared(id)) SharedTpls.layout(id)?.optJSONObject("ts") else store.tpls.optJSONObject(id)
+
     fun sizeOf(id: String, ov: TplOv? = null): Pair<Int, Int>? {
-        val s = ov?.s ?: layout(id) ?: return null
+        val s = ov?.s ?: (if (SharedTpls.isShared(id)) null else layout(id))
+        if (s == null) return if (SharedTpls.isShared(id)) SharedTpls.sizeOf(id) else null   // শেয়ার্ড: ছোট তালিকা থেকে মাপ — মূল থ্রেডে বড় ফাইল পড়তে হয় না
         return s.optInt("w", 1080).coerceAtLeast(1) to s.optInt("h", 1350).coerceAtLeast(1)
     }
 
@@ -68,6 +74,11 @@ object TplRegistry {
 
     fun isKnownPhotoTpl(id: String) = CARD_TPLS.any { it.first == id } || id in customIds()
 
+    /** ফোটোকার্ড মেনুর সারি: ৫টা ডিফল্ট + ইউজারের নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড (সেটিংস/নতুন পোস্টের তালিকা আগের মতোই, তাতে শেয়ার্ড নেই) */
+    fun menuTpls(): List<Pair<String, String>> = photoTpls() + SharedTpls.list().map { it.id to it.name }
+
+    fun isKnownMenuTpl(id: String) = isKnownPhotoTpl(id) || SharedTpls.has(id)
+
     /** ওয়েবের cbCanAdd: ফোটোকার্ডে ১টা কাস্টম ফ্রি, তারপর কেনা বাড়তি স্লট */
     fun canAddCustom(): Boolean = customIds().isEmpty() || customIds().size - 1 < store.extraSlots
 
@@ -90,7 +101,7 @@ object TplRegistry {
         return b
     }
 
-    fun reset() { store = TplStore() }
+    fun reset() { store = TplStore(); SharedTpls.clearMem() }
 }
 
 /** ওয়েবের TPL[id].colors: ডিফল্ট ফোটোকার্ড টেমপ্লেটের রঙের তালিকা (key, লেবেল, ডিফল্ট) — সেটিংসের টেমপ্লেট-মোডালে দেখায় */

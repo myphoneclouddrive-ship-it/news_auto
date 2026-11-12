@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +35,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,7 +90,13 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
 
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     // লেখা / টেমপ্লেট / ছবি / সাইটের তথ্য বদলালেই প্রিভিউ নতুন করে আঁকা হয়
-    LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.rashi, vm.mnSite, vm.mnVer, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }
+    LaunchedEffect(vm.title, vm.category, vm.tag, vm.cta, vm.mode, vm.name, vm.role, vm.rashi, vm.mnSite, vm.mnVer, vm.tplId, vm.photoVer, vm.fx, vm.fy, vm.useAd, vm.nextAdId) { vm.refresh() }   // শুধু বড় প্রিভিউ
+    // মেনুর থাম্বনেইল: মোড বদলালে বা হিসাব বদলালে (থাম্বনেইল-epoch) তবেই; লেখা/ছবি বদলালে নয়। যেগুলো আছে সেগুলো আবার আঁকা হয় না
+    LaunchedEffect(vm.mode, vm.thumbEpoch, vm.loaded) { vm.ensureThumbs() }
+    val storeVm: TemplateStoreViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    var storeOpen by remember { mutableStateOf(false) }
+    var sharedDel by remember { mutableStateOf<String?>(null) }
+    var sharedEdit by remember { mutableStateOf<String?>(null) }
 
     var geminiHand by remember { mutableStateOf(false) }   // Gemini-তে পাঠানো হয়েছে — আপলোডের বাটন দেখাবে
     var geminiPick by remember { mutableStateOf(false) }   // এই বাছাইটা Gemini-র ছবির জন্য
@@ -247,12 +256,15 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             // ── টেমপ্লেট ──
             FieldLabel("ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
             val canEdit = vm.mode == CAT_PHOTO && vm.tplReady
-            Row(
-                Modifier.fillMaxWidth().padding(top = 0.dp).alpha(if (locked) 0.6f else 1f).horizontalScroll(rememberScrollState()),
+            val tpls = menuTpls(vm.mode)   // ৫ ডিফল্ট + নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড
+            // LazyRow: ১০০টা ডাউনলোড করা থাকলেও শুধু স্ক্রিনে দেখা ঘরগুলোই আঁকা হয়
+            LazyRow(
+                Modifier.fillMaxWidth().padding(top = 0.dp).alpha(if (locked) 0.6f else 1f),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                cardTpls(vm.mode).forEach { (id, name) ->
+                items(tpls, key = { it.first }) { (id, name) ->
                     val on = vm.tplId == id
+                    val shared = SharedTpls.isShared(id)
                     Column(Modifier.width(120.dp)) {
                         Box(
                             Modifier.fillMaxWidth().aspectRatio(CardRender.aspect(id)).clip(RoundedCornerShape(8.dp))
@@ -263,31 +275,54 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                             vm.thumbs[id]?.let { Image(it.asImageBitmap(), contentDescription = name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                         }
                         HSmall(name + if (on) " ✔" else "", Modifier.fillMaxWidth().padding(top = 2.dp), color = Color(0xFF555555), center = true)
-                        if (vm.mode == CAT_PHOTO) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            HBtn("✏️ এডিট", Modifier.weight(1f), color = C.Gray, padH = 4.dp, padV = 4.dp, size = 12.sp, enabled = canEdit && !locked) { tplEdit = id }
-                            if (TplRegistry.isDef(id) && TplRegistry.store.dtpl.has(id)) HBtn("↺", color = C.Gray, padH = 10.dp, padV = 4.dp, size = 12.sp, enabled = canEdit && !locked) { tplReset = id }
+                        if (vm.mode == CAT_PHOTO) {
+                            if (shared) {
+                                // ডাউনলোড করা শেয়ার্ড: এডিট শুধু ফোনের কপিতে বদলায় (সার্ভারেরটা নয়); সরালে ফোন থেকে যায়, স্টোর থেকে আবার নেওয়া যায়
+                                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    HBtn("✏️ এডিট", Modifier.weight(1f), color = C.Gray, padH = 4.dp, padV = 4.dp, size = 12.sp, enabled = canEdit && !locked) { sharedEdit = id }
+                                    HBtn("🗑 সরান", Modifier.weight(1f), color = C.Gray, padH = 4.dp, padV = 4.dp, size = 12.sp, enabled = !locked) { sharedDel = id }
+                                }
+                            } else Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                HBtn("✏️ এডিট", Modifier.weight(1f), color = C.Gray, padH = 4.dp, padV = 4.dp, size = 12.sp, enabled = canEdit && !locked) { tplEdit = id }
+                                if (TplRegistry.isDef(id) && TplRegistry.store.dtpl.has(id)) HBtn("↺", color = C.Gray, padH = 10.dp, padV = 4.dp, size = 12.sp, enabled = canEdit && !locked) { tplReset = id }
+                            }
                         }
                     }
                 }
                 if (vm.mode == CAT_PHOTO) {
-                    val free = TplRegistry.canAddCustom()
-                    Column(
-                        Modifier.width(120.dp).aspectRatio(4f / 5f).clip(RoundedCornerShape(8.dp)).background(Color.White)
-                            .drawBehind {
-                                drawRoundRect(TplBorder, cornerRadius = CornerRadius(8.dp.toPx()), style = Stroke(width = 3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 9f))))
+                    item(key = "__add__") {
+                        val free = TplRegistry.canAddCustom()
+                        Column(
+                            Modifier.width(120.dp).aspectRatio(4f / 5f).clip(RoundedCornerShape(8.dp)).background(Color.White)
+                                .drawBehind {
+                                    drawRoundRect(TplBorder, cornerRadius = CornerRadius(8.dp.toPx()), style = Stroke(width = 3.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 9f))))
+                                }
+                                .clickable(enabled = canEdit && !locked) {
+                                    if (free) tplEdit = TplRegistry.nextCustomId()
+                                    else vm.fcOut = "⚠️ আরেকটা কাস্টম টেমপ্লেটের জন্য ${Bn.num(Rates.get("cb"))} টাকা লাগে। ওয়েব অ্যাপ থেকে ব্যালেন্স দিয়ে কিনুন, তারপর এখানে ➕ চাপুন।"
+                                }.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text("➕", fontSize = 34.sp, color = C.Red, lineHeight = 36.sp)
+                            if (free) Text("কাস্টম টেমপ্লেট\nনিজে বানান", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
+                            else {
+                                Text("আরেকটা কাস্টম টেমপ্লেট", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
+                                Text(Bn.num(Rates.get("cb")) + " টাকা", fontSize = 14.sp, color = C.Red, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("ব্যালেন্স থেকে কিনুন", fontSize = 11.sp, color = C.Red, textAlign = TextAlign.Center)
                             }
-                            .clickable(enabled = canEdit && !locked) {
-                                if (free) tplEdit = TplRegistry.nextCustomId()
-                                else vm.fcOut = "⚠️ আরেকটা কাস্টম টেমপ্লেটের জন্য ${Bn.num(Rates.get("cb"))} টাকা লাগে। ওয়েব অ্যাপ থেকে ব্যালেন্স দিয়ে কিনুন, তারপর এখানে ➕ চাপুন।"
-                            }.padding(6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text("➕", fontSize = 34.sp, color = C.Red, lineHeight = 36.sp)
-                        if (free) Text("কাস্টম টেমপ্লেট\nনিজে বানান", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
-                        else {
-                            Text("আরেকটা কাস্টম টেমপ্লেট", fontSize = 14.sp, color = C.Red, textAlign = TextAlign.Center)
-                            Text(Bn.num(Rates.get("cb")) + " টাকা", fontSize = 14.sp, color = C.Red, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                            Text("ব্যালেন্স থেকে কিনুন", fontSize = 11.sp, color = C.Red, textAlign = TextAlign.Center)
+                        }
+                    }
+                    // 🛍️ টেমপ্লেট স্টোর: অ্যাডমিনের দেওয়া টেমপ্লেট দেখা/ডাউনলোড (কাস্টম স্লট খরচ হয় না)
+                    item(key = "__store__") {
+                        Column(
+                            Modifier.width(120.dp).aspectRatio(4f / 5f).clip(RoundedCornerShape(8.dp)).background(Color(0xFFEEF4FF))
+                                .border(3.dp, PillBlue, RoundedCornerShape(8.dp))
+                                .clickable(enabled = !locked) { storeOpen = true }.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text("🛍️", fontSize = 34.sp, lineHeight = 36.sp)
+                            Text("টেমপ্লেট স্টোর", fontSize = 14.sp, color = PillBlue, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            Text("আরও টেমপ্লেট নিন (ফ্রি)", fontSize = 11.sp, color = PillBlue, textAlign = TextAlign.Center)
                         }
                     }
                 }
@@ -420,6 +455,26 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
         }
         tplEdit?.let { id ->
             TplEditorDialog(np, id) { tplEdit = null; vm.tplChanged(np.tplId) }
+        }
+        if (storeOpen) Dialog(onDismissRequest = { storeOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxSize(), color = C.Bg) {
+                TemplateStoreScreen(storeVm, admin = false, onClose = { storeOpen = false }, onChanged = { vm.sharedChanged() })
+            }
+        }
+        sharedEdit?.let { id ->
+            val init = remember(id) { SharedTpls.layout(id)?.let { org.json.JSONObject(it.toString()) } }
+            if (init != null) TplEditorDialog(
+                np, id, init, "✏️ ডাউনলোড করা টেমপ্লেট এডিট — " + (SharedTpls.nameOf(id) ?: id), "✔ ফোনের কপিতে সেভ করুন",
+                { _, layout, ts, done -> vm.saveSharedLocal(id, layout, ts, done) },
+            ) { sharedEdit = null }
+        }
+        sharedDel?.let { id ->
+            AlertDialog(
+                onDismissRequest = { sharedDel = null },
+                text = { Text("\"" + (SharedTpls.nameOf(id) ?: id) + "\" টেমপ্লেটটা ফোন থেকে সরাবেন? (স্টোর থেকে আবার ডাউনলোড করতে পারবেন।)") },
+                confirmButton = { TextButton(onClick = { sharedDel = null; vm.removeShared(id) }) { Text("ঠিক আছে") } },
+                dismissButton = { TextButton(onClick = { sharedDel = null }) { Text("বাতিল") } },
+            )
         }
         tplReset?.let { id ->
             AlertDialog(

@@ -136,7 +136,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         mnTime = "06:30"; mnOn = false; mnAd = "auto"; mnSite = ""; mnBalance = null; mnBusy = false; mnMsg = null; mnChoices = emptyList()
         mnBgs = emptyMap(); weather = null; mnOwner = false; mnLoaded = false; mnVer++
         ads = emptyList(); adLast = ""; adBmp = null; nextAdId = ""; nextAdLabel = ""; savedSig = ""
-        photo = null; hasPhoto = false; preview = null; thumbs = emptyMap(); savedUri = null
+        photo = null; hasPhoto = false; preview = null; thumbs = emptyMap(); thumbCache.clear(); thumbBuilt = -1; thumbSig = ""; thumbJob?.cancel(); thumbEpoch++; savedUri = null; SharedTpls.clearMem()
         link = ""; balance = null; fcBusy = false; fcOut = null; aiMsg = ""; aiPrompt = ""; aiBusy = false; ocrMsg = ""; ocrText = ""; ocrBusy = false
         used = false; paid = false; sid = PostUtil.newSid(); picked = emptyList(); collVertical = false
         cfg = CardCfg(); logoBmp = null; iconBmp = null
@@ -148,6 +148,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         busy = true
         viewModelScope.launch {
             try {
+                withContext(Dispatchers.IO) { SharedTpls.init(app) }   // ডাউনলোড করা শেয়ার্ড টেমপ্লেট (ফোনের ফাইল) — নেট না থাকলেও মেনুতে থাকে
                 val c = Fs.cardCfg(app)
                 cfg = c
                 withContext(Dispatchers.Default) {
@@ -158,13 +159,14 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 runCatching { Fs.adsCfg(app) }.getOrNull()?.let { (list, last) -> ads = list; adLast = last }
                 // কাস্টম/এডিট করা টেমপ্লেট (ওয়েবের cfg.customs/dtpl): ফোটোকার্ড মেনুতেও দেখায়
                 runCatching { Fs.tplCfg(app) }.getOrNull()?.let { st -> st.extraSlots = TplRegistry.store.extraSlots; TplRegistry.store = st; tplReady = true }
-                if (mode == "photo" && !TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
+                if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
                 rebuildAd()
                 if (!ctaTouched) cta = if (sp.contains("fcCta")) sp.getString("fcCta", "").orEmpty() else FC_CTA_DEFAULT
                 if (!catTouched) category = if (sp.contains("fcCat")) sp.getString("fcCat", "").orEmpty() else c.category
                 if (!tagTouched) tag = c.photoTag
                 if (mnSite.isBlank()) mnSite = c.siteName
                 refreshMnChoices()
+                bumpThumbsIfChanged()   // স্ক্রিনে ঢুকলেই load() চলে; তাই লোগো/সাইটের তথ্য/টেমপ্লেট সত্যিই বদলালে তবেই থাম্বনেইল নতুন করে হয়
                 loaded = true; loadError = null
                 photoVer++
                 loadMorning()
@@ -181,14 +183,14 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (mnBgs.isEmpty()) {
                 val b = withContext(Dispatchers.IO) { MnCal.loadBgs(app) }
-                if (b.isNotEmpty()) { mnBgs = b; mnVer++ }
+                if (b.isNotEmpty()) { mnBgs = b; mnVer++; thumbEpoch++ }
             }
         }
         viewModelScope.launch {
             val today = MnCal.iso(MnCal.today())
             if (weather?.day != today) {
                 val w = withContext(Dispatchers.IO) { MnCal.fetchWeather() }
-                if (w != null) { weather = w; mnVer++ }
+                if (w != null) { weather = w; mnVer++; thumbEpoch++ }
             }
         }
         viewModelScope.launch {
@@ -295,7 +297,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** ফটোকার্ড ↔ বক্তব্য কার্ড; ছবির অবস্থান আর টেমপ্লেট ঐ ধরনের প্রথমটায় ফেরে */
     fun switchMode(m: String) {
         if (m == mode) return
-        mode = m; tplId = cardTpls(m).first().first; fx = 0.5f; fy = 0.5f
+        mode = m; tplId = menuTpls(m).first().first; fx = 0.5f; fy = 0.5f
     }
 
     fun clearPhoto() { collItems = emptyList(); fileMsg = FC_FILE_HINT; photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++ }
@@ -401,16 +403,90 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         return b
     }
 
-    /** প্রিভিউ ও থাম্বনেইল নতুন করে আঁকে (টাইপ করার সময় বারবার না আঁকতে সামান্য অপেক্ষা) */
+    /** শুধু বাছা টেমপ্লেটের বড় প্রিভিউ আঁকে (টাইপ করার সময় বারবার না আঁকতে সামান্য অপেক্ষা)। থাম্বনেইল এখানে আঁকা হয় না — ensureThumbs() একবারই বানায় */
     fun refresh() {
         job?.cancel()
         job = viewModelScope.launch {
             delay(60)
-            val d = data(); val id = tplId; val ad = adNow(); val list = cardTpls(mode)
-            val (pv, th) = withContext(Dispatchers.Default) {
-                wm(CardRender.render(id, d, 1f, ad)) to list.associate { it.first to wm(CardRender.render(it.first, d, 0.25f, ad)) }
+            val d = data(); val id = tplId; val ad = adNow()
+            preview = withContext(Dispatchers.Default) { wm(CardRender.render(id, d, 1f, ad)) }
+        }
+    }
+
+    // ───────── মেনুর থাম্বনেইল: একবার বানিয়ে ক্যাশে, লেখা/ছবি বদলালে আবার আঁকা হয় না ─────────
+    /** থাম্বনেইলের হিসাব বদলালে বাড়ে (সাইটের লোগো/তথ্য, নিজের টেমপ্লেট এডিট, শেয়ার্ড যোগ/বাদ, শুভ সকালের ইলাস্ট্রেশন/আবহাওয়া)। লেখা/ছবি/টেমপ্লেট বাছলে বাড়ে না */
+    var thumbEpoch by mutableIntStateOf(0)
+        private set
+    private val thumbCache = HashMap<String, Bitmap>()
+    private var thumbBuilt = -1
+    private var thumbJob: Job? = null
+    private var thumbSig = ""
+
+    private suspend fun bumpThumbsIfChanged() {
+        val c = cfg; val st = TplRegistry.store
+        val sig = withContext(Dispatchers.Default) {
+            listOf(c.logo.hashCode(), c.icon.hashCode(), c.siteName, c.siteUrl, c.category, c.photoTag, c.iconShape,
+                st.customs.toString().hashCode(), st.dtpl.toString().hashCode(), st.tpls.toString().hashCode()).joinToString("|")
+        }
+        if (sig != thumbSig) { thumbSig = sig; thumbEpoch++ }
+    }
+
+    /** থাম্বনেইলে নমুনা ছবি ও নমুনা লেখা — তাই ইউজারের লেখা/ছবি বদলালে থাম্বনেইল বদলায় না */
+    private fun thumbData() = CardData(
+        photo = placeholder,
+        head = if (mode == "quote") "এখানে বক্তব্য দেখাবে" else "এখানে খবরের শিরোনাম দেখাবে",
+        cat = PostUtil.catParts(cfg.category).firstOrNull() ?: "",
+        date = bnDate(), url = cfg.siteUrl, tag = cfg.photoTag.trim(), cta = FC_CTA_DEFAULT,
+        siteName = if (mode == "morning") mnSite.trim().ifBlank { cfg.siteName } else cfg.siteName,
+        logo = logoBmp, icon = iconBmp, iconRound = cfg.iconShape != "square",
+        fx = 0.5f, fy = 0.5f,
+        name = if (mode == "quote") "বক্তার নাম" else "", role = if (mode == "quote") "পদবি" else "",
+        rashi = "", mnBgs = mnBgs, wx = weather,
+    )
+
+    /** এই মোডের মেনুর যেগুলোর থাম্বনেইল এখনো নেই শুধু সেগুলো আঁকে (একটা একটা করে, ব্যাকগ্রাউন্ডে); যেগুলো আছে সেগুলো ছোঁয় না */
+    fun ensureThumbs() {
+        if (!loaded) return
+        thumbJob?.cancel()
+        val epoch = thumbEpoch; val m = mode
+        thumbJob = viewModelScope.launch {
+            if (thumbBuilt != epoch) { thumbCache.clear(); thumbBuilt = epoch; thumbs = emptyMap() }
+            val d = thumbData()
+            for ((id, _) in menuTpls(m)) {
+                if (thumbCache.containsKey(id)) continue
+                thumbCache[id] = withContext(Dispatchers.Default) { wm(CardRender.render(id, d, 0.25f, null)) }
+                thumbs = HashMap(thumbCache)
             }
-            preview = pv; thumbs = th
+        }
+    }
+
+    /** টেমপ্লেট স্টোরে ডাউনলোড/সরানোর পর: মেনু নতুন করে সাজে */
+    fun sharedChanged() {
+        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
+        thumbEpoch++; photoVer++
+    }
+
+    /** ডাউনলোড করা শেয়ার্ডের এডিট: শুধু ফোনের কপি বদলায়, সার্ভারের টেমপ্লেট অক্ষত */
+    fun saveSharedLocal(id: String, layout: JSONObject, ts: JSONObject?, onDone: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val s = JSONObject(layout.toString())
+                if (ts != null && ts.length() > 0) s.put("ts", ts) else s.remove("ts")
+                val e = SharedTpls.list().firstOrNull { it.id == id }
+                withContext(Dispatchers.IO) { SharedTpls.save(app, id, e?.name ?: "টেমপ্লেট", e?.at ?: System.currentTimeMillis(), s) }
+                thumbCache.remove(id)
+                tplId = id; thumbEpoch++; photoVer++
+                onDone(null)
+            } catch (ex: Exception) { onDone(ex.message ?: "সেভ হয়নি") }
+        }
+    }
+
+    /** মেনু থেকে ডাউনলোড করা শেয়ার্ড টেমপ্লেট ফোন থেকে সরানো */
+    fun removeShared(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { SharedTpls.remove(app, id) }
+            thumbCache.remove(id)
+            sharedChanged()
         }
     }
 
@@ -441,8 +517,9 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     var tplReady by mutableStateOf(false)
         private set
     fun tplChanged(select: String?) {
-        if (select != null && mode == "photo" && TplRegistry.isKnownPhotoTpl(select)) tplId = select
-        if (mode == "photo" && !TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
+        if (select != null && mode == "photo" && TplRegistry.isKnownMenuTpl(select)) tplId = select
+        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
+        thumbEpoch++   // নিজের টেমপ্লেট এডিট/মোছা হয়েছে — থাম্বনেইল আবার (একবার) বানানো হবে
         photoVer++
     }
     private val sp by lazy { app.getSharedPreferences("photocard", Context.MODE_PRIVATE) }

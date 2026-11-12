@@ -39,7 +39,7 @@ import java.util.Locale
  * ✍️ নতুন পোস্ট (ওয়েবের p-new): ১ খবর → ২ লেখা → ৩ কার্ড → ৪ কনফার্ম → ৫ শেষ
  * সব কল ওয়েবের একই Worker এন্ডপয়েন্টে (/rewrite, /rewrite-confirm, /manual-post, /image, /fetchimg, /publish, /schedule)
  */
-class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
+class NewPostViewModel(private val app: Application) : AndroidViewModel(app), TplEditHost {
     var step by mutableIntStateOf(1)
 
     // সিডিউল করা পোস্ট এডিট: null না হলে ধাপ ২ থেকে শুরু; ক্লিয়ারের জায়গায় ডিলিট; ড্রাফট সেভ হয় না
@@ -746,7 +746,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** টেমপ্লেট এডিটরে "নিজের ছবি যোগ": ছোট করে data: লিংক (ওয়েবের cbImgFile) → (data, চওড়া/উচ্চতা অনুপাত); বেশি বড় হলে null */
-    fun tplImageData(uri: Uri): Pair<String, Float>? {
+    override fun tplImageData(uri: Uri): Pair<String, Float>? {
         val b = decodeUri(uri, 560) ?: return null
         val mime = runCatching { app.contentResolver.getType(uri) }.getOrNull().orEmpty()
         val png = Regex("png|webp|gif").containsMatchIn(mime)
@@ -758,7 +758,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** এডিটরের প্রিভিউয়ের জন্য: এখনকার শিরোনাম/ছবিসহ কার্ডের ডেটা */
-    fun editorCardData(): CardData = cardData()
+    override fun editorCardData(): CardData = cardData()
 
     // ───────── সেটিংসের "🖼️ ফোটোকার্ড টেমপ্লেট" কার্ড (ওয়েবের renderTplGrid / openTpl / cbBuy) ─────────
     /** গ্রিড/মোডালের বদল ধরা আছে কিন্তু সেভ হয়নি (ওয়েবে cfg বদলায়, সেভ হয় সেটিংসের নিচের বাটনে) */

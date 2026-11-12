@@ -181,23 +181,43 @@ private class EdState(init: JSONObject, ts0: JSONObject?) {
     }
 }
 
+/** এডিটরের যা যা লাগে: প্রিভিউয়ের নমুনা কার্ড-ডেটা আর "নিজের ছবি যোগ"-এর ছোট করা ছবি। NewPostViewModel ও অ্যাডমিনের টেমপ্লেট-স্টোর দুটোই দেয় */
+interface TplEditHost {
+    fun editorCardData(): CardData
+    fun tplImageData(uri: Uri): Pair<String, Float>?
+}
+
+typealias TplSaveFn = (id: String, layout: JSONObject, ts: JSONObject?, done: (String?) -> Unit) -> Unit
+
+/** ইউজারের নিজের (ডিফল্ট/কাস্টম) টেমপ্লেট এডিট — সেভ হয় Firestore-এর cfg-তে (আগের মতোই) */
 @Composable
 fun TplEditorDialog(vm: NewPostViewModel, tplId: String, onClose: () -> Unit) {
+    TplEditorDialog(vm, tplId, null, null, null, { id, l, ts, done -> vm.saveTpl(id, l, ts, done) }, onClose)
+}
+
+/**
+ * সাধারণ রূপ। initial = এডিট করার লেআউট S (ভেতরে "ts" থাকতে পারে) — দিলে সেটাই খোলে (শেয়ার্ড টেমপ্লেটের জন্য);
+ * title/saveLabel দিলে ওপরের লেখা ও সেভ বাটনের লেখা বদলায়।
+ */
+@Composable
+fun TplEditorDialog(host: TplEditHost, tplId: String, initial: JSONObject?, title: String?, saveLabel: String?, onSave: TplSaveFn, onClose: () -> Unit) {
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
-        Surface(Modifier.fillMaxSize(), color = C.Bg) { TplEditorBody(vm, tplId, onClose) }
+        Surface(Modifier.fillMaxSize(), color = C.Bg) { TplEditorBody(host, tplId, initial, title, saveLabel, onSave, onClose) }
     }
 }
 
 @Composable
-private fun TplEditorBody(vm: NewPostViewModel, id: String, onClose: () -> Unit) {
+private fun TplEditorBody(vm: TplEditHost, id: String, initial: JSONObject?, titleText: String?, saveLabel: String?, onSave: TplSaveFn, onClose: () -> Unit) {
     val isDef = TplRegistry.isDef(id)
+    val shared = initial != null || SharedTpls.isShared(id)   // শেয়ার্ড: ts (লোগো-মোড/রঙ) লেআউটের ভেতরেই থাকে, cfg.tpls-এ নয়
     val st = remember(id) {
-        val base = TplRegistry.layout(id)?.let { cp(it) } ?: if (isDef) TplDefaults.defStarter(id) else TplDefaults.starter("dark")
+        val base = (if (initial != null) cp(initial).also { it.remove("ts") } else TplRegistry.layout(id)?.let { cp(it) }) ?: if (isDef) TplDefaults.defStarter(id) else TplDefaults.starter("dark")
         base.elsArr()
-        EdState(base, TplRegistry.store.tpls.optJSONObject(id)?.let { cp(it) })
+        val ts0 = if (shared) initial?.optJSONObject("ts")?.let { cp(it) } else TplRegistry.store.tpls.optJSONObject(id)?.let { cp(it) }
+        EdState(base, ts0)
     }
     val scope = rememberCoroutineScope()
     var preview by remember { mutableStateOf<Bitmap?>(null) }
@@ -243,7 +263,7 @@ private fun TplEditorBody(vm: NewPostViewModel, id: String, onClose: () -> Unit)
 
     Column(Modifier.fillMaxSize()) {
         Text(
-            if (isDef) "✏️ ডিফল্ট টেমপ্লেট এডিট করুন — " + (CARD_TPLS.firstOrNull { it.first == id }?.second ?: id) else "✏️ কাস্টম টেমপ্লেট এডিট করুন",
+            titleText ?: if (isDef) "✏️ ডিফল্ট টেমপ্লেট এডিট করুন — " + (CARD_TPLS.firstOrNull { it.first == id }?.second ?: id) else "✏️ কাস্টম টেমপ্লেট এডিট করুন",
             fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
         )
         // প্রিভিউ (ওপরে স্থির, নিচের অংশ স্ক্রল করে)
@@ -384,11 +404,12 @@ private fun TplEditorBody(vm: NewPostViewModel, id: String, onClose: () -> Unit)
         }
 
         Row(Modifier.fillMaxWidth().background(Color.White).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppBtn(if (saving) "⏳ সেভ হচ্ছে…" else "✔ সেভ করে বেছে নিন", Modifier.weight(1f), color = C.Green, small = true, enabled = !saving) {
+            AppBtn(if (saving) "⏳ সেভ হচ্ছে…" else (saveLabel ?: "✔ সেভ করে বেছে নিন"), Modifier.weight(1f), color = C.Green, small = true, enabled = !saving) {
                 saving = true; err = null
                 val mode = st.ts.st("mode", "auto")
-                val tsOut = if (mode.isBlank() || mode == "auto") (if (TplRegistry.store.tpls.has(id)) cp(st.ts).also { it.put("mode", "auto") } else null) else cp(st.ts)
-                vm.saveTpl(id, cp(st.S), tsOut) { e -> saving = false; if (e == null) onClose() else err = e }
+                val hadTs = if (shared) initial?.has("ts") == true else TplRegistry.store.tpls.has(id)
+                val tsOut = if (mode.isBlank() || mode == "auto") (if (hadTs) cp(st.ts).also { it.put("mode", "auto") } else null) else cp(st.ts)
+                onSave(id, cp(st.S), tsOut) { e -> saving = false; if (e == null) onClose() else err = e }
             }
             if (isDef) AppBtn("↺ ডিফল্টে ফিরুন", color = C.Gray, small = true, enabled = !saving) { confirmReset = true }
             AppBtn("✕ বাতিল", color = C.Gray, small = true, enabled = !saving) { if (st.changed) confirmClose = true else onClose() }
