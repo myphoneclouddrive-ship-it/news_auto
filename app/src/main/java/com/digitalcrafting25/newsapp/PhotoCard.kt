@@ -95,7 +95,16 @@ object CardRender {
     /** বিজ্ঞাপন বসানোর হিসাব (কোন সারিতে একটানা ফাঁকা পট্টি): টেমপ্লেট/শিরোনাম না বদলালে একবার হিসাব করে বারবার কাজে লাগানো যায় (ছবি টানার সময় ল্যাগ কমাতে) */
     class AdPlan(val y0: Int, val rects: List<RectF>)
 
+    /** টেমপ্লেটে নিজের ব্যানার-স্লট (adSlot) থাকলে তার উচ্চতা (px, কার্ডের নিজের মাপে); নইলে null */
+    fun adSlotH(id: String, ov: TplOv? = null): Int? {
+        val lay = ov?.s ?: TplRegistry.layout(id) ?: return null
+        if (!lay.optBoolean("adSlot")) return null
+        val w = lay.optInt("w", 1080).coerceAtLeast(1)
+        return lay.optInt("adH", (w * AD_H / AD_W.toFloat()).roundToInt()).coerceAtLeast(1)
+    }
+
     fun adPlan(id: String, d: CardData, ov: TplOv? = null): AdPlan {
+        if (adSlotH(id, ov) != null) return AdPlan(-1, emptyList())   // স্লট-টেমপ্লেটে কিছু সরে না, হিসাব লাগে না
         val H = TplRegistry.sizeOf(id, ov)?.second ?: hOf(id)
         val W = TplRegistry.sizeOf(id, ov)?.first ?: wOf(id)
         val adH = AD_H
@@ -136,6 +145,16 @@ object CardRender {
         c.scale(scale, scale)
         c.drawColor(Color.WHITE)
         if (ad == null) { CardPainter(c, d).also { it.ov = ov }.draw(id); return bmp }
+
+        // ব্যানার-স্লট টেমপ্লেট: কার্ডের মাপ বাড়ে না, কিছু ছোট/চাপাও হয় না। ফুটার-বারের ঠিক ওপরের নির্ধারিত পট্টিতে (adY) শুধু ব্যানার বসে
+        val slot = adSlotH(id, ov)
+        if (slot != null) {
+            CardPainter(c, d).also { it.ov = ov }.draw(id)
+            val lay = ov?.s ?: TplRegistry.layout(id)
+            val ay = (lay?.optInt("adY", H - slot) ?: (H - slot)).toFloat()   // ব্যানারের ওপরের y (ফুটার-বারের ঠিক ওপরে)
+            c.drawBitmap(ad, null, RectF(0f, ay, W.toFloat(), ay + slot), Paint(Paint.FILTER_BITMAP_FLAG))
+            return bmp
+        }
 
         val adH = AD_H
         val sp0 = FOOT[id] ?: H

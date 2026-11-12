@@ -55,6 +55,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,6 +78,8 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     var downloaded by mutableStateOf<Set<String>>(emptySet())
         private set
     var busyId by mutableStateOf<String?>(null)   // যে টেমপ্লেটের ডাউনলোড/মোছা/এডিট-লোড চলছে
+        private set
+    var importing by mutableStateOf(false)   // রেডিমেড টেমপ্লেটগুলো একসাথে যোগ হচ্ছে (শুধু অ্যাডমিন)
         private set
     private var nextOffset: Int? = 0
 
@@ -233,6 +236,37 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
         }
     }
 
+    /** অ্যাপের ভেতরের assets/shtpl_ready.json-এর রেডিমেড টেমপ্লেটগুলো একটা একটা করে স্টোরে যোগ (শুধু অ্যাডমিন) */
+    fun importReady() {
+        if (busyId != null || importing || loading) return
+        importing = true; msg = "⏳ রেডিমেড টেমপ্লেট যোগ হচ্ছে…"
+        viewModelScope.launch {
+            var ok = 0
+            try {
+                val arr = withContext(Dispatchers.IO) { JSONArray(app.assets.open("shtpl_ready.json").bufferedReader(Charsets.UTF_8).use { it.readText() }) }
+                prepare()
+                val d = sample ?: buildSample(CardCfg()).also { sample = it }
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val name = o.getString("name"); val s = o.getJSONObject("S")
+                    msg = "⏳ (${i + 1}/${arr.length()}) \"$name\" যোগ হচ্ছে…"
+                    val thumb = withContext(Dispatchers.Default) {
+                        val sc = 200f / s.optInt("w", 1080).coerceAtLeast(1)
+                        PostUtil.toDataUrl(CardRender.render("sh_newtpl", d, sc, null, TplOv(s, s.optJSONObject("ts") ?: JSONObject())), 72)
+                    }
+                    withContext(Dispatchers.IO) { SharedApi.save(app, null, "photo", name, s, thumb) }
+                    ok++
+                }
+                msg = "✅ $ok টি রেডিমেড টেমপ্লেট স্টোরে যোগ হয়েছে। ইউজাররা এখন দেখতে পাবে।"
+            } catch (e: Exception) {
+                msg = "❌ " + (e.message ?: "যোগ করা যায়নি") + (if (ok > 0) " ($ok টি আগেই যোগ হয়েছে)" else "")
+            } finally {
+                importing = false
+                load(refresh = true)
+            }
+        }
+    }
+
     fun adminDelete(id: String) {
         if (busyId != null) return
         busyId = id; msg = null
@@ -259,6 +293,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
     var nameAsk by remember { mutableStateOf<Triple<String?, String, JSONObject?>?>(null) }   // (id, নাম, S) — নাম জিজ্ঞেসের ডায়ালগ
     var session by remember { mutableStateOf<EditSession?>(null) }
     var delAsk by remember { mutableStateOf<SharedApi.Item?>(null) }
+    var importAsk by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.load() }
     // শেষের কাছাকাছি পৌঁছালে পরের ২০টি
@@ -279,6 +314,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
             Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
         if (admin) AppBtn("➕ নতুন শেয়ার্ড টেমপ্লেট", Modifier.padding(bottom = 8.dp), color = C.Green) { nameAsk = Triple(null, "", null) }
+        if (admin) AppBtn(if (vm.importing) "⏳ যোগ হচ্ছে…" else "📦 ১০টি রেডিমেড টেমপ্লেট যোগ করুন", Modifier.padding(bottom = 8.dp), color = C.Blue, enabled = !vm.importing && vm.busyId == null) { importAsk = true }
         vm.msg?.let { Text(it, fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Text, modifier = Modifier.padding(bottom = 8.dp)) }
 
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -355,6 +391,12 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
             { _, layout, ts, done -> vm.adminSave(ss.id, ss.name, layout, ts, done) },
         ) { session = null }
     }
+    if (importAsk) AlertDialog(
+        onDismissRequest = { importAsk = false },
+        text = { Text("অ্যাপের ভেতরের ১০টি রেডিমেড ফোটোকার্ড টেমপ্লেট স্টোরে যোগ হবে (আগে যোগ করা থাকলে আবার যোগ হবে)। চালিয়ে যাবেন?") },
+        confirmButton = { TextButton(onClick = { importAsk = false; vm.importReady() }) { Text("হ্যাঁ, যোগ করুন") } },
+        dismissButton = { TextButton(onClick = { importAsk = false }) { Text("না") } },
+    )
     delAsk?.let { it ->
         AlertDialog(
             onDismissRequest = { delAsk = null },

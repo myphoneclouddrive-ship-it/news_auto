@@ -197,7 +197,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                             if (err == null) page = Page.NEW else sched.showNotice(err)
                         }
                     })
-                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm, np, dash, ev)
+                    Page.SETTINGS -> SettingsScreen(sv, site, adsVm, uv, autoVm, np, dash, ev, card)
                 }
                 }
             }

@@ -44,6 +44,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 private val Amber = Color(0xFFB26A00)
 
@@ -103,8 +105,10 @@ internal fun CrGroup(content: @Composable ColumnScope.() -> Unit) {
  * আর একদম নিচে একটাই "💾 সেটিংস সেভ করুন"। কার্ডের ক্রম ওয়েবের মতো।
  */
 @Composable
-fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel, np: NewPostViewModel, dash: DashboardViewModel, ev: EditorViewModel) {
+fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel, uv: UpdateViewModel, auto: AutoPostViewModel, np: NewPostViewModel, dash: DashboardViewModel, ev: EditorViewModel, card: PhotoCardViewModel) {
     var open by rememberSaveable { mutableStateOf("") }
+    val storeVm: TemplateStoreViewModel = androidx.lifecycle.viewmodel.compose.viewModel()   // ফোটোকার্ড পেইজের স্টোরের সাথে একই (Activity-র ViewModel)
+    var storeOpen by remember { mutableStateOf(false) }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
     LaunchedEffect(Unit) {
@@ -135,6 +139,12 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
         ads.notice?.let { n -> NoticeBar(n) { ads.notice = null } }
 
         AccCard("🖼️ ফোটোকার্ড টেমপ্লেট", open == "tpl", { toggle("tpl") }) { TplSettingsBody(np, dash) }
+        if (!BuildConfig.IS_ADMIN) {
+            AccCard("🛍️ টেমপ্লেট স্টোর", open == "store", { toggle("store") }) {
+                Small("অ্যাডমিনের বানানো ফোটোকার্ড টেমপ্লেট দেখুন ও ফ্রি ডাউনলোড করুন। ডাউনলোড করা টেমপ্লেট ফোটোকার্ড মেনুতে পাবেন, অফলাইনেও চলবে, আর নিজের মতো এডিটও করা যাবে (কাস্টম স্লট খরচ হয় না)।")
+                AppBtn("🛍️ টেমপ্লেট স্টোর খুলুন", Modifier.padding(top = 8.dp), color = C.Blue) { storeOpen = true }
+            }
+        }
         AccCard("🏷️ লোগো ও সাইটের তথ্য", open == "site", { toggle("site") }) { SiteInfoBody(site) }
         AccCard("📢 বিজ্ঞাপন সেকশন", open == "ads", { toggle("ads") }) { AdsBody(ads) }
         AccCard("🖼️ ওয়ার্ডপ্রেস ফিচার ইমেজ", open == "fi", { toggle("fi") }) { FeatureImageBody(site) }
@@ -175,6 +185,12 @@ fun SettingsScreen(vm: SettingsViewModel, site: SiteViewModel, ads: AdsViewModel
             },
         )
         Spacer(Modifier.height(20.dp))
+    }
+
+    if (storeOpen) Dialog(onDismissRequest = { storeOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = C.Bg) {
+            TemplateStoreScreen(storeVm, admin = false, onClose = { storeOpen = false }, onChanged = { card.sharedChanged() })
+        }
     }
 
     ask?.let { a ->
