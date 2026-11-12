@@ -82,6 +82,24 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     var importing by mutableStateOf(false)   // রেডিমেড টেমপ্লেটগুলো একসাথে যোগ হচ্ছে (শুধু অ্যাডমিন)
         private set
     private var nextOffset: Int? = 0
+    /** রেডিমেড তালিকার কয়টা এখনো সার্ভারে নেই (০ হলে বাটন বন্ধ; null = জানা নেই) */
+    var readyLeft by mutableStateOf<Int?>(null)
+        private set
+
+    private suspend fun readyArr(): JSONArray = withContext(Dispatchers.IO) { JSONArray(app.assets.open("shtpl_ready.json").bufferedReader(Charsets.UTF_8).use { it.readText() }) }
+
+    /** সার্ভারে এখন যত ফোটোকার্ড টেমপ্লেট আছে, সবার নাম (সব পাতা ঘুরে) */
+    private suspend fun serverNames(): MutableSet<String> = withContext(Dispatchers.IO) {
+        val out = HashSet<String>(); var off: Int? = 0; var guard = 0
+        while (off != null && guard++ < 40) { val p = SharedApi.list(app, "photo", off); p.items.forEach { out.add(it.name.trim()) }; off = p.next }
+        out
+    }
+
+    fun refreshReady() {
+        viewModelScope.launch {
+            readyLeft = try { val have = serverNames(); val a = readyArr(); (0 until a.length()).count { a.getJSONObject(it).getString("name").trim() !in have } } catch (e: Exception) { null }
+        }
+    }
 
     // ── প্রিভিউ ──
     class Preview(val id: String, val name: String, val at: Long) {
@@ -239,17 +257,19 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     /** অ্যাপের ভেতরের assets/shtpl_ready.json-এর রেডিমেড টেমপ্লেটগুলো একটা একটা করে স্টোরে যোগ (শুধু অ্যাডমিন) */
     fun importReady() {
         if (busyId != null || importing || loading) return
-        importing = true; msg = "⏳ রেডিমেড টেমপ্লেট যোগ হচ্ছে…"
+        importing = true; msg = "⏳ সার্ভারে আগে কী আছে দেখা হচ্ছে…"
         viewModelScope.launch {
             var ok = 0
             try {
-                val arr = withContext(Dispatchers.IO) { JSONArray(app.assets.open("shtpl_ready.json").bufferedReader(Charsets.UTF_8).use { it.readText() }) }
+                val have = serverNames()
+                val all = readyArr()
+                val todo = (0 until all.length()).map { all.getJSONObject(it) }.filter { it.getString("name").trim() !in have }
+                if (todo.isEmpty()) { msg = "✅ সব রেডিমেড টেমপ্লেট আগেই যোগ করা আছে, আবার যোগ হবে না।"; return@launch }
                 prepare()
                 val d = sample ?: buildSample(CardCfg()).also { sample = it }
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
+                for ((i, o) in todo.withIndex()) {
                     val name = o.getString("name"); val s = o.getJSONObject("S")
-                    msg = "⏳ (${i + 1}/${arr.length()}) \"$name\" যোগ হচ্ছে…"
+                    msg = "⏳ (${i + 1}/${todo.size}) \"$name\" যোগ হচ্ছে…"
                     val thumb = withContext(Dispatchers.Default) {
                         val sc = 200f / s.optInt("w", 1080).coerceAtLeast(1)
                         PostUtil.toDataUrl(CardRender.render("sh_newtpl", d, sc, null, TplOv(s, s.optJSONObject("ts") ?: JSONObject())), 72)
@@ -257,12 +277,13 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
                     withContext(Dispatchers.IO) { SharedApi.save(app, null, "photo", name, s, thumb) }
                     ok++
                 }
-                msg = "✅ $ok টি রেডিমেড টেমপ্লেট স্টোরে যোগ হয়েছে। ইউজাররা এখন দেখতে পাবে।"
+                msg = "✅ $ok টি নতুন রেডিমেড টেমপ্লেট যোগ হয়েছে (যেগুলো আগেই ছিল সেগুলো বাদ)। ইউজাররা এখন দেখতে পাবে।"
             } catch (e: Exception) {
                 msg = "❌ " + (e.message ?: "যোগ করা যায়নি") + (if (ok > 0) " ($ok টি আগেই যোগ হয়েছে)" else "")
             } finally {
                 importing = false
                 load(refresh = true)
+                refreshReady()
             }
         }
     }
@@ -273,14 +294,14 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { SharedApi.del(app, id) }
-                items = items.filter { it.id != id }; total = (total - 1).coerceAtLeast(0)
+                items = items.filter { it.id != id }; total = (total - 1).coerceAtLeast(0); refreshReady()
                 msg = "🗑 মুছে ফেলা হয়েছে। যাদের ফোনে ডাউনলোড করা আছে তাদের কপি থাকবে।"
             } catch (e: Exception) { msg = "❌ " + (e.message ?: "মোছা যায়নি") } finally { busyId = null }
         }
     }
 
     fun reset() {
-        items = emptyList(); total = 0; loading = false; error = null; loaded = false; msg = null; busyId = null; preview = null; nextOffset = 0; sample = null
+        items = emptyList(); total = 0; loading = false; error = null; loaded = false; msg = null; busyId = null; preview = null; nextOffset = 0; sample = null; readyLeft = null
     }
 }
 
@@ -296,6 +317,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
     var importAsk by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.load() }
+    LaunchedEffect(admin) { if (admin) vm.refreshReady() }
     // শেষের কাছাকাছি পৌঁছালে পরের ২০টি
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }.collect { last ->
@@ -314,7 +336,10 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
             Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
         if (admin) AppBtn("➕ নতুন শেয়ার্ড টেমপ্লেট", Modifier.padding(bottom = 8.dp), color = C.Green) { nameAsk = Triple(null, "", null) }
-        if (admin) AppBtn(if (vm.importing) "⏳ যোগ হচ্ছে…" else "📦 ১০টি রেডিমেড টেমপ্লেট যোগ করুন", Modifier.padding(bottom = 8.dp), color = C.Blue, enabled = !vm.importing && vm.busyId == null) { importAsk = true }
+        if (admin) AppBtn(
+            if (vm.importing) "⏳ যোগ হচ্ছে…" else if (vm.readyLeft == 0) "✅ রেডিমেড টেমপ্লেট সব যোগ করা আছে" else "📦 রেডিমেড টেমপ্লেট যোগ করুন" + (vm.readyLeft?.let { " (নতুন ${Bn.num(it)}টি)" } ?: ""),
+            Modifier.padding(bottom = 8.dp), color = C.Blue, enabled = !vm.importing && vm.busyId == null && vm.readyLeft != 0,
+        ) { importAsk = true }
         vm.msg?.let { Text(it, fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Text, modifier = Modifier.padding(bottom = 8.dp)) }
 
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -393,7 +418,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
     }
     if (importAsk) AlertDialog(
         onDismissRequest = { importAsk = false },
-        text = { Text("অ্যাপের ভেতরের ১০টি রেডিমেড ফোটোকার্ড টেমপ্লেট স্টোরে যোগ হবে (আগে যোগ করা থাকলে আবার যোগ হবে)। চালিয়ে যাবেন?") },
+        text = { Text("অ্যাপের ভেতরের রেডিমেড ফোটোকার্ড টেমপ্লেটের মধ্যে যেগুলো স্টোরে এখনো নেই শুধু সেগুলো যোগ হবে। যেগুলো আগেই আছে সেগুলো আবার যোগ হবে না। চালিয়ে যাবেন?") },
         confirmButton = { TextButton(onClick = { importAsk = false; vm.importReady() }) { Text("হ্যাঁ, যোগ করুন") } },
         dismissButton = { TextButton(onClick = { importAsk = false }) { Text("না") } },
     )
