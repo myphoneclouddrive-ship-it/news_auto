@@ -256,7 +256,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             // ── টেমপ্লেট ──
             FieldLabel("ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
             val canEdit = vm.mode == CAT_PHOTO && vm.tplReady
-            val tpls = menuTpls(vm.mode)   // ৫ ডিফল্ট + নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড
+            val tpls = menuTpls(vm.mode)   // নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড (ডিফল্ট ৫টা এখন স্টোরে)
             // LazyRow: ১০০টা ডাউনলোড করা থাকলেও শুধু স্ক্রিনে দেখা ঘরগুলোই আঁকা হয়
             LazyRow(
                 Modifier.fillMaxWidth().padding(top = 0.dp).alpha(if (locked) 0.6f else 1f),

@@ -74,10 +74,14 @@ object TplRegistry {
 
     fun isKnownPhotoTpl(id: String) = CARD_TPLS.any { it.first == id } || id in customIds()
 
-    /** ফোটোকার্ড মেনুর সারি: ৫টা ডিফল্ট + ইউজারের নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড (সেটিংস/নতুন পোস্টের তালিকা আগের মতোই, তাতে শেয়ার্ড নেই) */
-    fun menuTpls(): List<Pair<String, String>> = photoTpls() + SharedTpls.list().map { it.id to it.name }
+    /** ফোটোকার্ড মেনুর সারি: শুধু ইউজারের নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড। ৫টা ডিফল্ট এখন স্টোর থেকে নামাতে হয়।
+     *  (সেটিংস/নতুন পোস্টের তালিকা আগের মতোই photoTpls()) — দুটোই খালি থাকলে মেনু ফাঁকা না থাকতে ৫ ডিফল্ট দেখায় */
+    fun menuTpls(): List<Pair<String, String>> {
+        val mine = customIds().map { it to customName(it) } + SharedTpls.list().map { it.id to it.name }
+        return mine.ifEmpty { CARD_TPLS }
+    }
 
-    fun isKnownMenuTpl(id: String) = isKnownPhotoTpl(id) || SharedTpls.has(id)
+    fun isKnownMenuTpl(id: String) = menuTpls().any { it.first == id }
 
     /** ওয়েবের cbCanAdd: ফোটোকার্ডে ১টা কাস্টম ফ্রি, তারপর কেনা বাড়তি স্লট */
     fun canAddCustom(): Boolean = customIds().isEmpty() || customIds().size - 1 < store.extraSlots

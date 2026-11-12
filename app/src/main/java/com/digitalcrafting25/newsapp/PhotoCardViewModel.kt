@@ -132,7 +132,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         tplReady = false; sp.edit().clear().apply(); ctaTouched = false; catTouched = false; tagTouched = false; tagAi = false
         collItems = emptyList(); fileMsg = FC_FILE_HINT; fcFbUrl = null; ocrAsk = null
         loaded = false; loadError = null; busy = false; notice = null
-        title = ""; category = ""; tag = ""; cta = ""; tplId = "dark"; mode = "photo"; name = ""; role = ""; rashi = ""; fx = 0.5f; fy = 0.5f; useAd = true
+        title = ""; category = ""; tag = ""; cta = ""; tplId = menuTpls("photo").first().first; mode = "photo"; name = ""; role = ""; rashi = ""; fx = 0.5f; fy = 0.5f; useAd = true
         mnTime = "06:30"; mnOn = false; mnAd = "auto"; mnSite = ""; mnBalance = null; mnBusy = false; mnMsg = null; mnChoices = emptyList()
         mnBgs = emptyMap(); weather = null; mnOwner = false; mnLoaded = false; mnVer++
         ads = emptyList(); adLast = ""; adBmp = null; nextAdId = ""; nextAdLabel = ""; savedSig = ""
@@ -159,7 +159,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
                 runCatching { Fs.adsCfg(app) }.getOrNull()?.let { (list, last) -> ads = list; adLast = last }
                 // কাস্টম/এডিট করা টেমপ্লেট (ওয়েবের cfg.customs/dtpl): ফোটোকার্ড মেনুতেও দেখায়
                 runCatching { Fs.tplCfg(app) }.getOrNull()?.let { st -> st.extraSlots = TplRegistry.store.extraSlots; TplRegistry.store = st; tplReady = true }
-                if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
+                if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = menuTpls("photo").first().first
                 rebuildAd()
                 if (!ctaTouched) cta = if (sp.contains("fcCta")) sp.getString("fcCta", "").orEmpty() else FC_CTA_DEFAULT
                 if (!catTouched) category = if (sp.contains("fcCat")) sp.getString("fcCat", "").orEmpty() else c.category
@@ -462,7 +462,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** টেমপ্লেট স্টোরে ডাউনলোড/সরানোর পর: মেনু নতুন করে সাজে */
     fun sharedChanged() {
-        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
+        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = menuTpls("photo").first().first
         thumbEpoch++; photoVer++
     }
 
@@ -518,7 +518,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         private set
     fun tplChanged(select: String?) {
         if (select != null && mode == "photo" && TplRegistry.isKnownMenuTpl(select)) tplId = select
-        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = "dark"
+        if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = menuTpls("photo").first().first
         thumbEpoch++   // নিজের টেমপ্লেট এডিট/মোছা হয়েছে — থাম্বনেইল আবার (একবার) বানানো হবে
         photoVer++
     }
