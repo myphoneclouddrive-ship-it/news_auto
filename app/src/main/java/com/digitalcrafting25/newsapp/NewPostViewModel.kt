@@ -538,7 +538,12 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     if (img != null) {
                         refUrl = img; imgMode = "ai"
                         if (useOrig) runCatching { useReference() }.onFailure { imgMsg = "⚠️ খবরের ছবি আনা যায়নি (${it.message})" } else runCatching { loadRef() }
-                    } else imgMsg = "⚠️ লিংকের পেজে খবরের ছবি পাওয়া যায়নি, নিজে ছবি আপলোড করুন"
+                    } else {
+                        // পেজে og:image পাওয়া যায়নি: Worker পেজের <img> ও শেষে পেইড AI দিয়ে শুধু ছবিটা আনার চেষ্টা করে
+                        busyMsg = "🖼️ ছবি খোঁজা হচ্ছে (বিকল্প উপায়)..."
+                        if (paidSourceImage(lastInput)) { imgMode = "ai"; if (useOrig) runCatching { useReference() }.onFailure { imgMsg = "⚠️ খবরের ছবি আনা যায়নি (${it.message})" } }
+                        else imgMsg = "⚠️ লিংকের পেজে খবরের ছবি পাওয়া যায়নি, নিজে ছবি আপলোড করুন"
+                    }
                 }
                 step = 2; saveDraft()
                 settle(tok)
@@ -1041,16 +1046,42 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         }.getOrNull()
     }
 
+    /** ফোন থেকেই সরাসরি ছবি নামানো (ব্রাউজারের UA + রেফারার)। AVIF অ্যান্ড্রয়েড ১২+ এ খোলে; খুলতে না পারলে null */
+    private suspend fun phoneImage(url: String, referer: String): Bitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10000; conn.readTimeout = 20000; conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+            conn.setRequestProperty("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8,*/*;q=0.5")
+            if (referer.isNotBlank()) conn.setRequestProperty("Referer", referer)
+            val bytes = conn.inputStream.use { it.readBytes() }
+            if (bytes.isEmpty() || bytes.size > 12 * 1024 * 1024) null else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+
+    /** শেষ ভরসা: Worker /source-image (পেজ থেকে সব উপায়ে, না হলে পেইড AI কী দিয়ে) — শুধু ছবি আনে, লেখা নয়, টাকা কাটে না */
+    private suspend fun paidSourceImage(page: String): Boolean {
+        if (!Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(page)) return false
+        val d = runCatching { Worker.post(app, "/source-image", JSONObject().put("url", page), 120000) }.getOrNull() ?: return false
+        val b = PostUtil.fromDataUrl(d.optString("image")) ?: return false
+        refBmp = b; refUrl = d.optString("image_url").ifBlank { refUrl }
+        return true
+    }
+
+    /** ছবি আনার ক্রম: ১) Worker /fetchimg (AVIF হলে সার্ভারে JPEG করে) ২) ফোন থেকে সরাসরি ৩) /source-image (পেজ আবার খুঁজে, শেষে পেইড AI) */
     private suspend fun loadRef() {
-        if (refBmp != null || refUrl.isBlank()) return
-        val d = Worker.post(app, "/fetchimg", JSONObject().put("url", refUrl), 30000)
-        refBmp = PostUtil.fromDataUrl(d.optString("image"))
+        if (refBmp != null) return
+        if (refUrl.isNotBlank()) {
+            refBmp = runCatching { PostUtil.fromDataUrl(Worker.post(app, "/fetchimg", JSONObject().put("url", refUrl).put("referer", lastInput.takeIf { it.startsWith("http") } ?: ""), 40000).optString("image")) }.getOrNull()
+            if (refBmp == null) refBmp = phoneImage(refUrl, lastInput.takeIf { it.startsWith("http") } ?: "")
+        }
+        if (refBmp == null) paidSourceImage(lastInput)
     }
 
     /** লিংকের খবরের ছবিই সরাসরি ব্যবহার (কার্টুন নয়) */
     suspend fun useReference() {
         loadRef()
-        val b = refBmp ?: throw ApiError("খবরের ছবি নেই")
+        val b = refBmp ?: throw ApiError("খবরের ছবি আনা যায়নি, নিজে ছবি আপলোড করুন")
         setPhoto(PostUtil.shrink(b)); collItems = emptyList()
         imgMsg = "✅ লিংকের খবরের ছবিই সরাসরি যোগ হয়েছে (কার্টুন বানানো হয়নি)"
     }
