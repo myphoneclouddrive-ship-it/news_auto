@@ -526,8 +526,10 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 if (tok.isNullOrBlank() || System.currentTimeMillis() - guestTokAt > 25 * 60 * 1000L) tok = fetchGuestTok()   // টোকেন ৩০ মিনিটে মরে
                 guestTok = null
                 lastInput = src.trim(); lastNotes = notes.trim()
-                title = t.trim(); body = TextFieldValue(b.trim()); undo.clear()
-                cardTitle = c.trim().ifBlank { title }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
+                val (t1, w1) = scrubForeign(t.trim()); val (b1, w2) = scrubForeign(b.trim()); val (c1, w3) = scrubForeign(c.trim())
+                title = t1; body = TextFieldValue(b1); undo.clear()
+                cardTitle = c1.ifBlank { title }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
+                (w1 + w2 + w3).distinct().let { w -> if (w.isNotEmpty()) notice = "⚠️ AI লেখার ভেতরে বাংলা-ছাড়া (হিন্দি) অক্ষর ঢুকিয়েছিল, সেগুলো সরানো হয়েছে। এই শব্দগুলো একবার দেখে ঠিক করে নিন: " + w.joinToString(", ") }
                 aiPrompt = ""; promptEdited = false
                 refBmp = null; refUrl = ""
                 // গেস্ট AI শুধু লেখা দেয়, ছবি দেয় না — তাই লিংক হলে অ্যাপ নিজেই পেজ থেকে খবরের ছবি (og:image) খুঁজে আনে
@@ -549,6 +551,16 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 settle(tok)
             } catch (e: Exception) { fail(e) } finally { endBusy() }
         }
+    }
+
+    /** AI মাঝে মাঝে বাংলা শব্দের ভেতরে হিন্দি (দেবনাগরী) বা অন্য ভারতীয় লিপির অক্ষর ঢুকিয়ে দেয় (মডেলের টোকেন-গোলমাল)।
+     *  বাংলা (U+0980–09FF) আর বাংলা-হিন্দি যৌথ দাঁড়ি (।) বাদে U+0900–0DFF-এর অক্ষর সরানো হয়; কোন কোন শব্দে ছিল তার তালিকা ফেরত যায়, যাতে ইউজার ঠিক করে নিতে পারে */
+    private fun scrubForeign(t: String): Pair<String, List<String>> {
+        fun bad(c: Char) = c in '\u0900'..'\u0DFF' && c !in '\u0980'..'\u09FF' && c != '\u0964' && c != '\u0965'
+        if (t.none { bad(it) }) return t to emptyList()
+        val words = Regex("\\S+").findAll(t).map { it.value }.filter { w -> w.any { bad(it) } }
+            .map { w -> w.trim('।', ',', '.', '"', '“', '”', '(', ')') }.distinct().take(8).toList()
+        return t.filterNot { bad(it) } to words
     }
 
     /** "🔁 আবার লিখুন"-এর আগের পরীক্ষা (ওয়েবের s2retry); ঠিক থাকলে true, নইলে error বসে */
@@ -603,9 +615,11 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     text = PostUtil.htmlToEditable(d.getString("body_html"))
                 }
                 if (isUrl && d.optString("source_text").isNotBlank()) src = d.getString("source_text")
-                title = d.getString("title")
-                body = TextFieldValue(text); undo.clear()
-                cardTitle = d.optString("card_title").ifBlank { title }
+                val (t1, w1) = scrubForeign(d.getString("title")); val (b1, w2) = scrubForeign(text); val (c1, w3) = scrubForeign(d.optString("card_title"))
+                title = t1
+                body = TextFieldValue(b1); undo.clear()
+                cardTitle = c1.ifBlank { title }
+                (w1 + w2 + w3).distinct().let { w -> if (w.isNotEmpty()) notice = "⚠️ AI লেখার ভেতরে বাংলা-ছাড়া (হিন্দি) অক্ষর ঢুকিয়েছিল, সেগুলো সরানো হয়েছে। এই শব্দগুলো একবার দেখে ঠিক করে নিন: " + w.joinToString(", ") }
                 aiPrompt = ""; promptEdited = false
                 refBmp = null; refUrl = ""
                 val srcImg = d.optString("source_image")
