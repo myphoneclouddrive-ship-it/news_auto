@@ -341,7 +341,8 @@ private fun parseNews3(raw: String): Triple<String, String, String> {
 // ───────── নতুন পোস্টের "AI দিয়ে নতুন করে লিখুন": প্রসেসিং প্যানেলের পেছনে অদৃশ্য রানার ─────────
 
 /** একটা গেস্ট লেখার কাজ। ভিউমডেল ধরে রাখে; স্ক্রিনে থাকলে [GuestHiddenRunner] চালায় */
-class GuestJob(val id: Int, val input: String, val notes: String)
+/** title: Worker (/fetch-source) থেকে আনা মূল শিরোনাম; input তখন মূল লেখা (লিংক নয়) */
+class GuestJob(val id: Int, val input: String, val notes: String, val title: String = "")
 
 /** খবরের লেখায় অন্তত কিছু বাংলা অক্ষর থাকতেই হবে; না থাকলে সেটা সাইটের সাইন-ইন/ব্যানারের লেখা, উত্তর নয় */
 private fun hasBangla(t: String) = t.any { it in '\u0980'..'\u09FF' }
@@ -439,7 +440,7 @@ fun GuestHiddenRunner(
         val u = job.input.trim()
         val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)
         val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
-                  else if (u.length >= 100) Article("", u.take(7000)) else null
+                  else if (u.length >= 100) Article(job.title, u.take(7000)) else null
         st.prompt = buildNewsPrompt(art, if (isUrl) u else "", job.notes)
         val firstKey = SITES.keys.first()
         st.tried.clear(); st.tried.add(firstKey); st.runKey = firstKey

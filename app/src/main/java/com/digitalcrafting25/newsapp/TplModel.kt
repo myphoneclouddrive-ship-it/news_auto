@@ -74,11 +74,12 @@ object TplRegistry {
 
     fun isKnownPhotoTpl(id: String) = CARD_TPLS.any { it.first == id } || id in customIds()
 
-    /** নতুন পোস্টের ফোটোকার্ড টেমপ্লেট সারি: ডিফল্ট + নিজের কাস্টম + স্টোর থেকে ডাউনলোড করা ফটোকার্ড ও বক্তব্য কার্ড টেমপ্লেট */
+    /** নতুন পোস্টের ফোটোকার্ড টেমপ্লেট সারি: ফোটোকার্ড মেনুর মতোই শুধু ডাউনলোড করা (ও নিজের কাস্টম) টেমপ্লেট + ডাউনলোড করা বক্তব্য কার্ড (💬)।
+     *  কিছুই ডাউনলোড করা না থাকলে সারি ফাঁকা না রেখে ৫ ডিফল্ট দেখায় */
     fun newPostTpls(): List<Pair<String, String>> =
-        photoTpls() + SharedTpls.list(SharedTpls.CAT_PHOTO).map { it.id to it.name } + SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to ("💬 " + it.name) }
+        menuTpls() + SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to ("💬 " + it.name) }
 
-    fun isKnownNewPostTpl(id: String) = isKnownPhotoTpl(id) || SharedTpls.isShared(id)
+    fun isKnownNewPostTpl(id: String) = newPostTpls().any { it.first == id }
 
     /** ফোটোকার্ড মেনুর সারি: শুধু ইউজারের নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড। ৫টা ডিফল্ট এখন স্টোর থেকে নামাতে হয়।
      *  (সেটিংস/নতুন পোস্টের তালিকা আগের মতোই photoTpls()) — দুটোই খালি থাকলে মেনু ফাঁকা না থাকতে ৫ ডিফল্ট দেখায় */

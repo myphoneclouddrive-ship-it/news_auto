@@ -177,7 +177,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     if (step == 1 && title.isBlank() && TplRegistry.isKnownNewPostTpl(st.template)) tplId = st.template
                     tplVer++
                 }
-                if (!TplRegistry.isKnownNewPostTpl(tplId)) tplId = "dark"
+                if (!TplRegistry.isKnownNewPostTpl(tplId)) tplId = TplRegistry.newPostTpls().first().first
                 rebuildAd()
                 if (category.isBlank()) category = c.category
                 if (tag.isBlank()) tag = c.photoTag
@@ -437,6 +437,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
 
     private var guestTok: String? = null
     private var guestTokAt = 0L
+    private var guestImg = ""   // Worker-এর /fetch-source থেকে পাওয়া খবরের ছবির ঠিকানা
 
     private suspend fun fetchGuestTok(): String {
         val d = Worker.post(app, "/rewrite-guest", JSONObject(), 20000)
@@ -459,7 +460,22 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
         rewriting = true; procReset(); procMode = 1   // গেস্টের প্রথম ধাপ = Gemini
         viewModelScope.launch {
-            try { fetchGuestTok(); guestJob = GuestJob(++guestSeq, v, n) } catch (e: Exception) { fail(e); endBusy() }
+            try {
+                fetchGuestTok()
+                // লিংক হলে আগে Worker (/fetch-source, AI নেই, টাকা কাটে না) থেকে মূল লেখা ও ছবি আনা: লেখা গেস্ট AI-কে দেওয়া হয়, ছবি কার্ডে বসে
+                guestImg = ""
+                var input = v; var gTitle = ""
+                if (Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(v)) {
+                    busyMsg = "🔎 লিংক থেকে মূল লেখা ও ছবি আনা হচ্ছে..."
+                    runCatching { Worker.post(app, "/fetch-source", JSONObject().put("url", v), 60000) }.onSuccess { d ->
+                        val t = d.optString("text")
+                        if (t.length >= 200) { input = t; gTitle = d.optString("title") }   // লেখা না পেলে আগের মতো লিংকই যায়
+                        guestImg = d.optString("image")
+                    }
+                    busyMsg = "⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।"
+                }
+                guestJob = GuestJob(++guestSeq, input, n, gTitle)
+            } catch (e: Exception) { fail(e); endBusy() }
         }
     }
 
@@ -510,6 +526,17 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 title = t.trim(); body = TextFieldValue(b.trim()); undo.clear()
                 cardTitle = c.trim().ifBlank { title }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
                 aiPrompt = ""; promptEdited = false
+                refBmp = null; refUrl = ""
+                // গেস্ট AI শুধু লেখা দেয়, ছবি দেয় না — তাই লিংক হলে অ্যাপ নিজেই পেজ থেকে খবরের ছবি (og:image) খুঁজে আনে
+                if (Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(lastInput)) {
+                    busyMsg = "🖼️ লিংক থেকে খবরের ছবি আনা হচ্ছে..."
+                    val img = guestImg.ifBlank { null } ?: findSourceImage(lastInput)   // Worker-এর ছবি আগে; না পেলে অ্যাপ নিজে পেজ থেকে খোঁজে
+                    guestImg = ""
+                    if (img != null) {
+                        refUrl = img; imgMode = "ai"
+                        if (useOrig) runCatching { useReference() }.onFailure { imgMsg = "⚠️ খবরের ছবি আনা যায়নি (${it.message})" } else runCatching { loadRef() }
+                    } else imgMsg = "⚠️ লিংকের পেজে খবরের ছবি পাওয়া যায়নি, নিজে ছবি আপলোড করুন"
+                }
                 step = 2; saveDraft()
                 settle(tok)
             } catch (e: Exception) { fail(e) } finally { endBusy() }
@@ -977,6 +1004,40 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
     }
 
     /** লিংকের খবরের ছবি রেফারেন্স হিসেবে আনা (পাবলিশ হয় না) */
+    /** খবরের পেজ ফোন থেকেই খুলে ছবির লিংক বের করে: og:image → twitter:image → link rel=image_src। না পেলে null */
+    private suspend fun findSourceImage(pageUrl: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = java.net.URL(pageUrl).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10000; conn.readTimeout = 15000; conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+            conn.setRequestProperty("Accept-Language", "bn,en;q=0.8")
+            conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+            val html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { r ->
+                val sb = StringBuilder(); val cb = CharArray(8192)
+                while (sb.length < 500_000) { val n = r.read(cb); if (n <= 0) break; sb.append(cb, 0, n) }
+                sb.toString()
+            }
+            val base = conn.url   // রিডাইরেক্টের পরের আসল ঠিকানা
+            fun attr(tag: String, name: String) = Regex("(?:^|[\\s\"'])" + name + "\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(tag)?.groupValues?.get(1)
+            fun fix(u: String): String? {
+                val c = u.trim().replace("&amp;", "&")
+                if (c.isBlank() || c.startsWith("data:")) return null
+                return runCatching { java.net.URL(base, c).toString() }.getOrNull()
+            }
+            val metas = Regex("<meta\\s[^>]*>", RegexOption.IGNORE_CASE).findAll(html).map { it.value }.toList()
+            for (key in listOf("og:image:secure_url", "og:image", "twitter:image", "twitter:image:src")) {
+                for (m in metas) {
+                    val k = attr(m, "property") ?: attr(m, "name") ?: continue
+                    if (k.equals(key, true)) attr(m, "content")?.let { fix(it) }?.let { return@runCatching it }
+                }
+            }
+            for (m in Regex("<link\\s[^>]*>", RegexOption.IGNORE_CASE).findAll(html).map { it.value }) {
+                if (attr(m, "rel")?.equals("image_src", true) == true) attr(m, "href")?.let { fix(it) }?.let { return@runCatching it }
+            }
+            null
+        }.getOrNull()
+    }
+
     private suspend fun loadRef() {
         if (refBmp != null || refUrl.isBlank()) return
         val d = Worker.post(app, "/fetchimg", JSONObject().put("url", refUrl), 30000)
