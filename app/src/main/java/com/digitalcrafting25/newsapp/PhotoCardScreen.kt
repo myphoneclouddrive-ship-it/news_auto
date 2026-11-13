@@ -119,6 +119,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
     val morning = vm.mode == CAT_MORNING
     val quote = vm.mode == CAT_QUOTE
     val locked = vm.paid   // ওয়েবের fcPaid: টাকা কাটা হলে ফর্ম লক
+    var posLocked by remember { mutableStateOf(true) }   // ছবির পজিশন টানা: শুরুতে লক; আনলক করে ঠিক করে আবার লক করা যায় (লক থাকলে পেজ স্ক্রল স্বাভাবিক চলে)
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         H1("🖼️ ফোটোকার্ড")
@@ -168,8 +169,8 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                         Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId))
                             .clip(RoundedCornerShape(8.dp)).background(Color(0xFFDDDDDD))
                             .border(1.dp, TplBorder, RoundedCornerShape(8.dp))
-                            .pointerInput(vm.hasPhoto, vm.mode, locked, vm.tplId) {   // আঙুল টেনে ছবির অবস্থান ঠিক করা
-                                if (vm.hasPhoto && !locked) {
+                            .pointerInput(vm.hasPhoto, vm.mode, locked, posLocked, vm.tplId) {   // আঙুল টেনে ছবির অবস্থান ঠিক করা (শুধু আনলক থাকলে)
+                                if (vm.hasPhoto && !locked && !posLocked) {
                                     var ok = true
                                     detectDragGestures(onDragStart = { o ->
                                         val k = CardRender.W / size.width.toFloat()
@@ -191,7 +192,10 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                         else CircularProgressIndicator(color = C.Red)
                     }
                 }
-                if (quote && vm.hasPhoto) HSmall("👆 কার্ডের ছবির অংশের ওপর আঙুল/মাউস দিয়ে টেনে ছবির পজিশন ঠিক করুন।", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Blue, center = true)
+                if (vm.hasPhoto) Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                    HBtn(if (posLocked) "🔒 পজিশন লক আছে — আনলক করুন" else "🔓 আনলক আছে — ঠিক করে লক করুন", color = if (posLocked) C.Gray else C.Green, padH = 12.dp, padV = 8.dp, enabled = !locked) { posLocked = !posLocked }
+                }
+                if (vm.hasPhoto && !posLocked && !locked) HSmall(if (quote) "👆 কার্ডের ছবির অংশের ওপর আঙুল/মাউস দিয়ে টেনে ছবির পজিশন ঠিক করুন, তারপর 🔒 লক করুন।" else "👆 কার্ডের ওপর আঙুল টেনে ছবির পজিশন ঠিক করুন, তারপর 🔒 লক করুন।", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Blue, center = true)
                 if (quote && vm.hasPhoto && !locked) Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
                     HBtn("↔️ ছবি ফ্লিপ (ডান-বাম উল্টান)", color = Teal, padH = 12.dp, padV = 8.dp) { vm.flipPhoto() }
                 }
