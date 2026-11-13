@@ -318,6 +318,25 @@ private fun cleanTail(t: String): String {
 /** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
 private fun parseNews(raw: String): Pair<String, String> = parseNews3(raw).let { it.first to it.third }
 
+/** Gemini ওয়েব-সার্চ করলে অনুচ্ছেদের শেষে সোর্স-চিপ বসায় ("শিক্ষাবার্তা ডট কম", "CZN24", "+ 1", "Citizen Journal"); innerText-এ সেগুলো লেখার ভেতরে ঢুকে যায়।
+ *  চেনার উপায়: "+ N" লাইন সবসময় চিপ; আর আগের লাইন বাক্য-শেষ (। . ? ! ” ) হয়ে ফাঁকা লাইন ছাড়াই নামা ছোট (≤ ৪৫ অক্ষর, ≤ ৬ শব্দ), দাঁড়ি-ছাড়া, বুলেট/নম্বর-ছাড়া লাইন চিপ। */
+private fun stripCites(body: String): String {
+    val enders = "।.?!”\"’)"
+    val plus = Regex("^\\+\\s*[0-9\u09E6-\u09EF]+$")
+    val out = ArrayList<String>()
+    for (raw in body.lines()) {
+        val l = raw.trim()
+        if (l.isNotEmpty() && plus.matches(l)) continue
+        val prev = out.lastOrNull()
+        val chip = l.isNotEmpty() && prev != null && prev.isNotBlank() &&
+            prev.trimEnd().last() in enders && l.length <= 45 && l.split(Regex("\\s+")).size <= 6 &&
+            l.last() !in enders && !Regex("^([•\\-*]|[0-9\u09E6-\u09EF]+[.)])").containsMatchIn(l)
+        if (chip) continue
+        out.add(raw)
+    }
+    return out.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+}
+
 /** (শিরোনাম, কার্ড-শিরোনাম, বডি); কার্ড-শিরোনাম না থাকলে ফাঁকা।
  *  নতুন ফরম্যাট: "১. টাইটেল: …", "২. ফটোকার্ড টাইটেল: …", "৩. নিউজ: …" (নম্বর বাংলা/ইংরেজি, থাকতেও পারে না-ও পারে)।
  *  এই লেবেল না পেলে আগের "শিরোনাম:"/"কার্ড:" ফরম্যাট ধরা হয়। */
@@ -342,7 +361,7 @@ private fun parseNews3(raw: String): Triple<String, String, String> {
         val title = valueAt(tIdx, titleRe, if (cIdx >= 0) cIdx else ni)
         val card = if (cIdx >= 0) valueAt(cIdx, cardRe, ni) else ""
         val first = lines[ni].replace(newsRe, "")
-        val body = (listOf(first) + lines.drop(ni + 1)).joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+        val body = stripCites((listOf(first) + lines.drop(ni + 1)).joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim())
         return Triple(title, card, body)
     }
     // আগের ফরম্যাট
@@ -358,7 +377,7 @@ private fun parseNews3(raw: String): Triple<String, String, String> {
         card = rest[ci].replace(cardRe, "").trim().trim('"', '“', '”')
         rest2 = rest.drop(ci + 1)
     }
-    val body = rest2.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+    val body = stripCites(rest2.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim())
     return Triple(title, card, body)
 }
 
