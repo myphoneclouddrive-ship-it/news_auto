@@ -432,15 +432,18 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** থাম্বনেইলে নমুনা ছবি ও নমুনা লেখা — তাই ইউজারের লেখা/ছবি বদলালে থাম্বনেইল বদলায় না */
+    /** ডাউনলোড করা বক্তব্য কার্ড টেমপ্লেট এডিটরের নমুনা */
+    fun editorCardData(): CardData = thumbData()
+
     private fun thumbData() = CardData(
         photo = placeholder,
-        head = if (mode == "quote") "এখানে বক্তব্য দেখাবে" else "এখানে খবরের শিরোনাম দেখাবে",
+        head = if (mode == "quote") "আজকের গুরুত্বপূর্ণ সব খবর, এক নজরে দেখে নিন। দেশ ও মানুষের জন্য কাজ করাই আমাদের লক্ষ্য।" else "এখানে খবরের শিরোনাম দেখাবে",
         cat = PostUtil.catParts(cfg.category).firstOrNull() ?: "",
         date = bnDate(), url = cfg.siteUrl, tag = cfg.photoTag.trim(), cta = FC_CTA_DEFAULT,
         siteName = if (mode == "morning") mnSite.trim().ifBlank { cfg.siteName } else cfg.siteName,
         logo = logoBmp, icon = iconBmp, iconRound = cfg.iconShape != "square",
         fx = 0.5f, fy = 0.5f,
-        name = if (mode == "quote") "বক্তার নাম" else "", role = if (mode == "quote") "পদবি" else "",
+        name = if (mode == "quote") "ড. পাগল কবি" else "", role = if (mode == "quote") "বিশ্বখ্যাত কবি ও সাহিত্যিক" else "",
         rashi = "", mnBgs = mnBgs, wx = weather,
     )
 
@@ -463,6 +466,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** টেমপ্লেট স্টোরে ডাউনলোড/সরানোর পর: মেনু নতুন করে সাজে */
     fun sharedChanged() {
         if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = menuTpls("photo").first().first
+        if (mode == "quote" && !TplRegistry.isKnownQuoteTpl(tplId)) tplId = menuTpls("quote").first().first
         thumbEpoch++; photoVer++
     }
 

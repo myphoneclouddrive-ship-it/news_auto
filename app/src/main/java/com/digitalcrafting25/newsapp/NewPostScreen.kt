@@ -642,7 +642,7 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit, clearLabel: String,
 
     H2("🎨 ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        cardTpls("photo").forEach { (id, name) ->
+        TplRegistry.newPostTpls().forEach { (id, name) ->
             val on = vm.tplId == id
             Column(Modifier.width(96.dp).clickable { vm.tplId = id; vm.saveDraft() }, horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(

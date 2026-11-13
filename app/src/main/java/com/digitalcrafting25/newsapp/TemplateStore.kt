@@ -11,6 +11,7 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,18 +62,39 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 🛍️ টেমপ্লেট স্টোর: ২০টি করে পাতায় হালকা তালিকা (নাম + ছোট থাম্বনেইল)। প্রিভিউ/ডাউনলোডে তবেই একটা একটা করে পুরো লেআউট আসে। */
+/**
+ * 🛍️ টেমপ্লেট স্টোর: ২০টি করে পাতায় হালকা তালিকা (নাম + ছোট থাম্বনেইল)। প্রিভিউ/ডাউনলোডে তবেই একটা একটা করে পুরো লেআউট আসে।
+ * দুটো ট্যাব: 🖼️ ফটোকার্ড (cat = "photo") ও 💬 বক্তব্য কার্ড (cat = "quote") — প্রতিটার তালিকা/পেজিং আলাদা।
+ */
 class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(app), TplEditHost {
-    var items by mutableStateOf<List<SharedApi.Item>>(emptyList())
+    /** একটা ক্যাটাগরির তালিকার অবস্থা */
+    class CatState {
+        var items by mutableStateOf<List<SharedApi.Item>>(emptyList())
+        var total by mutableIntStateOf(0)
+        var loading by mutableStateOf(false)
+        var error by mutableStateOf<String?>(null)
+        var loaded by mutableStateOf(false)
+        var next: Int? = 0
+        /** রেডিমেড তালিকার কয়টা এখনো সার্ভারে নেই (০ হলে বাটন বন্ধ; null = জানা নেই) */
+        var readyLeft by mutableStateOf<Int?>(null)
+    }
+
+    private val states = mapOf(SharedTpls.CAT_PHOTO to CatState(), SharedTpls.CAT_QUOTE to CatState())
+
+    /** এখন কোন ট্যাব খোলা: "photo" | "quote" */
+    var cat by mutableStateOf(SharedTpls.CAT_PHOTO)
         private set
-    var total by mutableIntStateOf(0)
-        private set
-    var loading by mutableStateOf(false)
-        private set
-    var error by mutableStateOf<String?>(null)
-        private set
-    var loaded by mutableStateOf(false)
-        private set
+    private val cs: CatState get() = states.getValue(cat)
+
+    fun selectCat(c: String) { cat = if (c == SharedTpls.CAT_QUOTE) SharedTpls.CAT_QUOTE else SharedTpls.CAT_PHOTO }
+
+    val items: List<SharedApi.Item> get() = cs.items
+    val total: Int get() = cs.total
+    val loading: Boolean get() = cs.loading
+    val error: String? get() = cs.error
+    val loaded: Boolean get() = cs.loaded
+    val readyLeft: Int? get() = cs.readyLeft
+
     var msg by mutableStateOf<String?>(null)
     /** ফোনে ডাউনলোড করা টেমপ্লেটের আইডি (স্ক্রিন এটা দেখে বাটন বদলায়) */
     var downloaded by mutableStateOf<Set<String>>(emptySet())
@@ -81,23 +103,22 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
         private set
     var importing by mutableStateOf(false)   // রেডিমেড টেমপ্লেটগুলো একসাথে যোগ হচ্ছে (শুধু অ্যাডমিন)
         private set
-    private var nextOffset: Int? = 0
-    /** রেডিমেড তালিকার কয়টা এখনো সার্ভারে নেই (০ হলে বাটন বন্ধ; null = জানা নেই) */
-    var readyLeft by mutableStateOf<Int?>(null)
-        private set
 
-    private suspend fun readyArr(): JSONArray = withContext(Dispatchers.IO) { JSONArray(app.assets.open("shtpl_ready.json").bufferedReader(Charsets.UTF_8).use { it.readText() }) }
+    private fun readyFile(c: String) = if (c == SharedTpls.CAT_QUOTE) "shtpl_quote_ready.json" else "shtpl_ready.json"
 
-    /** সার্ভারে এখন যত ফোটোকার্ড টেমপ্লেট আছে, সবার নাম (সব পাতা ঘুরে) */
-    private suspend fun serverNames(): MutableSet<String> = withContext(Dispatchers.IO) {
+    private suspend fun readyArr(c: String): JSONArray = withContext(Dispatchers.IO) { JSONArray(app.assets.open(readyFile(c)).bufferedReader(Charsets.UTF_8).use { it.readText() }) }
+
+    /** সার্ভারে এখন এই ক্যাটাগরিতে যত টেমপ্লেট আছে, সবার নাম (সব পাতা ঘুরে) */
+    private suspend fun serverNames(c: String): MutableSet<String> = withContext(Dispatchers.IO) {
         val out = HashSet<String>(); var off: Int? = 0; var guard = 0
-        while (off != null && guard++ < 40) { val p = SharedApi.list(app, "photo", off); p.items.forEach { out.add(it.name.trim()) }; off = p.next }
+        while (off != null && guard++ < 40) { val p = SharedApi.list(app, c, off); p.items.forEach { out.add(it.name.trim()) }; off = p.next }
         out
     }
 
     fun refreshReady() {
+        val c = cat; val st = cs
         viewModelScope.launch {
-            readyLeft = try { val have = serverNames(); val a = readyArr(); (0 until a.length()).count { a.getJSONObject(it).getString("name").trim() !in have } } catch (e: Exception) { null }
+            st.readyLeft = try { val have = serverNames(c); val a = readyArr(c); (0 until a.length()).count { a.getJSONObject(it).getString("name").trim() !in have } } catch (e: Exception) { null }
         }
     }
 
@@ -110,32 +131,39 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     var preview by mutableStateOf<Preview?>(null)
         private set
 
-    // ── প্রিভিউ/এডিটরের নমুনা কার্ড (সেটিংসের লোগো, সাইটের তথ্য, আজকের তারিখ) ──
-    private var sample: CardData? = null
+    // ── প্রিভিউ/এডিটরের নমুনা কার্ড (সেটিংসের লোগো, সাইটের তথ্য, আজকের তারিখ) — ক্যাটাগরি অনুযায়ী আলাদা ──
+    private val samples = HashMap<String, CardData>()
 
     private fun placeholder(): Bitmap = Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888).also {
         val pt = Paint().apply { shader = LinearGradient(0f, 0f, 800f, 600f, android.graphics.Color.parseColor("#5b7fa6"), android.graphics.Color.parseColor("#c9a46c"), Shader.TileMode.CLAMP) }
         Canvas(it).drawRect(0f, 0f, 800f, 600f, pt)
     }
 
-    private fun buildSample(c: CardCfg): CardData = CardData(
-        photo = placeholder(),
-        head = "এখানে খবরের শিরোনাম এভাবে সাজানো দেখাবে, আপনার লোগো ও আজকের তারিখসহ",
-        cat = PostUtil.catParts(c.category).firstOrNull() ?: "",
-        date = runCatching { SimpleDateFormat("d MMMM yyyy", Locale("bn", "BD")).format(Date()) }.getOrDefault(""),
-        url = c.siteUrl, tag = c.photoTag.trim(), cta = c.ctaText.trim(), siteName = c.siteName,
-        logo = AdRender.decode(c.logo), icon = AdRender.decode(c.icon), iconRound = c.iconShape != "square",
-        fx = 0.5f, fy = 0.5f,
-    )
-
-    /** নমুনা কার্ড তৈরি (একবারই; সাইটের তথ্য না এলে ফাঁকা লোগো দিয়ে চলে) */
-    suspend fun prepare() {
-        if (sample != null) return
-        val c = runCatching { Fs.cardCfg(app) }.getOrNull() ?: CardCfg()
-        sample = withContext(Dispatchers.Default) { buildSample(c) }
+    private fun buildSample(c: CardCfg, forCat: String): CardData {
+        val quote = forCat == SharedTpls.CAT_QUOTE
+        return CardData(
+            photo = placeholder(),
+            head = if (quote) "আজকের গুরুত্বপূর্ণ সব খবর, এক নজরে দেখে নিন। দেশ ও মানুষের জন্য কাজ করাই আমাদের লক্ষ্য।" else "এখানে খবরের শিরোনাম এভাবে সাজানো দেখাবে, আপনার লোগো ও আজকের তারিখসহ",
+            cat = PostUtil.catParts(c.category).firstOrNull() ?: "",
+            date = runCatching { SimpleDateFormat("d MMMM yyyy", Locale("bn", "BD")).format(Date()) }.getOrDefault(""),
+            url = c.siteUrl, tag = c.photoTag.trim(), cta = c.ctaText.trim(), siteName = c.siteName,
+            logo = AdRender.decode(c.logo), icon = AdRender.decode(c.icon), iconRound = c.iconShape != "square",
+            fx = 0.5f, fy = 0.5f,
+            name = if (quote) "ড. পাগল কবি" else "", role = if (quote) "বিশ্বখ্যাত কবি ও সাহিত্যিক" else "",
+        )
     }
 
-    override fun editorCardData(): CardData = sample ?: buildSample(CardCfg()).also { sample = it }
+    private fun sampleFor(c: String): CardData = samples[c] ?: buildSample(CardCfg(), c).also { samples[c] = it }
+
+    /** নমুনা কার্ড তৈরি (ক্যাটাগরি পিছু একবারই; সাইটের তথ্য না এলে ফাঁকা লোগো দিয়ে চলে) */
+    suspend fun prepare() {
+        val c = cat
+        if (samples[c] != null) return
+        val cfg = runCatching { Fs.cardCfg(app) }.getOrNull() ?: CardCfg()
+        samples[c] = withContext(Dispatchers.Default) { buildSample(cfg, c) }
+    }
+
+    override fun editorCardData(): CardData = sampleFor(cat)
 
     /** এডিটরে "নিজের ছবি যোগ" (শুধু অ্যাডমিন): ছোট করে data URL; বেশি বড় হলে null */
     override fun tplImageData(uri: Uri): Pair<String, Float>? = runCatching {
@@ -156,29 +184,31 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
         data to (b.width.toFloat() / maxOf(1, b.height))
     }.getOrNull()
 
-    // ── তালিকা ও পেজিং ──
+    // ── তালিকা ও পেজিং (খোলা ট্যাবের) ──
     fun load(refresh: Boolean = false) {
         SharedTpls.init(app); downloaded = SharedTpls.list().map { it.id }.toSet()
-        if (loading || (loaded && !refresh)) return
-        fetch(0, replace = true)
+        val st = cs
+        if (st.loading || (st.loaded && !refresh)) return
+        fetch(cat, st, 0, replace = true)
     }
 
     fun loadMore() {
-        val n = nextOffset ?: return
-        if (loading) return
-        fetch(n, replace = false)
+        val st = cs
+        val n = st.next ?: return
+        if (st.loading) return
+        fetch(cat, st, n, replace = false)
     }
 
-    private fun fetch(offset: Int, replace: Boolean) {
-        loading = true; error = null
+    private fun fetch(c: String, st: CatState, offset: Int, replace: Boolean) {
+        st.loading = true; st.error = null
         viewModelScope.launch {
             try {
-                val p = withContext(Dispatchers.IO) { SharedApi.list(app, "photo", offset) }
-                items = if (replace) p.items else items + p.items.filter { n -> items.none { it.id == n.id } }
-                total = p.total; nextOffset = p.next; loaded = true
+                val p = withContext(Dispatchers.IO) { SharedApi.list(app, c, offset) }
+                st.items = if (replace) p.items else st.items + p.items.filter { n -> st.items.none { it.id == n.id } }
+                st.total = p.total; st.next = p.next; st.loaded = true
             } catch (e: Exception) {
-                error = e.message ?: "তালিকা আনা যায়নি"
-            } finally { loading = false }
+                st.error = e.message ?: "তালিকা আনা যায়নি"
+            } finally { st.loading = false }
         }
     }
 
@@ -186,13 +216,14 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     fun openPreview(item: SharedApi.Item) {
         val pv = Preview(item.id, item.name, item.at)
         preview = pv
+        val c = cat
         viewModelScope.launch {
             try {
                 prepare()
                 // ডাউনলোড করা থাকলে ফোনের কপি (সার্ভারে যেতে হয় না), নইলে সার্ভার থেকে শুধু এই একটা
                 val s = withContext(Dispatchers.IO) { SharedTpls.layout(item.id) ?: SharedApi.get(app, item.id).third }
                 pv.s = s
-                val d = sample ?: buildSample(CardCfg())
+                val d = sampleFor(c)
                 pv.bmp = withContext(Dispatchers.Default) { CardRender.render(item.id, d, 0.6f, null, TplOv(s, s.optJSONObject("ts") ?: JSONObject())) }
             } catch (e: Exception) { pv.err = e.message ?: "প্রিভিউ আনা যায়নি" }
         }
@@ -204,12 +235,13 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     fun download(id: String, name: String, at: Long, onChanged: () -> Unit) {
         if (busyId != null) return
         busyId = id; msg = null
+        val c = cat
         viewModelScope.launch {
             try {
                 val s = preview?.takeIf { it.id == id }?.s ?: withContext(Dispatchers.IO) { SharedApi.get(app, id) }.third
-                withContext(Dispatchers.IO) { SharedTpls.save(app, id, name, at, s) }
+                withContext(Dispatchers.IO) { SharedTpls.save(app, id, name, at, s, c) }
                 downloaded = SharedTpls.list().map { it.id }.toSet()
-                msg = "✅ \"$name\" ডাউনলোড হয়েছে। এখন ফোটোকার্ড মেনুতে পাবেন, অফলাইনেও চলবে।"
+                msg = "✅ \"$name\" ডাউনলোড হয়েছে। এখন " + (if (c == SharedTpls.CAT_QUOTE) "বক্তব্য কার্ডের" else "ফোটোকার্ড") + " মেনুতে পাবেন, অফলাইনেও চলবে।"
                 onChanged()
             } catch (e: Exception) { msg = "❌ " + (e.message ?: "ডাউনলোড হয়নি") } finally { busyId = null }
         }
@@ -237,16 +269,17 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
 
     /** এডিটরের সেভ: ~২০০px থাম্বনেইল এখানেই বানিয়ে (সার্ভার আঁকতে পারে না) লেআউটসহ /shtpl-save-এ পাঠানো */
     fun adminSave(id: String?, name: String, layout: JSONObject, ts: JSONObject?, done: (String?) -> Unit) {
+        val c = cat
         viewModelScope.launch {
             try {
                 val s = JSONObject(layout.toString())
                 if (ts != null && ts.length() > 0) s.put("ts", ts) else s.remove("ts")
-                val d = sample ?: buildSample(CardCfg()).also { sample = it }
+                val d = sampleFor(c)
                 val thumb = withContext(Dispatchers.Default) {
                     val sc = 200f / s.optInt("w", 1080).coerceAtLeast(1)
                     PostUtil.toDataUrl(CardRender.render(id ?: "sh_newtpl", d, sc, null, TplOv(s, s.optJSONObject("ts") ?: JSONObject())), 72)
                 }
-                withContext(Dispatchers.IO) { SharedApi.save(app, id, "photo", name, s, thumb) }
+                withContext(Dispatchers.IO) { SharedApi.save(app, id, c, name, s, thumb) }
                 msg = "✅ \"$name\" সেভ হয়েছে। ইউজাররা স্টোরে দেখতে পাবে।"
                 load(refresh = true)
                 done(null)
@@ -254,19 +287,20 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
         }
     }
 
-    /** অ্যাপের ভেতরের assets/shtpl_ready.json-এর রেডিমেড টেমপ্লেটগুলো একটা একটা করে স্টোরে যোগ (শুধু অ্যাডমিন) */
+    /** অ্যাপের ভেতরের assets-এর রেডিমেড টেমপ্লেটগুলো (ফটোকার্ড: shtpl_ready.json, বক্তব্য কার্ড: shtpl_quote_ready.json) একটা একটা করে স্টোরে যোগ (শুধু অ্যাডমিন) */
     fun importReady() {
         if (busyId != null || importing || loading) return
         importing = true; msg = "⏳ সার্ভারে আগে কী আছে দেখা হচ্ছে…"
+        val c = cat
         viewModelScope.launch {
             var ok = 0
             try {
-                val have = serverNames()
-                val all = readyArr()
+                val have = serverNames(c)
+                val all = readyArr(c)
                 val todo = (0 until all.length()).map { all.getJSONObject(it) }.filter { it.getString("name").trim() !in have }
                 if (todo.isEmpty()) { msg = "✅ সব রেডিমেড টেমপ্লেট আগেই যোগ করা আছে, আবার যোগ হবে না।"; return@launch }
                 prepare()
-                val d = sample ?: buildSample(CardCfg()).also { sample = it }
+                val d = sampleFor(c)
                 for ((i, o) in todo.withIndex()) {
                     val name = o.getString("name"); val s = o.getJSONObject("S")
                     msg = "⏳ (${i + 1}/${todo.size}) \"$name\" যোগ হচ্ছে…"
@@ -274,7 +308,7 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
                         val sc = 200f / s.optInt("w", 1080).coerceAtLeast(1)
                         PostUtil.toDataUrl(CardRender.render("sh_newtpl", d, sc, null, TplOv(s, s.optJSONObject("ts") ?: JSONObject())), 72)
                     }
-                    withContext(Dispatchers.IO) { SharedApi.save(app, null, "photo", name, s, thumb) }
+                    withContext(Dispatchers.IO) { SharedApi.save(app, null, c, name, s, thumb) }
                     ok++
                 }
                 msg = "✅ $ok টি নতুন রেডিমেড টেমপ্লেট যোগ হয়েছে (যেগুলো আগেই ছিল সেগুলো বাদ)। ইউজাররা এখন দেখতে পাবে।"
@@ -291,17 +325,19 @@ class TemplateStoreViewModel(private val app: Application) : AndroidViewModel(ap
     fun adminDelete(id: String) {
         if (busyId != null) return
         busyId = id; msg = null
+        val st = cs
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { SharedApi.del(app, id) }
-                items = items.filter { it.id != id }; total = (total - 1).coerceAtLeast(0); refreshReady()
+                st.items = st.items.filter { it.id != id }; st.total = (st.total - 1).coerceAtLeast(0); refreshReady()
                 msg = "🗑 মুছে ফেলা হয়েছে। যাদের ফোনে ডাউনলোড করা আছে তাদের কপি থাকবে।"
             } catch (e: Exception) { msg = "❌ " + (e.message ?: "মোছা যায়নি") } finally { busyId = null }
         }
     }
 
     fun reset() {
-        items = emptyList(); total = 0; loading = false; error = null; loaded = false; msg = null; busyId = null; preview = null; nextOffset = 0; sample = null; readyLeft = null
+        states.values.forEach { it.items = emptyList(); it.total = 0; it.loading = false; it.error = null; it.loaded = false; it.next = 0; it.readyLeft = null }
+        msg = null; busyId = null; preview = null; samples.clear()
     }
 }
 
@@ -316,10 +352,11 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
     var delAsk by remember { mutableStateOf<SharedApi.Item?>(null) }
     var importAsk by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { vm.load() }
-    LaunchedEffect(admin) { if (admin) vm.refreshReady() }
+    val quoteTab = vm.cat == SharedTpls.CAT_QUOTE
+    LaunchedEffect(vm.cat) { vm.load(); listState.scrollToItem(0) }
+    LaunchedEffect(admin, vm.cat) { if (admin) vm.refreshReady() }
     // শেষের কাছাকাছি পৌঁছালে পরের ২০টি
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, vm.cat) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }.collect { last ->
             if (last >= 0 && last >= vm.items.size - 3) vm.loadMore()
         }
@@ -330,14 +367,29 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
             Text(if (admin) "🎨 শেয়ার্ড টেমপ্লেট (অ্যাডমিন)" else "🛍️ টেমপ্লেট স্টোর", fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.weight(1f))
             if (onClose != null) AppBtn("✕ বন্ধ", color = C.Gray, small = true, onClick = onClose)
         }
+        // ক্যাটাগরি ট্যাব: 🖼️ ফটোকার্ড | 💬 বক্তব্য কার্ড
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(SharedTpls.CAT_PHOTO to "🖼️ ফটোকার্ড", SharedTpls.CAT_QUOTE to "💬 বক্তব্য কার্ড").forEach { (k, t) ->
+                val on = vm.cat == k
+                Text(
+                    t, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = if (on) Color.White else C.Text,
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                        .background(if (on) Color(0xFF0A3D91) else Color.White)
+                        .border(1.dp, if (on) Color(0xFF0A3D91) else C.Border, RoundedCornerShape(20.dp))
+                        .clickable(enabled = !on && !vm.importing && vm.busyId == null) { vm.selectCat(k) }
+                        .padding(horizontal = 6.dp, vertical = 9.dp),
+                )
+            }
+        }
         HSmall(
-            if (admin) "এখানে বানানো টেমপ্লেট সব ইউজার স্টোরে দেখবে ও ডাউনলোড করতে পারবে। (সর্বোচ্চ ৩০০টি)"
-            else "প্রিভিউ দেখতে কিছু ডাউনলোড করতে হয় না। পছন্দ হলে ⬇️ ডাউনলোড চাপুন — ফোনে সেভ থাকবে, অফলাইনেও ফোটোকার্ড মেনুতে চলবে।",
-            Modifier.padding(top = 4.dp, bottom = 8.dp),
+            if (admin) "এখানে বানানো " + (if (quoteTab) "বক্তব্য কার্ড" else "ফোটোকার্ড") + " টেমপ্লেট সব ইউজার স্টোরে দেখবে ও ডাউনলোড করতে পারবে। (সর্বোচ্চ ৩০০টি)"
+            else "প্রিভিউ দেখতে কিছু ডাউনলোড করতে হয় না। পছন্দ হলে ⬇️ ডাউনলোড চাপুন — ফোনে সেভ থাকবে, অফলাইনেও " + (if (quoteTab) "বক্তব্য কার্ডের" else "ফোটোকার্ড") + " মেনুতে চলবে।",
+            Modifier.padding(top = 6.dp, bottom = 8.dp),
         )
-        if (admin) AppBtn("➕ নতুন শেয়ার্ড টেমপ্লেট", Modifier.padding(bottom = 8.dp), color = C.Green) { nameAsk = Triple(null, "", null) }
+        if (admin) AppBtn(if (quoteTab) "➕ নতুন বক্তব্য কার্ড টেমপ্লেট" else "➕ নতুন শেয়ার্ড টেমপ্লেট", Modifier.padding(bottom = 8.dp), color = C.Green) { nameAsk = Triple(null, "", null) }
         if (admin) AppBtn(
-            if (vm.importing) "⏳ যোগ হচ্ছে…" else if (vm.readyLeft == 0) "✅ রেডিমেড টেমপ্লেট সব যোগ করা আছে" else "📦 রেডিমেড টেমপ্লেট যোগ করুন" + (vm.readyLeft?.let { " (নতুন ${Bn.num(it)}টি)" } ?: ""),
+            if (vm.importing) "⏳ যোগ হচ্ছে…" else if (vm.readyLeft == 0) "✅ রেডিমেড টেমপ্লেট সব যোগ করা আছে" else (if (quoteTab) "📦 রেডিমেড বক্তব্য কার্ড (১১টি ডিজাইন) যোগ করুন" else "📦 রেডিমেড টেমপ্লেট যোগ করুন") + (vm.readyLeft?.let { " (নতুন ${Bn.num(it)}টি)" } ?: ""),
             Modifier.padding(bottom = 8.dp), color = C.Blue, enabled = !vm.importing && vm.busyId == null && vm.readyLeft != 0,
         ) { importAsk = true }
         vm.msg?.let { Text(it, fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Text, modifier = Modifier.padding(bottom = 8.dp)) }
@@ -356,7 +408,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
                             Text("⚠️ " + vm.error, color = C.Red, fontSize = 14.sp)
                             AppBtn("🔄 আবার চেষ্টা করুন", Modifier.padding(top = 8.dp), color = C.Blue, small = true) { if (vm.items.isEmpty()) vm.load(refresh = true) else vm.loadMore() }
                         }
-                        vm.loaded && vm.items.isEmpty() -> HSmall("এখনো কোনো টেমপ্লেট দেওয়া হয়নি।", center = true)
+                        vm.loaded && vm.items.isEmpty() -> HSmall(if (quoteTab) "এখনো কোনো বক্তব্য কার্ড টেমপ্লেট দেওয়া হয়নি।" else "এখনো কোনো টেমপ্লেট দেওয়া হয়নি।", center = true)
                         vm.loaded -> HSmall("মোট ${Bn.num(vm.total)}টি টেমপ্লেট", center = true)
                     }
                 }
@@ -392,7 +444,7 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
         var name by remember(id, name0) { mutableStateOf(name0) }
         AlertDialog(
             onDismissRequest = { nameAsk = null },
-            title = { Text(if (id == null) "নতুন শেয়ার্ড টেমপ্লেট" else "টেমপ্লেটের নাম") },
+            title = { Text(if (id == null) (if (quoteTab) "নতুন বক্তব্য কার্ড টেমপ্লেট" else "নতুন শেয়ার্ড টেমপ্লেট") else "টেমপ্লেটের নাম") },
             text = {
                 Column {
                     OutlinedTextField(name, { name = it.take(40) }, singleLine = true, label = { Text("টেমপ্লেটের নাম (ইউজাররা এটাই দেখবে)") }, modifier = Modifier.fillMaxWidth())
@@ -411,14 +463,14 @@ fun TemplateStoreScreen(vm: TemplateStoreViewModel, admin: Boolean, onClose: (()
     session?.let { ss ->
         TplEditorDialog(
             vm, ss.id ?: "sh_newtpl", ss.initial,
-            if (ss.id == null) "➕ নতুন শেয়ার্ড টেমপ্লেট" else "✏️ শেয়ার্ড টেমপ্লেট এডিট — " + ss.name,
+            (if (quoteTab) "বক্তব্য কার্ড — " else "") + (if (ss.id == null) "➕ নতুন শেয়ার্ড টেমপ্লেট" else "✏️ শেয়ার্ড টেমপ্লেট এডিট — " + ss.name),
             "✔ সেভ করে ইউজারদের জন্য দিন",
             { _, layout, ts, done -> vm.adminSave(ss.id, ss.name, layout, ts, done) },
         ) { session = null }
     }
     if (importAsk) AlertDialog(
         onDismissRequest = { importAsk = false },
-        text = { Text("অ্যাপের ভেতরের রেডিমেড ফোটোকার্ড টেমপ্লেটের মধ্যে যেগুলো স্টোরে এখনো নেই শুধু সেগুলো যোগ হবে। যেগুলো আগেই আছে সেগুলো আবার যোগ হবে না। চালিয়ে যাবেন?") },
+        text = { Text("অ্যাপের ভেতরের রেডিমেড " + (if (quoteTab) "বক্তব্য কার্ড" else "ফোটোকার্ড") + " টেমপ্লেটের মধ্যে যেগুলো স্টোরে এখনো নেই শুধু সেগুলো যোগ হবে। যেগুলো আগেই আছে সেগুলো আবার যোগ হবে না। চালিয়ে যাবেন?") },
         confirmButton = { TextButton(onClick = { importAsk = false; vm.importReady() }) { Text("হ্যাঁ, যোগ করুন") } },
         dismissButton = { TextButton(onClick = { importAsk = false }) { Text("না") } },
     )

@@ -9,13 +9,17 @@ import java.io.File
 /**
  * অ্যাডমিনের বানানো শেয়ার্ড টেমপ্লেট (id = sh_xxxx) — ফোনে ডাউনলোড করে রাখার জায়গা।
  *
- *   filesDir/shtpl/index.json   = [ {id, name, at, w, h} ]   ← ছোট তালিকা (অ্যাপ খুললে শুধু এটাই পড়া হয়)
- *   filesDir/shtpl/<id>.json    = { id, name, at, S }        ← পুরো লেআউট (ছবিসহ, বড় হতে পারে); দরকার হলে একটা একটা করে পড়া হয়
+ *   filesDir/shtpl/index.json   = [ {id, name, at, w, h, cat} ]   ← ছোট তালিকা (অ্যাপ খুললে শুধু এটাই পড়া হয়); cat = "photo" | "quote" (না থাকলে "photo")
+ *   filesDir/shtpl/<id>.json    = { id, name, at, cat, S }        ← পুরো লেআউট (ছবিসহ, বড় হতে পারে); দরকার হলে একটা একটা করে পড়া হয়
  *
  * এটা Firestore-এর cfg.customs-এ যায় না, তাই settings/card ডকুমেন্ট ফুলে যায় না, আর কাস্টম স্লটও খরচ হয় না।
  */
 object SharedTpls {
-    class Entry(val id: String, val name: String, val at: Long, val w: Int, val h: Int)
+    const val CAT_PHOTO = "photo"
+    const val CAT_QUOTE = "quote"
+    class Entry(val id: String, val name: String, val at: Long, val w: Int, val h: Int, val cat: String = CAT_PHOTO)
+
+    private fun normCat(c: String?) = if (c == CAT_QUOTE) CAT_QUOTE else CAT_PHOTO
 
     private const val MEM_MAX = 8   // একসাথে মেমরিতে রাখা পুরো লেআউটের সংখ্যা (বাকিগুলো দরকারে ফাইল থেকে)
     private var dir: File? = null
@@ -39,6 +43,8 @@ object SharedTpls {
     }
 
     @Synchronized fun list(): List<Entry> = entries
+    /** একটা ক্যাটাগরির (photo | quote) ডাউনলোড করা টেমপ্লেট */
+    @Synchronized fun list(cat: String): List<Entry> = entries.filter { it.cat == normCat(cat) }
     @Synchronized fun has(id: String): Boolean = entries.any { it.id == id }
     @Synchronized fun nameOf(id: String): String? = entries.firstOrNull { it.id == id }?.name
 
@@ -61,14 +67,16 @@ object SharedTpls {
 
     /** ডাউনলোড: ফাইলে সেভ + তালিকায় যোগ (আগে থাকলে বদলে দেয়) */
     @Synchronized
-    fun save(ctx: Context, id: String, name: String, at: Long, s: JSONObject) {
+    fun save(ctx: Context, id: String, name: String, at: Long, s: JSONObject, cat: String? = null) {
         init(ctx)
         val d = dir ?: throw ApiError("ফোনে জায়গা পাওয়া যায়নি")
         if (!isShared(id)) throw ApiError("আইডি ঠিক নয়")
         if (s.optJSONArray("els") == null) throw ApiError("টেমপ্লেটের তথ্য ঠিক নয়")
-        val rec = JSONObject().put("id", id).put("name", name).put("at", at).put("S", s)
+        // ক্যাটাগরি না দিলে আগে যা ছিল তাই থাকে (লোকাল এডিটে বদলায় না); নতুন হলে ফটোকার্ড
+        val c = normCat(cat ?: entries.firstOrNull { it.id == id }?.cat)
+        val rec = JSONObject().put("id", id).put("name", name).put("at", at).put("cat", c).put("S", s)
         writeAtomic(File(d, "$id.json"), rec.toString())
-        val e = Entry(id, name, at, s.optInt("w", 1080).coerceAtLeast(1), s.optInt("h", 1350).coerceAtLeast(1))
+        val e = Entry(id, name, at, s.optInt("w", 1080).coerceAtLeast(1), s.optInt("h", 1350).coerceAtLeast(1), c)
         // আগে থাকলে একই জায়গায় বদলায় (লোকাল এডিটে মেনুর ক্রম নড়ে না), নতুন হলে শেষে
         entries = if (entries.any { it.id == id }) entries.map { if (it.id == id) e else it } else entries + e
         writeIndex(d, entries)
@@ -97,7 +105,7 @@ object SharedTpls {
 
     private fun writeIndex(d: File, l: List<Entry>) {
         val a = JSONArray()
-        l.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("at", it.at).put("w", it.w).put("h", it.h)) }
+        l.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("at", it.at).put("w", it.w).put("h", it.h).put("cat", it.cat)) }
         writeAtomic(File(d, "index.json"), a.toString())
     }
 
@@ -110,7 +118,7 @@ object SharedTpls {
                 val o = a.optJSONObject(i) ?: return@mapNotNull null
                 val id = o.optString("id")
                 if (!isShared(id) || !File(d, "$id.json").exists()) null
-                else Entry(id, o.optString("name").ifBlank { "টেমপ্লেট" }, o.optLong("at"), o.optInt("w", 1080), o.optInt("h", 1350))
+                else Entry(id, o.optString("name").ifBlank { "টেমপ্লেট" }, o.optLong("at"), o.optInt("w", 1080), o.optInt("h", 1350), normCat(o.optString("cat")))
             }
         }.getOrNull()
     }
@@ -120,7 +128,7 @@ object SharedTpls {
         val l = (d.listFiles() ?: emptyArray()).filter { it.name.endsWith(".json") && it.name != "index.json" }.mapNotNull { f ->
             runCatching {
                 val o = JSONObject(f.readText(Charsets.UTF_8)); val s = o.getJSONObject("S"); val id = o.getString("id")
-                if (!isShared(id)) null else Entry(id, o.optString("name").ifBlank { "টেমপ্লেট" }, o.optLong("at"), s.optInt("w", 1080), s.optInt("h", 1350))
+                if (!isShared(id)) null else Entry(id, o.optString("name").ifBlank { "টেমপ্লেট" }, o.optLong("at"), s.optInt("w", 1080), s.optInt("h", 1350), normCat(o.optString("cat")))
             }.getOrNull()
         }.sortedBy { it.at }
         runCatching { writeIndex(d, l) }

@@ -165,6 +165,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         if (loaded && !force) return
         viewModelScope.launch {
             try {
+                withContext(Dispatchers.IO) { SharedTpls.init(app) }   // ডাউনলোড করা শেয়ার্ড টেমপ্লেট নতুন পোস্টের তালিকাতেও আসে
                 val c = Fs.cardCfg(app)
                 cfg = c
                 withContext(Dispatchers.Default) { logoBmp = AdRender.decode(c.logo); iconBmp = AdRender.decode(c.icon) }
@@ -173,10 +174,10 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     st.extraSlots = TplRegistry.store.extraSlots
                     TplRegistry.store = st
                     // সেটিংসে/এডিটরে বাছা ফটোকার্ড টেমপ্লেটই নতুন পোস্টের ডিফল্ট (ওয়েবের cfg.template); খসড়া থাকলে সেটাই
-                    if (step == 1 && title.isBlank() && TplRegistry.isKnownPhotoTpl(st.template)) tplId = st.template
+                    if (step == 1 && title.isBlank() && TplRegistry.isKnownNewPostTpl(st.template)) tplId = st.template
                     tplVer++
                 }
-                if (!TplRegistry.isKnownPhotoTpl(tplId)) tplId = "dark"
+                if (!TplRegistry.isKnownNewPostTpl(tplId)) tplId = "dark"
                 rebuildAd()
                 if (category.isBlank()) category = c.category
                 if (tag.isBlank()) tag = c.photoTag
@@ -1052,7 +1053,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         job?.cancel()
         job = viewModelScope.launch {
             delay(60)
-            val d = cardData(); val id = tplId; val ad = adNow(); val list = cardTpls("photo")
+            val d = cardData(); val id = tplId; val ad = adNow(); val list = TplRegistry.newPostTpls()
             val (pv, th) = withContext(Dispatchers.Default) {
                 CardRender.render(id, d, 1f, ad) to list.associate { it.first to CardRender.render(it.first, d, 0.25f, ad) }
             }

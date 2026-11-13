@@ -173,7 +173,8 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                                     var ok = true
                                     detectDragGestures(onDragStart = { o ->
                                         val k = CardRender.W / size.width.toFloat()
-                                        ok = !quote || o.x * k <= CardRender.photoBox(vm.tplId).first   // বক্তব্য কার্ডে শুধু বাঁ পাশের ছবির অংশে
+                                        val pr = CardRender.photoRect(vm.tplId)
+                                        ok = !quote || (o.x * k in pr.left..pr.right && o.y * k in pr.top..pr.bottom)   // বক্তব্য কার্ডে শুধু ছবির অংশে
                                     }) { change, drag ->
                                         if (ok) {
                                             change.consume()
@@ -190,7 +191,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                         else CircularProgressIndicator(color = C.Red)
                     }
                 }
-                if (quote && vm.hasPhoto) HSmall("👆 বাঁ পাশের ছবির ওপর আঙুল/মাউস দিয়ে টেনে ছবির পজিশন ঠিক করুন।", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Blue, center = true)
+                if (quote && vm.hasPhoto) HSmall("👆 কার্ডের ছবির অংশের ওপর আঙুল/মাউস দিয়ে টেনে ছবির পজিশন ঠিক করুন।", Modifier.fillMaxWidth().padding(top = 6.dp), color = C.Blue, center = true)
                 if (quote && vm.hasPhoto && !locked) Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
                     HBtn("↔️ ছবি ফ্লিপ (ডান-বাম উল্টান)", color = Teal, padH = 12.dp, padV = 8.dp) { vm.flipPhoto() }
                 }
@@ -255,7 +256,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
 
             // ── টেমপ্লেট ──
             FieldLabel("ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
-            val canEdit = vm.mode == CAT_PHOTO && vm.tplReady
+            val canEdit = (vm.mode == CAT_PHOTO || quote) && vm.tplReady
             val tpls = menuTpls(vm.mode)   // নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড (ডিফল্ট ৫টা এখন স্টোরে)
             // LazyRow: ১০০টা ডাউনলোড করা থাকলেও শুধু স্ক্রিনে দেখা ঘরগুলোই আঁকা হয়
             LazyRow(
@@ -275,7 +276,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                             vm.thumbs[id]?.let { Image(it.asImageBitmap(), contentDescription = name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                         }
                         HSmall(name + if (on) " ✔" else "", Modifier.fillMaxWidth().padding(top = 2.dp), color = Color(0xFF555555), center = true)
-                        if (vm.mode == CAT_PHOTO) {
+                        if (vm.mode == CAT_PHOTO || (quote && shared)) {
                             if (shared) {
                                 // ডাউনলোড করা শেয়ার্ড: এডিট শুধু ফোনের কপিতে বদলায় (সার্ভারেরটা নয়); সরালে ফোন থেকে যায়, স্টোর থেকে আবার নেওয়া যায়
                                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -312,12 +313,14 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                             }
                         }
                     }
+                }
+                if (vm.mode == CAT_PHOTO || quote) {
                     // 🛍️ টেমপ্লেট স্টোর: অ্যাডমিনের দেওয়া টেমপ্লেট দেখা/ডাউনলোড (কাস্টম স্লট খরচ হয় না)
                     item(key = "__store__") {
                         Column(
                             Modifier.width(120.dp).aspectRatio(4f / 5f).clip(RoundedCornerShape(8.dp)).background(Color(0xFFEEF4FF))
                                 .border(3.dp, PillBlue, RoundedCornerShape(8.dp))
-                                .clickable(enabled = !locked) { storeOpen = true }.padding(6.dp),
+                                .clickable(enabled = !locked) { storeVm.selectCat(if (quote) CAT_QUOTE else CAT_PHOTO); storeOpen = true }.padding(6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                         ) {
                             Text("🛍️", fontSize = 34.sp, lineHeight = 36.sp)
@@ -463,8 +466,12 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
         }
         sharedEdit?.let { id ->
             val init = remember(id) { SharedTpls.layout(id)?.let { org.json.JSONObject(it.toString()) } }
+            val host = if (quote) remember(vm.mode) { object : TplEditHost {
+                override fun editorCardData() = vm.editorCardData()
+                override fun tplImageData(uri: Uri) = np.tplImageData(uri)
+            } } else np
             if (init != null) TplEditorDialog(
-                np, id, init, "✏️ ডাউনলোড করা টেমপ্লেট এডিট — " + (SharedTpls.nameOf(id) ?: id), "✔ ফোনের কপিতে সেভ করুন",
+                host, id, init, "✏️ ডাউনলোড করা টেমপ্লেট এডিট — " + (SharedTpls.nameOf(id) ?: id), "✔ ফোনের কপিতে সেভ করুন",
                 { _, layout, ts, done -> vm.saveSharedLocal(id, layout, ts, done) },
             ) { sharedEdit = null }
         }

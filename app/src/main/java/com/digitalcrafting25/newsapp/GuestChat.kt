@@ -104,24 +104,10 @@ private const val RUNNER_JS = """
     for (var i = 0; i < sels.length; i++){ m = Math.max(m, document.querySelectorAll(sels[i]).length); }
     return m;
   }
-  var CHIPS = 'source-inline-chip,sources-carousel-inline,source-footnote,sup,button,a[href],[class*="source-inline"],[class*="citation"],[data-test-id*="source"],[data-test-id*="citation"],[data-testid*="citation"]';
-  function clean(el){
-    try {
-      var c = el.cloneNode(true);
-      var h = document.createElement('div');
-      h.style.cssText = 'position:fixed;left:-99999px;top:0;width:700px;opacity:0;pointer-events:none';
-      h.appendChild(c); document.body.appendChild(h);
-      var rm = c.querySelectorAll(CHIPS);
-      for (var i = rm.length - 1; i >= 0; i--){ if (rm[i].parentNode) rm[i].parentNode.removeChild(rm[i]); }
-      var t = (c.innerText || c.textContent || '').trim();
-      document.body.removeChild(h);
-      return t;
-    } catch (e) { return (el.innerText || '').trim(); }
-  }
   function lastText(sels){
     for (var i = 0; i < sels.length; i++){
       var n = document.querySelectorAll(sels[i]);
-      if (n.length) return clean(n[n.length - 1]);
+      if (n.length) return (n[n.length - 1].innerText || '').trim();
     }
     return '';
   }
@@ -282,36 +268,19 @@ private fun fetchArticle(url: String): Article? = runCatching {
         ?: Regex("<title[^>]*>(.*?)</title>", opt).find(h)?.groupValues?.get(1) ?: ""
     h = h.replace(Regex("<(script|style|noscript|nav|footer|aside|header|form|svg)[^>]*>.*?</\\1>", opt), " ")
     val art = Regex("<article[^>]*>(.*?)</article>", opt).findAll(h).map { it.groupValues[1] }.maxByOrNull { it.length } ?: h
-    fun paras(x: String) = Regex("<p[^>]*>(.*?)</p>", opt).findAll(x).map { plain(it.groupValues[1]) }.filter { it.length >= 25 }.toList()
-    var ps = paras(art)
-    // <article> ট্যাগে খবরের অংশ কম ধরা পড়লে পুরো পেজের অনুচ্ছেদ দেখি
-    if (ps.joinToString("\n").length < 800) { val all = paras(h); if (all.joinToString("\n").length > ps.joinToString("\n").length) ps = all }
-    val text = ps.distinct().joinToString("\n").take(14000)
+    val paras = Regex("<p[^>]*>(.*?)</p>", opt).findAll(art).map { plain(it.groupValues[1]) }.filter { it.length >= 40 }.toList()
+    val text = paras.joinToString("\n").take(7000)
     if (text.length < 300) null else Article(plain(title), text)
 }.getOrNull()
 
-private fun wordCount(t: String) = t.trim().split(Regex("\\s+")).count { it.isNotBlank() }
-
 private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): String {
-    val srcWords = (a?.text?.let { wordCount(it) } ?: 0) + wordCount(notes)
-    val srcLen = (a?.text?.length ?: 0) + notes.trim().length
-    val lenRule = if (srcLen > 1500) {
-        val minW = (srcWords * 0.75).toInt()
-        "৬) মূল খবরটি বড় (প্রায় ${srcWords} শব্দ)। তাই বডি কিছুতেই ছোট বা সারসংক্ষেপ করবে না: মূল খবরের সব তথ্য, নাম, পদবি, সংখ্যা, সময়, স্থান ও বক্তব্য রাখবে, কোনো অনুচ্ছেদ বা তথ্য বাদ দেবে না। বডি কমপক্ষে ${minW} শব্দের হবে (মূলের অন্তত ৭৫%), দরকারে আরও বড় হবে। ১৫০-২৫০ শব্দের কোনো সীমা এখানে নেই। তবে ভাষা ও বাক্যগঠন সম্পূর্ণ নতুন হবে, বাক্য কপি করবে না।\n"
-    } else if (srcLen > 0) {
-        "৬) বডি ১৫০ থেকে ২৫০ শব্দের মধ্যে রাখবে, তবে মূল খবরের কোনো গুরুত্বপূর্ণ তথ্য বাদ দেবে না।\n"
-    } else {
-        "৬) খবর যত বড়, লেখাও তত বিস্তারিত হবে। সংক্ষিপ্ত সারাংশ লিখবে না, লিংকের খবরের সব তথ্য রাখবে।\n"
-    }
     val rules = "তুমি একজন পেশাদার বাংলাদেশি নিউজ রিপোর্টার। নিচের খবরটি পড়ে নিজের ভাষায় নতুন করে লেখো, হুবহু কপি করবে না, তবে সব তথ্য ঠিক রাখবে।\n" +
         "নিয়ম:\n" +
         "১) শুধু খবরটাই লিখবে। কোনো ভূমিকা, মন্তব্য, ব্যাখ্যা, পরামর্শ, প্রশ্ন, ইমোজি বা মার্কডাউন (**, #) থাকবে না।\n" +
         "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
         "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে নতুন শিরোনাম, দ্বিতীয় লাইনে \"কার্ড: \" লিখে ফোটোকার্ডের ছোট শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n" +
         "৪) শিরোনাম মূল শিরোনাম থেকে আলাদা হবে: তথ্যনির্ভর, আকর্ষণীয়, কিন্তু ক্লিকবেইট নয়। শিরোনাম পূর্ণ হবে (৮ থেকে ১৫ শব্দ): কে, কোথায়, কী করলেন বা কী ঘটল, এই তিনটি থাকবে। শুধু স্থান ও পদবি দিয়ে থামিয়ে অসম্পূর্ণ রাখবে না।\n" +
-        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n" +
-        lenRule +
-        "৭) কোনো সূত্র, ওয়েবসাইট বা পত্রিকার নাম, লিংক বা \"আরও পড়ুন\" লিখবে না।\n\n"
+        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n\n"
     var src = if (a != null) (if (a.title.isNotBlank()) "মূল খবরের শিরোনাম: ${a.title}\n" else "") + "মূল খবর:\n${a.text}\n\n"
               else if (url.isNotBlank()) "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
               else ""
@@ -348,37 +317,10 @@ private fun cleanTail(t: String): String {
 /** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
 private fun parseNews(raw: String): Pair<String, String> = parseNews3(raw).let { it.first to it.third }
 
-private val PLUS_RE = Regex("^\\+\\s*[0-9০-৯]+$")
-private val DOMAIN_RE = Regex("^(https?://)?(www\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.(com|net|org|tv|info|news|co|bd|io|me)(/\\S*)?$", RegexOption.IGNORE_CASE)
-private val LABEL_RE = Regex("^\\s*(শিরোনাম|Title|কার্ড|ফোটোকার্ড|Card)", RegexOption.IGNORE_CASE)
-
-/** Gemini/ChatGPT-র "সোর্স চিপ" (thenews24.com, Shomoyer Alo, + 1, প্রথম আলো ইত্যাদি) লাইনগুলো বাদ দেয় */
-private fun stripSources(src: List<String>): List<String> {
-    val out = ArrayList<String>()
-    fun endsSentence(x: String) = x.trimEnd().lastOrNull()?.let { it in "।.?!”\"’:" } ?: false
-    fun shortLabel(x: String) = x.length <= 80 && !endsSentence(x)
-    for (ln in src) {
-        val t = ln.trim()
-        if (t.isEmpty()) { out += ln; continue }
-        if (LABEL_RE.containsMatchIn(t)) { out += ln; continue }
-        if (PLUS_RE.matches(t)) {
-            val k = out.indexOfLast { it.isNotBlank() }
-            if (k >= 0 && shortLabel(out[k].trim()) && !LABEL_RE.containsMatchIn(out[k])) out.removeAt(k)
-            continue
-        }
-        if (DOMAIN_RE.matches(t)) continue
-        if (t.contains(" | ") && shortLabel(t)) continue
-        if (t.length <= 40 && !endsSentence(t) && t.none { it in '\u0980'..'\u09FF' } && t.any { it.isLetter() }) continue
-        out += ln
-    }
-    return out
-}
-
 /** (শিরোনাম, কার্ড-শিরোনাম, বডি); "কার্ড:" লাইন না থাকলে কার্ড-শিরোনাম ফাঁকা */
 private fun parseNews3(raw: String): Triple<String, String, String> {
     var lines = raw.replace("\r", "").lines().map { it.replace("**", "").replace(Regex("^#+\\s*"), "").trimEnd() }
     lines = lines.dropWhile { it.isBlank() || Regex("^(ChatGPT said:?|Gemini said:?|You said:?)\\s*\$", RegexOption.IGNORE_CASE).matches(it.trim()) }
-    lines = stripSources(lines)
     val ti = lines.indexOfFirst { Regex("^\\s*(শিরোনাম|Title)\\s*[:：]").containsMatchIn(it) }
     val title: String; val rest: List<String>
     if (ti >= 0) {
@@ -497,7 +439,7 @@ fun GuestHiddenRunner(
         val u = job.input.trim()
         val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)
         val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
-                  else if (u.length >= 100) Article("", u.take(14000)) else null
+                  else if (u.length >= 100) Article("", u.take(7000)) else null
         st.prompt = buildNewsPrompt(art, if (isUrl) u else "", job.notes)
         val firstKey = SITES.keys.first()
         st.tried.clear(); st.tried.add(firstKey); st.runKey = firstKey
@@ -678,7 +620,7 @@ private fun GuestChatScreen(onClose: () -> Unit, rw: GuestRewrite? = null) {
         status = if (isUrl) "📰 লিংক থেকে খবর পড়ছি..." else "📰 খবর সাজাচ্ছি..."
         scope.launch {
             val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
-                      else if (u.length >= 100) Article("", u.take(14000)) else null
+                      else if (u.length >= 100) Article("", u.take(7000)) else null
             if (isUrl && art == null) status = "⚠️ লিংক থেকে খবরের লেখা আনা যায়নি; AI-কে লিংক দিয়েই পড়তে বলছি (নাও পারতে পারে)"
             launchPrompt(buildNewsPrompt(art, if (isUrl) u else "", newsNotes))
         }

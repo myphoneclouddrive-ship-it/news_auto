@@ -81,6 +81,7 @@ import kotlin.math.roundToInt
 
 private val EdSizes = listOf(
     "1080x1350" to "১০৮০×১৩৫০ (ফেসবুক পোর্ট্রেট ৪:৫, ফুটারের ওপরে ১২০px ব্যানার-জায়গা)",
+    "1080x1260" to "১০৮০×১২৬০ (বক্তব্য কার্ড: ১০৮০ স্কোয়ার ডিজাইন + ১২০px ব্যানার-জায়গা + ৬০px ফুটার)",
     "1080x1080" to "১০৮০×১০৮০ (স্কোয়ার)",
     "1080x1920" to "১০৮০×১৯২০ (স্টোরি ৯:১৬)",
     "1200x630" to "১২০০×৬৩০ (আড়াআড়ি)",
@@ -93,18 +94,22 @@ private val EdIconShort = mapOf("globe" to "ওয়েবসাইট", "fb" t
 private val EdSrc = listOf(
     "catdate" to "ক্যাটাগরি | তারিখ", "date" to "শুধু তারিখ", "cat" to "শুধু ক্যাটাগরি", "url" to "ওয়েবসাইট",
     "tag" to "ছবির ট্যাগ", "cta" to "নিচের লেখা (সেটিংস থেকে)", "custom" to "নিজের লেখা",
+    "site" to "ওয়েবসাইট (https ছাড়া)", "dateurl" to "তারিখ • ওয়েবসাইট",
+    "name" to "বক্তার নাম (বক্তব্য কার্ড)", "role" to "বক্তার পদবি (বক্তব্য কার্ড)",
 )
 private val EdAddTypes = listOf(
     "photo" to "🖼️ খবরের ছবি", "headline" to "📰 শিরোনাম", "text" to "🔤 লেখা (তারিখ/সাইট/নিজের লেখা)",
     "ctext" to "✍️ কাস্টম লেখা + আইকন", "icon" to "🔣 আইকন", "image" to "📷 নিজের ছবি যোগ (লোগো/ব্যানার)",
     "logo" to "🏷️ লোগো (আড়াআড়ি/লম্বা)", "logoicon" to "⭕ আইকন লোগো (স্কোয়ার/গোল)",
     "fb" to "📘 ফেসবুক (আইকন + ইউজারনেম)", "yt" to "▶️ ইউটিউব (আইকন + ইউজারনেম)", "rect" to "⬛ রঙিন বক্স / ছায়া",
+    "quote" to "💬 বক্তব্য (বক্তব্য কার্ড)", "qmark" to "❝ উদ্ধৃতি-চিহ্ন", "qname" to "👤 বক্তার নাম", "qrole" to "🎖️ বক্তার পদবি",
 )
-private val EdNames = mapOf("photo" to "খবরের ছবি", "headline" to "শিরোনাম", "logo" to "লোগো", "rect" to "বক্স", "icon" to "আইকন", "image" to "যোগ করা ছবি")
+private val EdNames = mapOf("photo" to "খবরের ছবি", "headline" to "শিরোনাম", "logo" to "লোগো", "rect" to "বক্স", "icon" to "আইকন", "image" to "যোগ করা ছবি", "quote" to "বক্তব্য", "qmark" to "উদ্ধৃতি-চিহ্ন")
 private val EdAligns = listOf("l" to "বাঁয়ে", "c" to "মাঝে", "r" to "ডানে")
 private val EdPalette = listOf(
     "#ffffff", "#000000", "#ffd400", "#ffe600", "#d50000", "#c62828", "#b30012", "#1a3ea8", "#0d3b8e",
     "#08224f", "#1e1e6e", "#6a1bb1", "#2e7d32", "#f2f2f2", "#dddddd", "#333333",
+    "#d9232b", "#d4af37", "#00796b", "#4a148c", "#7a4b1e", "#fbf3e4",
 )
 
 private fun JSONObject.fl(k: String, d: Float = 0f): Float = if (has(k) && !isNull(k)) optDouble(k, d.toDouble()).toFloat() else d
@@ -121,6 +126,7 @@ private fun elName(e: JSONObject): String {
         t == "logo" && e.st("mode") == "icon" -> "আইকন লোগো"
         t == "logo" && e.st("mode") == "wide" -> "আড়াআড়ি লোগো"
         t == "social" -> (EdIconShort[e.st("ico").ifBlank { if (e.st("net") == "yt") "yt" else "fb" }] ?: "সোশ্যাল") + (if (e.st("text").isNotBlank()) " " + e.st("text").take(10) else "")
+        t == "qmark" -> if (e.st("g") == "close") "” চিহ্ন" else "“ চিহ্ন"
         t == "text" -> if (e.st("src") == "custom") "“" + e.st("text").ifBlank { "লেখা" }.take(12) + "”" else (EdSrc.firstOrNull { it.first == e.st("src") }?.second?.substringBefore(" (") ?: "লেখা")
         else -> EdNames[t] ?: t
     }
@@ -492,9 +498,40 @@ private fun ElementPanel(st: EdState, e: JSONObject, ver: Int, onPickImage: () -
             EdSlider("স্বচ্ছতা (০ = অদৃশ্য)", e.fl("alpha", 100f), 0f, 100f, true, { e.put("alpha", it.roundToInt()); st.touch() }) { st.commit() }
             FieldLabel("আকৃতি")
             EdSelect(listOf("rect" to "আয়তক্ষেত্র", "circle" to "গোল/ডিম্বাকৃতি"), e.st("shape", "rect")) { setS("shape", it) }
+            if (e.st("shape", "rect") != "circle") EdSlider("কোণা কতটা গোল (০ = সোজা)", e.fl("r", 0f), 0f, 200f, true, { e.put("r", it.roundToInt()); st.touch() }) { st.commit() }
+            EdCheck("শুধু বর্ডার (ভেতর ফাঁকা)", e.optBoolean("nf")) { setS("nf", it) }
+            EdSlider("বর্ডারের মোটা (০ = বর্ডার নেই)", e.fl("sw", 0f), 0f, 30f, true, { e.put("sw", it.roundToInt()); st.touch() }) { st.commit() }
+            if (e.fl("sw", 0f) > 0f) col("sc", "বর্ডারের রঙ", "#ffffff")
             FieldLabel("গ্র্যাডিয়েন্ট ছায়া")
             EdSelect(listOf("none" to "নেই (সমান রঙ)", "down" to "উপর থেকে নিচে গাঢ়", "up" to "নিচ থেকে উপরে গাঢ়", "two" to "দুই রঙের (উপর → নিচ)"), e.st("grad", "none")) { setS("grad", it) }
             if (e.st("grad") == "two") col("color2", "নিচের রঙ (গ্র্যাডিয়েন্টের শেষ)", e.st("color", "#000000"))
+        }
+        "photo" -> {
+            FieldLabel("ছবির আকৃতি")
+            EdSelect(listOf("rect" to "আয়তক্ষেত্র", "circle" to "গোল (চওড়া ও উচ্চতা সমান রাখুন)"), e.st("shape", "rect")) { setS("shape", it) }
+            if (e.st("shape", "rect") != "circle") EdSlider("কোণা কতটা গোল (০ = সোজা)", e.fl("r", 0f), 0f, 200f, true, { e.put("r", it.roundToInt()); st.touch() }) { st.commit() }
+            EdSlider("বর্ডারের মোটা (০ = বর্ডার নেই)", e.fl("bw", 0f), 0f, 30f, true, { e.put("bw", it.roundToInt()); st.touch() }) { st.commit() }
+            if (e.fl("bw", 0f) > 0f) col("bc", "বর্ডারের রঙ", "#ffffff")
+        }
+        "quote" -> {
+            col("color", "বক্তব্যের রঙ", "#ffffff")
+            EdSlider("সর্বোচ্চ অক্ষরের সাইজ (বক্সে না ধরলে নিজে ছোট হবে)", e.fl("size", 64f), 24f, 120f, true, { e.put("size", it.roundToInt()); st.touch() }) { st.commit() }
+            EdSlider("সর্বোচ্চ কয় লাইন", e.fl("lines", 12f), 1f, 20f, true, { e.put("lines", it.roundToInt()); st.touch() }) { st.commit() }
+            EdSlider("লাইনের ফাঁক (১.০–২.০)", e.fl("lh", 1.4f), 1f, 2f, true, { e.put("lh", (it * 20).roundToInt() / 20.0); st.touch() }) { st.commit() }
+            FieldLabel("কোন দিকে বসবে")
+            EdSelect(EdAligns, e.st("align", "l").ifBlank { "l" }) { setS("align", it) }
+            FieldLabel("বক্সের কোথায় বসবে")
+            EdSelect(listOf("t" to "ওপরে", "m" to "মাঝে", "b" to "নিচে"), e.st("valign", "t").ifBlank { "t" }) { setS("valign", it) }
+            EdCheck("মোটা (বোল্ড) অক্ষর", !e.has("b") || e.optBoolean("b", true)) { setS("b", it) }
+        }
+        "qmark" -> {
+            col("color", "চিহ্নের রঙ", "#ffffff")
+            EdSlider("স্বচ্ছতা (০ = অদৃশ্য)", e.fl("alpha", 100f), 0f, 100f, true, { e.put("alpha", it.roundToInt()); st.touch() }) { st.commit() }
+            FieldLabel("কোন চিহ্ন")
+            EdSelect(listOf("open" to "“ শুরুর", "close" to "” শেষের"), e.st("g", "open").ifBlank { "open" }) { setS("g", it) }
+            FieldLabel("কোন দিকে বসবে")
+            EdSelect(EdAligns, e.st("align", "l").ifBlank { "l" }) { setS("align", it) }
+            Text("চিহ্নের আসল উচ্চতা = \"উচ্চতা\" স্লাইডারের মান; চওড়া নিজে হিসাব হয়।", fontSize = 12.sp, color = C.Label)
         }
         "headline" -> {
             col("c1", if (e.optBoolean("two")) "শিরোনাম (উপরের অংশ)" else "শিরোনামের রঙ", "#ffffff")
@@ -546,6 +583,7 @@ private fun ElementPanel(st: EdState, e: JSONObject, ver: Int, onPickImage: () -
             EdSlider("অক্ষরের সাইজ", e.fl("size", 30f), 14f, 120f, true, { e.put("size", it.roundToInt()); e.put("fx", true); st.touch() }) { st.commit() }
             FieldLabel("কোন দিকে বসবে")
             EdSelect(EdAligns, e.st("align", "l").ifBlank { "l" }) { setS("align", it) }
+            if (e.st("src") == "role" || e.st("src") == "custom") EdSlider("সর্বোচ্চ কয় লাইন (১ = এক লাইনে ছোট হবে)", e.fl("lines", 1f), 1f, 4f, true, { e.put("lines", it.roundToInt()); st.touch() }) { st.commit() }
             EdCheck("লেখার পেছনে রঙিন বক্স", e.optBoolean("box")) { setS("box", it) }
             if (e.optBoolean("box")) {
                 col("bg", "বক্সের রঙ", "#000000")

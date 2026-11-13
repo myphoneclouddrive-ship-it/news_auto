@@ -74,14 +74,25 @@ object TplRegistry {
 
     fun isKnownPhotoTpl(id: String) = CARD_TPLS.any { it.first == id } || id in customIds()
 
+    /** নতুন পোস্টের ফোটোকার্ড টেমপ্লেট সারি: ডিফল্ট + নিজের কাস্টম + স্টোর থেকে ডাউনলোড করা ফটোকার্ড ও বক্তব্য কার্ড টেমপ্লেট */
+    fun newPostTpls(): List<Pair<String, String>> =
+        photoTpls() + SharedTpls.list(SharedTpls.CAT_PHOTO).map { it.id to it.name } + SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to ("💬 " + it.name) }
+
+    fun isKnownNewPostTpl(id: String) = isKnownPhotoTpl(id) || SharedTpls.isShared(id)
+
     /** ফোটোকার্ড মেনুর সারি: শুধু ইউজারের নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড। ৫টা ডিফল্ট এখন স্টোর থেকে নামাতে হয়।
      *  (সেটিংস/নতুন পোস্টের তালিকা আগের মতোই photoTpls()) — দুটোই খালি থাকলে মেনু ফাঁকা না থাকতে ৫ ডিফল্ট দেখায় */
     fun menuTpls(): List<Pair<String, String>> {
-        val mine = customIds().map { it to customName(it) } + SharedTpls.list().map { it.id to it.name }
+        val mine = customIds().map { it to customName(it) } + SharedTpls.list(SharedTpls.CAT_PHOTO).map { it.id to it.name }
         return mine.ifEmpty { CARD_TPLS }
     }
 
     fun isKnownMenuTpl(id: String) = menuTpls().any { it.first == id }
+
+    /** বক্তব্য কার্ড মেনুর সারি: আসল ডিফল্ট (লাল) + স্টোর থেকে ডাউনলোড করা বক্তব্য কার্ড টেমপ্লেট */
+    fun quoteMenuTpls(): List<Pair<String, String>> = QUOTE_TPLS + SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to it.name }
+
+    fun isKnownQuoteTpl(id: String) = quoteMenuTpls().any { it.first == id }
 
     /** ওয়েবের cbCanAdd: ফোটোকার্ডে ১টা কাস্টম ফ্রি, তারপর কেনা বাড়তি স্লট */
     fun canAddCustom(): Boolean = customIds().isEmpty() || customIds().size - 1 < store.extraSlots
@@ -210,6 +221,10 @@ object TplDefaults {
         "headline" -> mk("type" to "headline", "x" to 60, "y" to Math.round(H * 0.7f), "w" to W - 120, "h" to Math.round(H * 0.2f), "c1" to "#ffffff", "two" to false, "c2" to "#ffe600", "size" to 78)
         "logo" -> mk("type" to "logo", "x" to W - 300, "y" to 30, "w" to 270, "h" to 110, "align" to "r", "color" to "#ffffff")
         "logoicon" -> mk("type" to "logo", "mode" to "icon", "shape" to "", "x" to 40, "y" to 40, "w" to 130, "h" to 130, "align" to "c", "color" to "#ffffff", "lock" to true, "ar" to 1.0)
+        "quote" -> mk("type" to "quote", "x" to 60, "y" to Math.round(H * 0.3f), "w" to W - 120, "h" to Math.round(H * 0.4f), "color" to "#ffffff", "size" to 52, "align" to "l", "valign" to "t", "lh" to 1.42, "lines" to 12)
+        "qmark" -> mk("type" to "qmark", "x" to 60, "y" to 60, "w" to 160, "h" to 76, "color" to "#ffffff", "alpha" to 100, "align" to "l", "g" to "open")
+        "qname" -> mk("type" to "text", "src" to "name", "x" to 60, "y" to Math.round(H * 0.75f), "w" to Math.round(W * 0.6f), "h" to 64, "color" to "#ffffff", "size" to 42, "align" to "l", "box" to false, "bg" to "#000000", "balpha" to 60, "text" to "")
+        "qrole" -> mk("type" to "text", "src" to "role", "x" to 60, "y" to Math.round(H * 0.75f) + 64, "w" to Math.round(W * 0.6f), "h" to 48, "color" to "#dddddd", "size" to 26, "align" to "l", "box" to false, "bg" to "#000000", "balpha" to 60, "text" to "")
         "ctext" -> mk("type" to "text", "src" to "custom", "text" to "আপনার লেখা", "icon" to "globe", "x" to 60, "y" to H - 100, "w" to 420, "h" to 60, "color" to "#ffffff", "size" to 30, "align" to "l", "box" to false, "bg" to "#000000", "balpha" to 60)
         "icon" -> mk("type" to "icon", "ico" to "globe", "x" to 60, "y" to H - 100, "w" to 60, "h" to 60, "align" to "c", "color" to "#ffffff")
         "fb", "yt" -> mk("type" to "social", "net" to type, "text" to "", "x" to Math.round(W * (if (type == "fb") 0.33f else 0.66f)), "y" to H - 100, "w" to Math.round(W * 0.3f), "h" to 60, "color" to "#ffffff", "size" to 30, "align" to "c")
