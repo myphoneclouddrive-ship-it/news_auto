@@ -269,7 +269,7 @@ private fun fetchArticle(url: String): Article? = runCatching {
     h = h.replace(Regex("<(script|style|noscript|nav|footer|aside|header|form|svg)[^>]*>.*?</\\1>", opt), " ")
     val art = Regex("<article[^>]*>(.*?)</article>", opt).findAll(h).map { it.groupValues[1] }.maxByOrNull { it.length } ?: h
     val paras = Regex("<p[^>]*>(.*?)</p>", opt).findAll(art).map { plain(it.groupValues[1]) }.filter { it.length >= 40 }.toList()
-    val text = paras.joinToString("\n").take(7000)
+    val text = paras.joinToString("\n").take(10000)
     if (text.length < 300) null else Article(plain(title), text)
 }.getOrNull()
 
@@ -280,7 +280,9 @@ private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): Strin
         "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
         "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে নতুন শিরোনাম, দ্বিতীয় লাইনে \"কার্ড: \" লিখে ফোটোকার্ডের ছোট শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n" +
         "৪) শিরোনাম মূল শিরোনাম থেকে আলাদা হবে: তথ্যনির্ভর, আকর্ষণীয়, কিন্তু ক্লিকবেইট নয়। শিরোনাম পূর্ণ হবে (৮ থেকে ১৫ শব্দ): কে, কোথায়, কী করলেন বা কী ঘটল, এই তিনটি থাকবে। শুধু স্থান ও পদবি দিয়ে থামিয়ে অসম্পূর্ণ রাখবে না।\n" +
-        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n\n"
+        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n" +
+        "৬) সংক্ষেপ বা সারমর্ম করবে না। মূল খবরের প্রতিটি তথ্য, নাম, তারিখ, সংখ্যা, তালিকা, শর্ত ও উদ্ধৃতি রাখবে; কিছু বাদ দেবে না। তালিকা বা টেবিলের তথ্য আলাদা অনুচ্ছেদে বা লাইনে পুরোটা লিখবে। খবর যত বড়, তোমার লেখাও প্রায় ততটাই বড় হবে।\n" +
+        (if (a != null) "৭) মূল খবরে প্রায় ${a.text.split(Regex("\\s+")).size} শব্দ আছে; তোমার লেখা অন্তত ${a.text.split(Regex("\\s+")).size * 8 / 10} শব্দের হবে।\n" else "") + "\n"
     var src = if (a != null) (if (a.title.isNotBlank()) "মূল খবরের শিরোনাম: ${a.title}\n" else "") + "মূল খবর:\n${a.text}\n\n"
               else if (url.isNotBlank()) "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
               else ""
@@ -440,7 +442,7 @@ fun GuestHiddenRunner(
         val u = job.input.trim()
         val isUrl = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(u)
         val art = if (isUrl) withContext(Dispatchers.IO) { fetchArticle(u) }
-                  else if (u.length >= 100) Article(job.title, u.take(7000)) else null
+                  else if (u.length >= 100) Article(job.title, u.take(10000)) else null
         st.prompt = buildNewsPrompt(art, if (isUrl) u else "", job.notes)
         val firstKey = SITES.keys.first()
         st.tried.clear(); st.tried.add(firstKey); st.runKey = firstKey
