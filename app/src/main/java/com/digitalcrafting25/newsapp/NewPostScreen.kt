@@ -442,7 +442,7 @@ private fun ProcPanel(vm: NewPostViewModel) {
         CircularProgressIndicator(color = C.Red, trackColor = Color(0xFFEEEEEE), strokeWidth = 5.dp, modifier = Modifier.padding(top = 20.dp, bottom = 14.dp).width(46.dp).height(46.dp))
         Text("⏳ প্রসেসিং হচ্ছে...", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         if (vm.procMode > 0) Text("ধাপ-" + PostUtil.bn(vm.procMode), fontSize = 12.sp, color = C.Label)
-        Text("AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।", fontSize = 13.sp, color = C.Label, textAlign = TextAlign.Center)
+        Text(vm.procNote.ifBlank { "AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।" }, fontSize = 13.sp, color = C.Label, textAlign = TextAlign.Center)
         Box(Modifier.padding(top = 16.dp, bottom = 6.dp).widthIn(max = 420.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFFE5E5E5))) {
             Box(Modifier.fillMaxWidth(pct / 100f).height(10.dp).clip(RoundedCornerShape(6.dp)).background(C.Red))
         }

@@ -274,20 +274,19 @@ private fun fetchArticle(url: String): Article? = runCatching {
 }.getOrNull()
 
 private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): String {
-    val rules = "তুমি একজন পেশাদার বাংলাদেশি নিউজ রিপোর্টার। নিচের খবরটি পড়ে নিজের ভাষায় নতুন করে লেখো, হুবহু কপি করবে না, তবে সব তথ্য ঠিক রাখবে।\n" +
-        "নিয়ম:\n" +
-        "১) শুধু খবরটাই লিখবে। কোনো ভূমিকা, মন্তব্য, ব্যাখ্যা, পরামর্শ, প্রশ্ন, ইমোজি বা মার্কডাউন (**, #) থাকবে না।\n" +
-        "২) নিজে থেকে কোনো তথ্য, নাম, সংখ্যা বা উদ্ধৃতি যোগ করবে না।\n" +
-        "৩) ফরম্যাট ঠিক এরকম হবে: প্রথম লাইনে \"শিরোনাম: \" লিখে নতুন শিরোনাম, দ্বিতীয় লাইনে \"কার্ড: \" লিখে ফোটোকার্ডের ছোট শিরোনাম, তারপর একটা ফাঁকা লাইন, তারপর ছোট ছোট অনুচ্ছেদে খবরের বডি (প্রতি অনুচ্ছেদের মাঝে ফাঁকা লাইন)।\n" +
-        "৪) শিরোনাম মূল শিরোনাম থেকে আলাদা হবে: তথ্যনির্ভর, আকর্ষণীয়, কিন্তু ক্লিকবেইট নয়। শিরোনাম পূর্ণ হবে (৮ থেকে ১৫ শব্দ): কে, কোথায়, কী করলেন বা কী ঘটল, এই তিনটি থাকবে। শুধু স্থান ও পদবি দিয়ে থামিয়ে অসম্পূর্ণ রাখবে না।\n" +
-        "৫) কার্ডের শিরোনাম ফোটোকার্ডের ছোট শিরোনাম, সর্বোচ্চ ১২ শব্দ, আর শিরোনাম লাইন থেকে একটু আলাদা ভাষায় হবে (হুবহু একই বাক্য নয়)।\n" +
-        "৬) সংক্ষেপ বা সারমর্ম করবে না। মূল খবরের প্রতিটি তথ্য, নাম, তারিখ, সংখ্যা, তালিকা, শর্ত ও উদ্ধৃতি রাখবে; কিছু বাদ দেবে না। তালিকা বা টেবিলের তথ্য আলাদা অনুচ্ছেদে বা লাইনে পুরোটা লিখবে। খবর যত বড়, তোমার লেখাও প্রায় ততটাই বড় হবে।\n" +
-        (if (a != null) "৭) মূল খবরে প্রায় ${a.text.split(Regex("\\s+")).size} শব্দ আছে; তোমার লেখা অন্তত ${a.text.split(Regex("\\s+")).size * 8 / 10} শব্দের হবে।\n" else "") + "\n"
-    var src = if (a != null) (if (a.title.isNotBlank()) "মূল খবরের শিরোনাম: ${a.title}\n" else "") + "মূল খবর:\n${a.text}\n\n"
+    // ধাপ ১: আগে মূল খবরের লেখা (লিংক খুলে যা পাওয়া গেছে) পেস্ট, তারপর নির্দেশ। লিংক থেকে লেখা না এলে লিংকটাই যায়।
+    var src = if (a != null) (if (a.title.isNotBlank()) "${a.title}\n\n" else "") + a.text.trim() + "\n\n"
               else if (url.isNotBlank()) "খবরের লিংক (এটি খুলে পড়ো): $url\n\n"
               else ""
-    if (notes.isNotBlank()) src += "প্রতিবেদকের নিজের সংগ্রহ করা তথ্য (খবরে মিলিয়ে নেবে, এর বাইরে কিছু যোগ করবে না):\n${notes.trim().take(3000)}\n\n"
-    return rules + src + "শুধু উপরের ফরম্যাটে নিউজটি লিখুন, আর কিছু নয়।"
+    if (notes.isNotBlank()) src += "প্রতিবেদকের নিজের সংগ্রহ করা তথ্য:\n${notes.trim().take(3000)}\n\n"
+    val rules = "এই নিউজটা তুমি আমাকে রিরাইট করে দাও। হুবহু কপি হবে না। মূল লেখার থেকে ডিফারেন্ট হবে। তথ্য ঠিক থাকবে। " +
+        "যেন মনে হয় কোনো সাংবাদিক লিখেছে। কোনো এক্সট্রা কথা যোগ করবে না। তোমার থিংকিং বা সাজেশন যোগ করবে না। " +
+        "লেখা প্লেইন টেক্সট এ হবে যেনো কপি পেস্ট করতে পারি। তিনটা স্তর থাকবে:\n" +
+        "১. টাইটেল:\n" +
+        "২. ফটোকার্ড টাইটেল:\n" +
+        "৩. নিউজ:\n" +
+        "ছোট করবে না নিউজটা।"
+    return src + rules
 }
 
 /** ব্যর্থ সাইটের কুকি, লোকাল স্টোরেজ ও ক্যাশ মুছে ফেলে (অন্য সাইটের কুকি ছোঁয়া হয় না)।
@@ -319,17 +318,40 @@ private fun cleanTail(t: String): String {
 /** AI-র উত্তর থেকে (শিরোনাম, বডি) আলাদা করে; বাড়তি চিহ্ন/প্রিফিক্স ছেঁটে ফেলে */
 private fun parseNews(raw: String): Pair<String, String> = parseNews3(raw).let { it.first to it.third }
 
-/** (শিরোনাম, কার্ড-শিরোনাম, বডি); "কার্ড:" লাইন না থাকলে কার্ড-শিরোনাম ফাঁকা */
+/** (শিরোনাম, কার্ড-শিরোনাম, বডি); কার্ড-শিরোনাম না থাকলে ফাঁকা।
+ *  নতুন ফরম্যাট: "১. টাইটেল: …", "২. ফটোকার্ড টাইটেল: …", "৩. নিউজ: …" (নম্বর বাংলা/ইংরেজি, থাকতেও পারে না-ও পারে)।
+ *  এই লেবেল না পেলে আগের "শিরোনাম:"/"কার্ড:" ফরম্যাট ধরা হয়। */
 private fun parseNews3(raw: String): Triple<String, String, String> {
     var lines = raw.replace("\r", "").lines().map { it.replace("**", "").replace(Regex("^#+\\s*"), "").trimEnd() }
     lines = lines.dropWhile { it.isBlank() || Regex("^(ChatGPT said:?|Gemini said:?|You said:?)\\s*\$", RegexOption.IGNORE_CASE).matches(it.trim()) }
-    val ti = lines.indexOfFirst { Regex("^\\s*(শিরোনাম|Title)\\s*[:：]").containsMatchIn(it) }
+    val num = "(?:[0-9\u09E6-\u09EF]+\\s*[.)।:\\-]?\\s*)?"
+    val cardRe = Regex("^\\s*" + num + "(?:ফটোকার্ড|ফোটোকার্ড|ফটো\\s*কার্ড|কার্ড|Photo\\s*card|Card)(?:\\s*(?:টাইটেল|শিরোনাম|title))?\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
+    val titleRe = Regex("^\\s*" + num + "(?:টাইটেল|শিরোনাম|Title)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
+    val newsRe = Regex("^\\s*" + num + "(?:নিউজ|খবর|News|Body)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
+    val ni = lines.indexOfFirst { newsRe.containsMatchIn(it) }
+    val tIdx = lines.indexOfFirst { titleRe.containsMatchIn(it) }
+    if (ni >= 0 && tIdx in 0 until ni) {
+        // লেবেলের পরের মান: একই লাইনে না থাকলে পরের প্রথম অ-ফাঁকা লাইন
+        fun valueAt(i: Int, re: Regex, limit: Int): String {
+            val same = lines[i].replace(re, "").trim().trim('"', '“', '”')
+            if (same.isNotEmpty()) return same
+            val j = (i + 1 until limit).firstOrNull { lines[it].isNotBlank() } ?: return ""
+            return lines[j].trim().trim('"', '“', '”')
+        }
+        val cIdx = lines.indexOfFirst { cardRe.containsMatchIn(it) }.takeIf { it in (tIdx + 1) until ni } ?: -1
+        val title = valueAt(tIdx, titleRe, if (cIdx >= 0) cIdx else ni)
+        val card = if (cIdx >= 0) valueAt(cIdx, cardRe, ni) else ""
+        val first = lines[ni].replace(newsRe, "")
+        val body = (listOf(first) + lines.drop(ni + 1)).joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+        return Triple(title, card, body)
+    }
+    // আগের ফরম্যাট
+    val ti = lines.indexOfFirst { Regex("^\\s*(শিরোনাম|টাইটেল|Title)\\s*[:：]").containsMatchIn(it) }
     val title: String; val rest: List<String>
     if (ti >= 0) {
-        title = lines[ti].replace(Regex("^\\s*(শিরোনাম|Title)\\s*[:：]\\s*"), "").trim().trim('"', '“', '”')
+        title = lines[ti].replace(Regex("^\\s*(শিরোনাম|টাইটেল|Title)\\s*[:：]\\s*"), "").trim().trim('"', '“', '”')
         rest = lines.drop(ti + 1)
     } else { title = lines.firstOrNull()?.trim() ?: ""; rest = lines.drop(1) }
-    val cardRe = Regex("^\\s*(কার্ড(\\s*শিরোনাম)?|ফোটোকার্ড(\\s*শিরোনাম)?|Card(\\s*title)?)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
     val ci = rest.indexOfFirst { it.isNotBlank() }
     var card = ""; var rest2 = rest
     if (ci in 0..2 && cardRe.containsMatchIn(rest[ci])) {

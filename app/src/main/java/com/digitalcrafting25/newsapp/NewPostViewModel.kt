@@ -96,6 +96,8 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
     var procPct by mutableStateOf(0f)
     /** প্রসেসিং প্যানেলের লেবেল (ধাপ-N): ১ = Gemini (গেস্ট), ২ = ChatGPT (গেস্ট), ৩ = আগের মতো পেইড API */
     var procMode by mutableIntStateOf(0)
+    /** প্রসেসিং প্যানেলের নিচের লেখা; ফাঁকা হলে আগের মতো "AI খবরটা পড়ে…"। গেস্টে প্রথমে "লেখা পড়া হচ্ছে" (তখন ধাপ-নম্বর নেই) */
+    var procNote by mutableStateOf("")
     var procLines by mutableStateOf<List<String>>(emptyList())
     private val procRaw = StringBuilder()
     private var procExpect = 4000
@@ -361,7 +363,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
 
 
     // ───────── প্রসেসিং বার ও লাইভ লগ (ওয়েবের procStart/procEv/liveLines) ─────────
-    private fun procReset() { procPart = -1; procRaw.setLength(0); procExpect = 4000; procCap = 8f; procLast = 0L; procPct = 0f; procSet(2f); procLines = emptyList() }
+    private fun procReset() { procNote = ""; procPart = -1; procRaw.setLength(0); procExpect = 4000; procCap = 8f; procLast = 0L; procPct = 0f; procSet(2f); procLines = emptyList() }
     private fun procSet(p: Float) { procCap = maxOf(procCap, p); procPct = maxOf(procPct, minOf(p, 99f)) }
     private fun procEv(ev0: JSONObject) {
         var ev = ev0
@@ -457,8 +459,8 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         if (!guestOk()) return
         val v = src.trim(); val n = notes.trim()
         lastInput = v; lastNotes = n
-        startBusy("⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।")
-        rewriting = true; procReset(); procMode = 1   // গেস্টের প্রথম ধাপ = Gemini
+        startBusy("📖 লেখা পড়া হচ্ছে...")
+        rewriting = true; procReset(); procMode = 0; procNote = "📖 লেখা পড়া হচ্ছে..."   // আগে লিংক খুলে লেখা কপি; ধাপ-১ (Gemini) লেখা উঠবে লেখা পড়া শেষে
         viewModelScope.launch {
             try {
                 fetchGuestTok()
@@ -466,7 +468,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 guestImg = ""
                 var input = v; var gTitle = ""
                 if (Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(v)) {
-                    busyMsg = "🔎 লিংক থেকে মূল লেখা ও ছবি আনা হচ্ছে..."
+                    busyMsg = "📖 লেখা পড়া হচ্ছে..."
                     runCatching { Worker.post(app, "/fetch-source", JSONObject().put("url", v), 60000) }.onSuccess { d ->
                         val t = d.optString("text")
                         if (t.length >= 200) { input = t; gTitle = d.optString("title") }   // লেখা না পেলে আগের মতো লিংকই যায়
@@ -474,6 +476,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     }
                     busyMsg = "⏳ AI খবরটা পড়ে নতুন করে লিখছে। একটু অপেক্ষা করুন।"
                 }
+                procNote = ""; procMode = 1   // লেখা পড়া শেষ: এবার Gemini গেস্ট খুলবে, ওপরে ধাপ-১
                 guestJob = GuestJob(++guestSeq, input, n, gTitle)
             } catch (e: Exception) { fail(e); endBusy() }
         }
