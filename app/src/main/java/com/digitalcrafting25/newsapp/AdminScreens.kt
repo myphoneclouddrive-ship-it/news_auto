@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,6 +91,30 @@ class AdminViewModel(private val app: Application) : AndroidViewModel(app) {
         private set
     var topups by mutableStateOf<List<AdminTopup>>(emptyList())
         private set
+
+    var crediting by mutableStateOf(false)
+        private set
+    var creditMsg by mutableStateOf<String?>(null)
+        private set
+
+    fun clearCreditMsg() { creditMsg = null }
+
+    /** অ্যাডমিন নিজে থেকে কোনো ইউজারের ব্যালেন্সে পয়েন্ট (৳) যোগ করে — Worker-এর /admin-credit */
+    fun addPoints(uid: String, email: String, amount: Int, note: String) {
+        if (crediting) return
+        crediting = true; creditMsg = null
+        viewModelScope.launch {
+            try {
+                val d = Worker.post(app, "/admin-credit", JSONObject().put("uid", uid).put("amount", amount).put("note", note), 30000)
+                creditMsg = "✅ " + email.ifBlank { "ইউজার" } + "-এর ব্যালেন্সে ৳" + Bn.num(amount) + " যোগ হয়েছে। নতুন ব্যালেন্স ৳" + Bn.num(Math.round(d.optDouble("balance", 0.0)))
+                load()
+            } catch (e: Exception) {
+                creditMsg = "❌ " + (e.message ?: "পয়েন্ট যোগ হয়নি")
+            } finally {
+                crediting = false
+            }
+        }
+    }
 
     fun reset() {
         loading = false; error = null; isAdmin = null; loaded = false
@@ -300,7 +326,8 @@ fun AdminStatsScreen(vm: AdminViewModel) {
             }
         }
         if (sorted.isEmpty()) Text(if (vm.loading) "লোড হচ্ছে..." else "এখনো কোনো ইউজার নেই।", fontSize = 14.sp, color = C.Muted)
-        sorted.forEach { u -> AdminUserRow(u) }
+        vm.creditMsg?.let { m -> StatusLine(m.startsWith("✅"), m) }
+        sorted.forEach { u -> AdminUserRow(u, vm) }
 
         H2("💰 সাম্প্রতিক টপ-আপ")
         if (vm.topups.isEmpty()) Text(if (vm.loading) "লোড হচ্ছে..." else "এখনো কোনো টপ-আপ নেই।", fontSize = 14.sp, color = C.Muted)
@@ -315,7 +342,33 @@ fun AdminStatsScreen(vm: AdminViewModel) {
 }
 
 @Composable
-private fun AdminUserRow(u: AdminUser) {
+private fun AdminUserRow(u: AdminUser, vm: AdminViewModel) {
+    var showAdd by remember { mutableStateOf(false) }
+    var amt by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    val amtNum = amt.trim().toIntOrNull()
+    if (showAdd) {
+        AlertDialog(
+            onDismissRequest = { if (!vm.crediting) showAdd = false },
+            title = { Text("➕ পয়েন্ট যোগ করুন") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(u.email.ifBlank { "ইউজার " + u.uid.take(6) }, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Small("বর্তমান ব্যালেন্স " + (u.bal?.let { taka(it) } ?: "—"))
+                    AppField(amt, { v -> amt = v.filter { c -> c.isDigit() }.take(6) }, placeholder = "কত পয়েন্ট (৳), ১ থেকে ১,০০,০০০", keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    AppField(note, { v -> note = v.take(40) }, placeholder = "কারণ (ঐচ্ছিক, যেমন: উপহার)")
+                    Small("পয়েন্ট ইউজারের ব্যালেন্সে সাথে সাথে যোগ হবে। এটা টপ-আপের হিসাবে গোনা হবে না।")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { amtNum?.let { vm.addPoints(u.uid, u.email, it, note.trim()); showAdd = false; amt = ""; note = "" } },
+                    enabled = !vm.crediting && amtNum != null && amtNum in 1..100000,
+                ) { Text("✅ যোগ করুন") }
+            },
+            dismissButton = { TextButton(onClick = { showAdd = false }, enabled = !vm.crediting) { Text("বাতিল") } },
+        )
+    }
     InfoCard {
         Text(
             u.email.ifBlank { "ইউজার " + u.uid.take(6) } + (if (u.owner) " (অ্যাডমিন)" else ""),
@@ -331,5 +384,6 @@ private fun AdminUserRow(u: AdminUser) {
             Modifier.padding(top = 2.dp),
         )
         if (u.last > 0) Small("শেষ দেখা: " + Bn.dateTime(u.last), Modifier.padding(top = 2.dp))
+        if (!u.owner) AppBtn("➕ পয়েন্ট যোগ করুন", Modifier.padding(top = 8.dp), color = C.Green, small = true) { showAdd = true }
     }
 }

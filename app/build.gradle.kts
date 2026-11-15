@@ -21,30 +21,16 @@ android {
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 
-    // দুটো অ্যাপ: user = সাধারণ ইউজারের অ্যাপ, admin = অ্যাডমিনের কন্ট্রোল অ্যাপ (আলাদা applicationId, তাই একই ফোনে দুটোই থাকতে পারে)
-    flavorDimensions += "role"
-    productFlavors {
-        create("user") {
-            dimension = "role"
-            buildConfigField("boolean", "IS_ADMIN", "false")
-            buildConfigField("String", "APK_NAME", "\"NewsPublisher.apk\"")
-        }
-        create("admin") {
-            dimension = "role"
-            applicationIdSuffix = ".admin"
-            versionNameSuffix = "-admin"
-            buildConfigField("boolean", "IS_ADMIN", "true")
-            buildConfigField("String", "APK_NAME", "\"NewsPublisherAdmin.apk\"")
-        }
-    }
-
-    buildFeatures {
-        compose = true
-        buildConfig = true
-    }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
-
     signingConfigs {
+        create("releaseAdmin") {
+            val ks = file("admin.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = System.getenv("ADMIN_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ADMIN_KEY_ALIAS")
+                keyPassword = System.getenv("ADMIN_KEY_PASSWORD")
+            }
+        }
         create("release") {
             val ks = file("release.keystore")
             if (ks.exists()) {
@@ -56,11 +42,37 @@ android {
         }
     }
 
+    // দুটো অ্যাপ: user = সাধারণ ইউজারের অ্যাপ, admin = অ্যাডমিনের কন্ট্রোল অ্যাপ (আলাদা applicationId, তাই একই ফোনে দুটোই থাকতে পারে)
+    flavorDimensions += "role"
+    productFlavors {
+        create("user") {
+            dimension = "role"
+            buildConfigField("boolean", "IS_ADMIN", "false")
+            buildConfigField("String", "APK_NAME", "\"NewsPublisher.apk\"")
+            signingConfig = signingConfigs.getByName("release")
+        }
+        create("admin") {
+            dimension = "role"
+            applicationIdSuffix = ".admin"
+            versionNameSuffix = "-admin"
+            buildConfigField("boolean", "IS_ADMIN", "true")
+            buildConfigField("String", "APK_NAME", "\"NewsPublisherAdmin.apk\"")
+            // অ্যাডমিন অ্যাপ আলাদা key-তে সাইন হয় (SMS অনুমতি আছে বলে, ইউজার অ্যাপের key-এর সুনাম নষ্ট না করতে)।
+            // app/admin.keystore না থাকলে আগের মতো ইউজার অ্যাপের key-ই ব্যবহার হয়।
+            signingConfig = signingConfigs.getByName(if (file("admin.keystore").exists()) "releaseAdmin" else "release")
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = if (file("release.keystore").exists())
-                signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            // signingConfig এখানে নেই: প্রতিটা flavor নিজের key ব্যবহার করে (উপরে productFlavors)
         }
     }
 
