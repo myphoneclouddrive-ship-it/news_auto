@@ -527,8 +527,8 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 guestTok = null
                 lastInput = src.trim(); lastNotes = notes.trim()
                 val (t1, w1) = scrubForeign(t.trim()); val (b1, w2) = scrubForeign(b.trim()); val (c1, w3) = scrubForeign(c.trim())
-                title = t1; body = TextFieldValue(b1); undo.clear()
-                cardTitle = c1.ifBlank { title }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
+                title = clampTitle(t1); body = TextFieldValue(b1); undo.clear()
+                cardTitle = clampCard(c1).ifBlank { clampCard(title) }   // কার্ড-শিরোনাম না এলে আগের মতো শিরোনামই
                 (w1 + w2 + w3).distinct().let { w -> if (w.isNotEmpty()) notice = "⚠️ AI লেখার ভেতরে বাংলা-ছাড়া (হিন্দি) অক্ষর ঢুকিয়েছিল, সেগুলো সরানো হয়েছে। এই শব্দগুলো একবার দেখে ঠিক করে নিন: " + w.joinToString(", ") }
                 aiPrompt = ""; promptEdited = false
                 refBmp = null; refUrl = ""
@@ -616,9 +616,9 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 }
                 if (isUrl && d.optString("source_text").isNotBlank()) src = d.getString("source_text")
                 val (t1, w1) = scrubForeign(d.getString("title")); val (b1, w2) = scrubForeign(text); val (c1, w3) = scrubForeign(d.optString("card_title"))
-                title = t1
+                title = clampTitle(t1)
                 body = TextFieldValue(b1); undo.clear()
-                cardTitle = c1.ifBlank { title }
+                cardTitle = clampCard(c1).ifBlank { clampCard(title) }
                 (w1 + w2 + w3).distinct().let { w -> if (w.isNotEmpty()) notice = "⚠️ AI লেখার ভেতরে বাংলা-ছাড়া (হিন্দি) অক্ষর ঢুকিয়েছিল, সেগুলো সরানো হয়েছে। এই শব্দগুলো একবার দেখে ঠিক করে নিন: " + w.joinToString(", ") }
                 aiPrompt = ""; promptEdited = false
                 refBmp = null; refUrl = ""

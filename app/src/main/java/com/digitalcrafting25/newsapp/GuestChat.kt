@@ -285,6 +285,9 @@ private fun buildNewsPrompt(a: Article?, url: String, notes: String = ""): Strin
         "১. টাইটেল:\n" +
         "২. ফটোকার্ড টাইটেল:\n" +
         "৩. নিউজ:\n" +
+        "এই ক্রমেই লিখবে: আগে টাইটেল, তারপর ফটোকার্ড টাইটেল, সবশেষে নিউজ। " +
+        "টাইটেল হবে এক লাইনে, সর্বোচ্চ ১৫ শব্দ। ফটোকার্ড টাইটেল হবে এক লাইনে, সর্বোচ্চ ১০ শব্দ, টাইটেলের চেয়ে ছোট ও ধারালো। " +
+        "টাইটেল ও ফটোকার্ড টাইটেল শুধু নিজ নিজ লেবেলের নিচে একবারই দেবে; নিউজের ভেতরে বা নিউজের নিচে আবার দেবে না। " +
         "ছোট করবে না নিউজটা।"
     return src + rules
 }
@@ -337,6 +340,26 @@ private fun stripCites(body: String): String {
     return out.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
 }
 
+// ───────── শিরোনাম / ফটোকার্ড টাইটেলের দৈর্ঘ্যের সীমা ─────────
+const val TITLE_MAX_WORDS = 16
+const val TITLE_MAX_CHARS = 130
+const val CARD_MAX_WORDS = 12
+const val CARD_MAX_CHARS = 90
+/** টাইপ করার সময় ঘরে ঢোকার সর্বোচ্চ অক্ষর (পেস্ট করলেও এর বেশি ঢুকবে না) */
+const val TITLE_UI_MAX = 150
+const val CARD_UI_MAX = 100
+
+/** বাড়তি ফাঁকা সরিয়ে শব্দ ও অক্ষরের সীমায় ছাঁটে (শব্দের মাঝখানে কাটে না) */
+fun clampText(s: String, maxWords: Int, maxChars: Int): String {
+    val t = s.replace(Regex("\\s+"), " ").trim()
+    val words = t.split(" ").filter { it.isNotEmpty() }
+    var out = if (words.size > maxWords) words.take(maxWords).joinToString(" ") else t
+    if (out.length > maxChars) { val cut = out.take(maxChars); out = cut.substringBeforeLast(' ', cut) }
+    return out.trimEnd(',', ';', ':', '-', '–', '—', ' ').trim()
+}
+fun clampTitle(s: String) = clampText(s, TITLE_MAX_WORDS, TITLE_MAX_CHARS)
+fun clampCard(s: String) = clampText(s, CARD_MAX_WORDS, CARD_MAX_CHARS)
+
 /** (শিরোনাম, কার্ড-শিরোনাম, বডি); কার্ড-শিরোনাম না থাকলে ফাঁকা।
  *  নতুন ফরম্যাট: "১. টাইটেল: …", "২. ফটোকার্ড টাইটেল: …", "৩. নিউজ: …" (নম্বর বাংলা/ইংরেজি, থাকতেও পারে না-ও পারে)।
  *  এই লেবেল না পেলে আগের "শিরোনাম:"/"কার্ড:" ফরম্যাট ধরা হয়। */
@@ -349,19 +372,34 @@ private fun parseNews3(raw: String): Triple<String, String, String> {
     val newsRe = Regex("^\\s*" + num + "(?:নিউজ|খবর|News|Body)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
     val ni = lines.indexOfFirst { newsRe.containsMatchIn(it) }
     val tIdx = lines.indexOfFirst { titleRe.containsMatchIn(it) }
-    if (ni >= 0 && tIdx in 0 until ni) {
-        // লেবেলের পরের মান: একই লাইনে না থাকলে পরের প্রথম অ-ফাঁকা লাইন
-        fun valueAt(i: Int, re: Regex, limit: Int): String {
+    val cIdx0 = lines.indexOfFirst { cardRe.containsMatchIn(it) }
+    if (ni >= 0 || tIdx >= 0 || cIdx0 >= 0) {
+        // লেবেল (টাইটেল / ফটোকার্ড টাইটেল / নিউজ) যেকোনো জায়গায়, যেকোনো ক্রমে থাকতে পারে (AI অনেক সময় নিউজ আগে লিখে শেষে টাইটেল বসায়)।
+        // টাইটেল ও কার্ড-টাইটেলের লেবেল-লাইন + তার মান-লাইন বডি থেকে বাদ যায়, যাতে বডির নিচে কিছু থেকে না যায়।
+        val used = BooleanArray(lines.size)
+        fun isLabel(l: String) = titleRe.containsMatchIn(l) || cardRe.containsMatchIn(l) || newsRe.containsMatchIn(l)
+        fun take(i: Int, re: Regex): String {
+            used[i] = true
             val same = lines[i].replace(re, "").trim().trim('"', '“', '”')
             if (same.isNotEmpty()) return same
-            val j = (i + 1 until limit).firstOrNull { lines[it].isNotBlank() } ?: return ""
+            var j = i + 1
+            while (j < lines.size && lines[j].isBlank()) j++
+            if (j >= lines.size || isLabel(lines[j])) return ""
+            used[j] = true
             return lines[j].trim().trim('"', '“', '”')
         }
-        val cIdx = lines.indexOfFirst { cardRe.containsMatchIn(it) }.takeIf { it in (tIdx + 1) until ni } ?: -1
-        val title = valueAt(tIdx, titleRe, if (cIdx >= 0) cIdx else ni)
-        val card = if (cIdx >= 0) valueAt(cIdx, cardRe, ni) else ""
-        val first = lines[ni].replace(newsRe, "")
-        val body = stripCites((listOf(first) + lines.drop(ni + 1)).joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim())
+        var title = ""; var card = ""
+        for (i in lines.indices) {
+            if (used[i]) continue
+            if (cardRe.containsMatchIn(lines[i])) { val v = take(i, cardRe); if (card.isEmpty()) card = v }
+            else if (titleRe.containsMatchIn(lines[i])) { val v = take(i, titleRe); if (title.isEmpty()) title = v }
+        }
+        val bodyLines: List<String> = if (ni >= 0) {
+            used[ni] = true
+            listOf(lines[ni].replace(newsRe, "")) + (ni + 1 until lines.size).filter { !used[it] }.map { lines[it] }
+        } else lines.indices.filter { !used[it] }.map { lines[it] }
+        val body = stripCites(bodyLines.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim())
+        if (title.isBlank()) title = card.ifBlank { body.lines().firstOrNull { it.isNotBlank() }?.trim() ?: "" }
         return Triple(title, card, body)
     }
     // আগের ফরম্যাট

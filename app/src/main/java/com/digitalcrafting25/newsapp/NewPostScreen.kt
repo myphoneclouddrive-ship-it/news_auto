@@ -580,7 +580,7 @@ private fun Step1(vm: NewPostViewModel, onOpenVideo: () -> Unit, onClear: () -> 
 @Composable
 private fun Step2(vm: NewPostViewModel, onNext: () -> Unit, onRetry: () -> Unit, onClear: () -> Unit, clearLabel: String, clearColor: Color, onBack: () -> Unit) {
     FieldLabel("২. শিরোনাম (এডিট করুন)")
-    AppField(vm.title, { vm.title = it; vm.saveDraft() }, singleLine = false)
+    AppField(vm.title, { vm.title = it.take(TITLE_UI_MAX); vm.saveDraft() }, singleLine = false)
     FieldLabel("বডি (পোস্ট প্রিভিউ, এখানেই এডিট করুন)")
     FormatBar(vm, manual = false)
     BodyField(vm.body, { vm.editBody(it) }, 14)
@@ -640,7 +640,7 @@ private fun Step3(vm: NewPostViewModel, onClear: () -> Unit, clearLabel: String,
     }
 
     FieldLabel("ফোটোকার্ডের শিরোনাম")
-    AppField(vm.cardTitle, { vm.cardTitle = it.replace(Regex("\\s*\\n+\\s*"), " "); vm.saveDraft() }, singleLine = false, visual = CardTitleVT)
+    AppField(vm.cardTitle, { vm.cardTitle = it.replace(Regex("\\s*\\n+\\s*"), " ").take(CARD_UI_MAX); vm.saveDraft() }, singleLine = false, visual = CardTitleVT)
 
     H2("🎨 ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
