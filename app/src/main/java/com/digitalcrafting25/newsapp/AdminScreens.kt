@@ -171,11 +171,12 @@ fun AdminRoot(auth: AuthViewModel, uv: UpdateViewModel, sv: SettingsViewModel, a
     }
     val avm: AdminViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val rvm: RatesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val ovm: OffersViewModel = androidx.lifecycle.viewmodel.compose.viewModel()   // 🎁 অফার বানানো/মোছা
     val tsvm: TemplateStoreViewModel = androidx.lifecycle.viewmodel.compose.viewModel()   // 🎨 শেয়ার্ড টেমপ্লেট (অ্যাডমিন বানায়/মোছে)
     val upd by uv.state.collectAsStateWithLifecycle()
     LaunchedEffect(online) { if (online) uv.autoCheck() }
     LaunchedEffect(loggedIn) { if (!avm.loaded && !avm.loading) avm.load() }
-    val logout = { avm.reset(); rvm.reset(); tsvm.reset(); sv.reset(); autoVm.reset(); auth.logout() }
+    val logout = { avm.reset(); rvm.reset(); ovm.reset(); tsvm.reset(); sv.reset(); autoVm.reset(); auth.logout() }
 
     if (upd.showPopup && upd.available != null) {
         val info = upd.available!!
@@ -218,6 +219,7 @@ fun AdminRoot(auth: AuthViewModel, uv: UpdateViewModel, sv: SettingsViewModel, a
                 tab == 1 -> AdminWalletScreen(sv)
                 tab == 2 -> AdminRatesScreen(rvm)
                 tab == 3 -> TemplateStoreScreen(tsvm, admin = true, onClose = null, onChanged = {})
+                tab == 5 -> AdminOffersScreen(ovm)
                 else -> AdminSettingsScreen(sv, uv, autoVm)
             }
         }
@@ -242,7 +244,7 @@ private fun AdminTopBar(onLogout: () -> Unit) {
 
 @Composable
 private fun AdminBottomBar(current: Int, onSelect: (Int) -> Unit) {
-    val items = listOf("📊" to "হিসাব", "💳" to "ব্যালেন্স", "💰" to "রেট", "🎨" to "টেমপ্লেট", "⚙️" to "সেটিংস")
+    val items = listOf("📊" to "হিসাব", "💳" to "ব্যালেন্স", "💰" to "রেট", "🎨" to "টেমপ্লেট", "⚙️" to "সেটিংস", "🎁" to "অফার")
     Column(Modifier.background(Color.White)) {
         HorizontalDivider(color = C.NavLine)
         Row(Modifier.fillMaxWidth()) {

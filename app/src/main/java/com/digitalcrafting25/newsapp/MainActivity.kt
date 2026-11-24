@@ -140,7 +140,9 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
         return
     }
     val upd by uv.state.collectAsStateWithLifecycle()
+    val ov: OffersViewModel = androidx.lifecycle.viewmodel.compose.viewModel()   // 🎁 অফার (ওপরের আইকন + অফার পেইজ)
     LaunchedEffect(online) { if (online) uv.autoCheck() }
+    LaunchedEffect(loggedIn, online) { if (loggedIn && online && !ov.loaded) ov.load() }
     if (upd.showPopup && upd.available != null) {
         val info = upd.available!!
         AlertDialog(
@@ -175,7 +177,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
-            if (!EditorUi.fullscreen) TopBar(onLogout = { dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); ev.clearRender(); auth.logout() })
+            if (!EditorUi.fullscreen) TopBar(offerN = ov.count, onOffers = { page = Page.OFFERS; ov.load() }, onLogout = { ov.reset(); dash.reset(); bm.reset(); sv.reset(); site.reset(); adsVm.reset(); sched.reset(); card.reset(); np.reset(); autoVm.reset(); ev.clearRender(); auth.logout() })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // সফল চেকের পর পেজ নতুন করে বসে, ফলে Firebase থেকে ডেটা আবার আসে (নতুন পোস্ট এডিটরের অবস্থা অক্ষত থাকে)
                 val tick by Net.refreshTick.collectAsStateWithLifecycle()
@@ -183,6 +185,7 @@ fun AppRoot(ev: EditorViewModel, uv: UpdateViewModel, auth: AuthViewModel, dash:
                 when (page) {
                     Page.DASH -> DashboardScreen(dash, onOpenBookmarks = { page = Page.BOOKMARKS })
                     Page.BOOKMARKS -> BookmarkScreen(bm, onBack = { page = Page.DASH })
+                    Page.OFFERS -> OffersScreen(ov, dash, onBack = { page = Page.DASH })
                     Page.NEW -> NewPostHost(ev, np, adsVm, onScheduled = { page = Page.SCHEDULE }, onDelete = {
                         // এডিটের মাঝে ডিলিট: সার্ভারের সিডিউল মুছে, ফোনের কপি মুছে, সিডিউল পাতায় ফেরা
                         np.editItem?.let { sched.cancel(it) }

@@ -129,7 +129,7 @@ fun LoginScreen(vm: AuthViewModel) {
 // ───────────────────────── কাঠামো: উপরের বার + নিচের মেনু ─────────────────────────
 
 @Composable
-fun TopBar(onLogout: () -> Unit) {
+fun TopBar(offerN: Int = 0, onOffers: () -> Unit = {}, onLogout: () -> Unit) {
     var ask by remember { mutableStateOf(false) }
     if (ask) AlertDialog(
         onDismissRequest = { ask = false },
@@ -145,7 +145,11 @@ fun TopBar(onLogout: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("📰 নিউজ অটো পাবলিশার", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            AppBtn("লগআউট", color = C.Gray, small = true, onClick = { ask = true })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 🎁 অফার আইকন: চালু অফারের সংখ্যা দেখায়; চাপলে ফুল পেইজ অফার পেইজ খোলে
+                AppBtn("🎁 " + Bn.num(offerN), color = C.Green, small = true, onClick = onOffers)
+                AppBtn("লগআউট", color = C.Gray, small = true, onClick = { ask = true })
+            }
         }
         HorizontalDivider(color = Color(0xFFE3E3E3))
     }
@@ -158,6 +162,7 @@ enum class Page(val emoji: String, val label: String) {
     SCHEDULE("⏰", "সিডিউল"),
     SETTINGS("⚙️", "সেটিংস"),
     BOOKMARKS("🔖", "বুকমার্ক"),   // নিচের মেনুতে নেই (ওয়েবেও তাই), ড্যাশবোর্ড থেকে খোলে
+    OFFERS("🎁", "অফার"),          // নিচের মেনুতে নেই; ওপরের 🎁 আইকন থেকে খোলে
 }
 
 /** নিচের মেনু। মাঝের ড্যাশবোর্ডের গোল বাটন আলাদা স্তরে (NavCircle) বসে, যাতে উঁচু অংশেও টাচ কাজ করে */
@@ -243,12 +248,22 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenBookmarks: () -> Unit) {
 
         // ব্যালেন্স
         InfoCard {
-            Text("💰 ব্যবহারযোগ্য ব্যালেন্স", fontSize = 13.sp, color = C.Label)
+            Text("💰 মূল ব্যালেন্স", fontSize = 13.sp, color = C.Label)
             Text(
-                st.balance?.let { "৳ " + Bn.num(it) } ?: if (st.loading) "..." else "—",
+                (st.mainBal ?: st.balance)?.let { "৳ " + Bn.num(it) } ?: if (st.loading) "..." else "—",
                 fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp),
             )
             HBtn("➕ ব্যালেন্স যোগ করুন", Modifier.padding(top = 8.dp), padH = 12.dp, padV = 8.dp) { topup = true }
+        }
+        Spacer(Modifier.height(10.dp))
+        // 🎁 অফার ব্যালেন্স: অফারের নাম, বাকি টাকা, মেয়াদ (আনলিমিটেড হলে শুধু কত দিন বাকি)
+        InfoCard {
+            Text("🎁 অফার ব্যালেন্স", fontSize = 13.sp, color = C.Label)
+            if (st.pools.isEmpty()) Text(if (st.balance == null && st.loading) "..." else "কোনো চলমান অফার নেই", fontSize = 15.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
+            else st.pools.forEachIndexed { i, p ->
+                if (i > 0) HorizontalDivider(color = C.Line, modifier = Modifier.padding(vertical = 8.dp))
+                Column(Modifier.padding(top = 4.dp)) { OfferPoolLine(p) }
+            }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -278,7 +293,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenBookmarks: () -> Unit) {
         Spacer(Modifier.height(16.dp))
     }
 
-    if (topup) TopupDialog(vm, st.balance, onClose = { topup = false })
+    if (topup) TopupDialog(vm, st.mainBal ?: st.balance, onClose = { topup = false })
 }
 
 @Composable
@@ -308,8 +323,8 @@ fun openUrl(ctx: android.content.Context, url: String) {
 }
 
 @Composable
-internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -> Unit) {
-    var amt by remember { mutableStateOf("") }
+internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -> Unit, offer: OfferItem? = null) {
+    var amt by remember { mutableStateOf(offer?.price?.toString() ?: "") }   // অফার কিনলে টাকা অফারের দামেই বাঁধা
     var phone by remember { mutableStateOf("") }
     var trx by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -355,7 +370,8 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
         title = null,
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("➕ ব্যালেন্স যোগ করুন", fontWeight = FontWeight.Bold)
+                Text(if (offer != null) "🎁 অফার কিনুন: ${offer.name}" else "➕ ব্যালেন্স যোগ করুন", fontWeight = FontWeight.Bold)
+                if (offer != null) Text("৳${Bn.num(offer.price)} পাঠালে ${offer.days} দিনের জন্য প্রতিটা খরচে ${offer.disc}% ছাড়। এই টাকা অফার-ব্যালেন্সে বসবে (মেইন ব্যালেন্সে নয়)।", fontSize = 13.sp, color = C.Green, modifier = Modifier.padding(top = 6.dp))
                 Text(
                     androidx.compose.ui.text.buildAnnotatedString {
                         append("বর্তমান ব্যালেন্স: ")
@@ -380,8 +396,9 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                     AppBtn(if (reading) "অপেক্ষা..." else "🖼️ গ্যালারি থেকে", Modifier.weight(1f), color = C.Blue, small = true, enabled = !reading && !busy) { pickShot.launch("image/*") }
                 }
                 if (shotMsg.isNotEmpty()) Text(shotMsg, fontSize = 13.sp, color = if (shotOk) C.Green else C.Red, modifier = Modifier.padding(top = 6.dp))
-                FieldLabel("কত টাকা পাঠিয়েছেন")
-                AppField(amt, { amt = it.filter(Char::isDigit) }, placeholder = "যেমন ৫০০", keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+                FieldLabel(if (offer != null) "অফারের দাম (এই টাকাই পাঠাতে হবে)" else "কত টাকা পাঠিয়েছেন")
+                if (offer != null) Text("৳ ${Bn.num(offer.price)}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                else AppField(amt, { amt = it.filter(Char::isDigit) }, placeholder = "যেমন ৫০০", keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
                 FieldLabel("যে নম্বর থেকে টাকা পাঠিয়েছেন")
                 AppField(phone, { phone = it }, keyboard = KeyboardOptions(keyboardType = KeyboardType.Phone))
                 FieldLabel("ট্রানজেকশন আইডি (TrxID)")
@@ -393,7 +410,7 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                     busy = true; msg = ""
                     scope.launch {
                         try {
-                            msg = vm.walletRequest(amt, phone, trx); ok = true; trx = ""
+                            msg = vm.walletRequest(amt, phone, trx, offer?.id); ok = true; trx = ""
                         } catch (e: Exception) {
                             msg = "⚠️ " + (e.message ?: "পাঠানো যায়নি"); ok = false
                         } finally { busy = false }

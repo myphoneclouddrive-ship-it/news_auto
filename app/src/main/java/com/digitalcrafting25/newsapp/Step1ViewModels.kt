@@ -96,7 +96,10 @@ data class DashState(
     val today: Int = 0,
     val month: Int = 0,
     val recent: List<PostItem> = emptyList(),
-    val balance: Double? = null,
+    val balance: Double? = null,   // মোট (যাচাইয়ের জন্য)
+    val mainBal: Double? = null,   // মূল ব্যালেন্স (ড্যাশবোর্ডে দেখানো)
+    val offerBal: Double = 0.0,    // অফার-ব্যালেন্সের মোট টাকা
+    val pools: List<PoolItem> = emptyList(),   // চলমান অফার (নাম, টাকা, মেয়াদ / আনলিমিটেড)
     val pending: Int = 0,
     val error: String? = null,
 )
@@ -116,7 +119,7 @@ class DashboardViewModel(private val app: Application) : AndroidViewModel(app) {
             launch {
                 try {
                     val d = Worker.post(app, "/cslot-get", JSONObject(), 15000)
-                    _state.update { it.copy(balance = d.optDouble("balance", 0.0), pending = d.optInt("pending", 0)) }
+                    _state.update { it.copy(balance = d.optDouble("balance", 0.0), mainBal = d.optDouble("mainBal", d.optDouble("balance", 0.0)), offerBal = d.optDouble("offerBal", 0.0), pools = parsePools(d.optJSONArray("pools")), pending = d.optInt("pending", 0)) }
                 } catch (_: Exception) {
                 }
             }
@@ -174,12 +177,15 @@ class DashboardViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** ব্যালেন্স যোগের অনুরোধ (অ্যাডমিন অনুমোদন দিলে যোগ হয়) — Worker /wallet-request */
-    suspend fun walletRequest(amount: String, phone: String, trx: String): String {
-        val r = Worker.post(
-            app, "/wallet-request",
-            JSONObject().put("amount", amount).put("phone", phone).put("trx", trx), 20000,
-        )
+    suspend fun walletRequest(amount: String, phone: String, trx: String, offerId: String? = null): String {
+        val body = JSONObject().put("amount", amount).put("phone", phone).put("trx", trx)
+        if (!offerId.isNullOrEmpty()) body.put("offer", offerId)   // অফারের বাটন থেকে কেনা: টাকা মেইন ব্যালেন্সে নয়, অফার-ব্যালেন্সে বসবে
+        val r = Worker.post(app, "/wallet-request", body, 20000)
         load()
+        if (offerId != null) {
+            if (r.optBoolean("auto")) return "✅ টাকা পাওয়া গেছে, অফার চালু হয়ে গেছে। ওপরের 🎁 অফার পেইজে দেখুন।"
+            return "✅ অফার কেনার অনুরোধ পাঠানো হয়েছে। অ্যাডমিন টাকা পাওয়া যাচাই করে অনুমোদন দিলে অফার চালু হবে।"
+        }
         if (r.optBoolean("auto")) return "✅ টাকা পাওয়া গেছে, ব্যালেন্সে যোগ হয়ে গেছে।"   // অ্যাডমিনের ফোনের বিকাশ SMS মিলে গেছে
         return "✅ অনুরোধ পাঠানো হয়েছে। অ্যাডমিন টাকা পাওয়া যাচাই করে অনুমোদন দিলে ব্যালেন্সে যোগ হবে (পরে ড্যাশবোর্ড রিফ্রেশ করে দেখুন)।"
     }
