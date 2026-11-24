@@ -119,6 +119,8 @@ fun SiteInfoBody(vm: SiteViewModel) {
             AppField(vm.siteTagline, { vm.siteTagline = it }, placeholder = "যেমন: সত্য প্রকাশে আমরা সবসময়")
             FieldLabel("ওয়েবসাইট (যেমন prothomalo.com)")
             AppField(vm.siteUrl, { vm.siteUrl = it }, keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri))
+            FieldLabel("মোবাইল নম্বর (নতুন ভিডিওর অটো স্ক্রলিং লেখায় \"যোগাযোগ করুন:\" এর পরে বসবে; খালি রাখলে বসবে না)")
+            AppField(vm.phone, { vm.phone = it }, placeholder = "যেমন: 01XXXXXXXXX", keyboard = KeyboardOptions(keyboardType = KeyboardType.Phone))
             FieldLabel("ক্যাটাগরি লেখা (তারিখের পাশে)")
             AppField(vm.category, { vm.category = it })
             FieldLabel("ছবির ট্যাগ (খালি রাখলে দেখাবে না)")

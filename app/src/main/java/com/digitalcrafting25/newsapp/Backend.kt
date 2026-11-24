@@ -158,6 +158,7 @@ data class CardCfg(
     val photoTag: String = "সংগৃহীত",
     val ctaText: String = "বিস্তারিত কমেন্টে",
     val siteTagline: String = "",
+    val phone: String = "",          // মোবাইল নম্বর: নতুন ভিডিওর অটো স্ক্রলিং লেখার শেষে বসে ("...যোগাযোগ করুন: <নম্বর>")
     val logo: String = "",          // data:image/png;base64,...
     val icon: String = "",
     val iconShape: String = "round",
@@ -344,7 +345,7 @@ object Fs {
         return CardCfg(
             siteName = st("siteName", def.siteName), siteUrl = st("siteUrl", def.siteUrl),
             category = st("category", def.category), photoTag = st("photoTag", def.photoTag),
-            ctaText = st("ctaText", def.ctaText), siteTagline = st("siteTagline", def.siteTagline),
+            ctaText = st("ctaText", def.ctaText), siteTagline = st("siteTagline", def.siteTagline), phone = st("phone", def.phone),
             logo = st("logo", def.logo), icon = st("icon", def.icon),
             iconShape = st("iconShape", def.iconShape).ifBlank { "round" },
             fiMode = st("fiMode", def.fiMode), fiPreset = st("fiPreset", def.fiPreset),
@@ -423,7 +424,7 @@ object Fs {
         fun n(v: Int) = JSONObject().put("integerValue", v.toString())
         val fields = JSONObject()
             .put("siteName", s(c.siteName)).put("siteUrl", s(c.siteUrl)).put("category", s(c.category))
-            .put("photoTag", s(c.photoTag)).put("ctaText", s(c.ctaText)).put("siteTagline", s(c.siteTagline))
+            .put("photoTag", s(c.photoTag)).put("ctaText", s(c.ctaText)).put("siteTagline", s(c.siteTagline)).put("phone", s(c.phone))
             .put("logo", s(c.logo)).put("icon", s(c.icon)).put("iconShape", s(c.iconShape))
             .put("fiMode", s(c.fiMode)).put("fiPreset", s(c.fiPreset))
             .put("fiW", n(c.fiW)).put("fiH", n(c.fiH)).put("fiFit", s(c.fiFit))

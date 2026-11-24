@@ -495,7 +495,11 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             // স্ক্রলিং লেখা
             step("স্ক্রলিং লেখা") {
-                if (tl.layers.any { it is TickerLayer }) null else tl.addLayer(LayerKind.TICKER, text = SEED_TICKER)
+                if (tl.layers.any { it is TickerLayer }) null else {
+                    // সেটিংসে মোবাইল নম্বর থাকলে অটো স্ক্রলিং লেখার শেষে বসে; নিজে যোগ করা স্ক্রলিং লেখায় নম্বর আসে না
+                    val phone = runCatching { withContext(Dispatchers.IO) { Fs.cardCfg(app) }.phone.trim() }.getOrDefault("")
+                    tl.addLayer(LayerKind.TICKER, text = if (phone.isEmpty()) SEED_TICKER else "$SEED_TICKER $phone")
+                }
             }
             // নাম/পদবির বার (HTML-এর মতো): মূল ভিডিও শুরুর (ইন্ট্রোর পরের) ১০ সেকেন্ড পর আসে, ৫ সেকেন্ড থাকে।
             // লেখা = সেটিংসের সাইটের নাম + ট্যাগলাইন (পদবির জায়গায়); পরে লেয়ার এডিটে লেখা/সময় বদলানো বা মোছা যায়

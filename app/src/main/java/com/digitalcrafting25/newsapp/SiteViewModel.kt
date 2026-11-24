@@ -42,6 +42,7 @@ class SiteViewModel(private val app: Application) : AndroidViewModel(app) {
     var category by mutableStateOf("")
     var photoTag by mutableStateOf("")
     var ctaText by mutableStateOf("")
+    var phone by mutableStateOf("")
     var logo by mutableStateOf("")
         private set
     var icon by mutableStateOf("")
@@ -55,7 +56,7 @@ class SiteViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         loaded = false; loadError = null; busy = false; notice = null
-        siteName = ""; siteTagline = ""; siteUrl = ""; category = ""; photoTag = ""; ctaText = ""
+        siteName = ""; siteTagline = ""; siteUrl = ""; category = ""; photoTag = ""; ctaText = ""; phone = ""
         logo = ""; icon = ""; iconShape = "round"; fiSize = "original"; fiW = "1200"; fiH = "630"; fiFit = "stretch"
     }
 
@@ -66,7 +67,7 @@ class SiteViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val c = Fs.cardCfg(app)
                 siteName = c.siteName; siteTagline = c.siteTagline; siteUrl = c.siteUrl
-                category = c.category; photoTag = c.photoTag; ctaText = c.ctaText
+                category = c.category; photoTag = c.photoTag; ctaText = c.ctaText; phone = c.phone
                 logo = c.logo; icon = c.icon; iconShape = c.iconShape
                 fiSize = if (c.fiMode == "fixed") c.fiPreset.ifBlank { "1200x630" } else "original"
                 fiW = c.fiW.toString(); fiH = c.fiH.toString(); fiFit = c.fiFit
@@ -124,7 +125,7 @@ class SiteViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         val cfg = CardCfg(
             siteName = siteName.trim(), siteUrl = siteUrl.trim(), category = category.trim(),
-            photoTag = photoTag.trim(), ctaText = ctaText.trim(), siteTagline = siteTagline.trim(),
+            photoTag = photoTag.trim(), ctaText = ctaText.trim(), siteTagline = siteTagline.trim(), phone = phone.trim(),
             logo = logo, icon = icon, iconShape = iconShape,
             fiMode = if (fixed) "fixed" else "original", fiPreset = if (fixed) fiSize else "1200x630",
             fiW = w, fiH = h, fiFit = fiFit,
