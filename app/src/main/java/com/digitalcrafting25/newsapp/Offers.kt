@@ -1,6 +1,21 @@
 package com.digitalcrafting25.newsapp
 
 import android.app.Application
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -159,7 +174,134 @@ fun OfferPoolLine(p: PoolItem) {
     }
 }
 
-// ───────────────────────── ইউজারের অফার পেইজ (ফুল পেইজ) ─────────────────────────
+// ───────────────────────── ইউজারের অফার পেইজ (ফেইসবুক স্টোরির ধাঁচে ব্যানার) ─────────────────────────
+
+/** প্রতিটা অফার স্টোরিতে কত মিলিসেকেন্ড থাকবে */
+private const val STORY_MS = 10_000L
+
+private val storyBrushes = listOf(
+    listOf(Color(0xFFFF512F), Color(0xFFDD2476)),
+    listOf(Color(0xFF396AFC), Color(0xFF2948FF)),
+    listOf(Color(0xFF11998E), Color(0xFF38EF7D)),
+    listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
+    listOf(Color(0xFFF7971E), Color(0xFFFF5E62)),
+    listOf(Color(0xFF0F2027), Color(0xFF2C5364)),
+)
+
+/** স্টোরির একটা পেইজ: রঙিন ব্যাকগ্রাউন্ড, বড় ছাড়ের লেখা, নাম, বর্ণনা, দাম/মেয়াদ ও কেনার বাটন */
+@Composable
+private fun StorySlide(o: OfferItem, i: Int, blocked: Boolean, onBuy: () -> Unit) {
+    val cols = storyBrushes[i % storyBrushes.size]
+    Box(Modifier.fillMaxSize().background(Brush.linearGradient(cols))) {
+        // সাজানো গোল আকৃতি
+        Box(Modifier.size(260.dp).offset(x = 150.dp, y = (-70).dp).clip(CircleShape).background(Color.White.copy(alpha = 0.10f)))
+        Box(Modifier.size(200.dp).offset(x = (-80).dp, y = 330.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.10f)))
+        Box(Modifier.size(90.dp).offset(x = 270.dp, y = 250.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)))
+
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 22.dp).padding(top = 52.dp, bottom = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f))
+            Text("🎁 বিশেষ অফার", color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.20f)).padding(horizontal = 14.dp, vertical = 5.dp))
+            Spacer(Modifier.height(14.dp))
+            if (o.disc >= 100) {
+                Text("♾️", fontSize = 72.sp, textAlign = TextAlign.Center)
+                Text("আনলিমিটেড", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Text("সব কাজ ${Bn.num(o.days)} দিন", color = Color.White.copy(alpha = 0.95f), fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            } else {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("${Bn.num(o.disc)}%", color = Color.White, fontSize = 88.sp, fontWeight = FontWeight.Black, lineHeight = 92.sp)
+                    Text(" ছাড়", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 14.dp))
+                }
+                Text("প্রতিটা কাজের দামে", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(o.name, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
+            if (o.desc.isNotBlank()) Text(o.desc, color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 3, modifier = Modifier.padding(top = 6.dp))
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("৳${Bn.num(o.price)} একবারে", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.25f)).padding(horizontal = 12.dp, vertical = 6.dp))
+                Text("⏳ ${Bn.num(o.days)} দিন", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.25f)).padding(horizontal = 12.dp, vertical = 6.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(if (blocked) Color.White.copy(alpha = 0.40f) else Color.White)
+                    .clickable(enabled = !blocked, onClick = onBuy)
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("🛒 কিনুন (৳${Bn.num(o.price)})", color = if (blocked) Color.White else cols[0], fontSize = 17.sp, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+/**
+ * ফেইসবুক স্টোরির মতো অফার ব্যানার: ওপরে সেগমেন্ট বার, প্রতিটা অফার ১০ সেকেন্ড করে।
+ * শেষ অফারে এসে আটকে থাকে; একটাই অফার থাকলে কখনো বদলায় না।
+ * ডানে চাপ = পরের, বাঁয়ে চাপ = আগের, চেপে ধরলে থামে।
+ */
+@Composable
+private fun OfferStory(list: List<OfferItem>, blocked: Boolean, onBuy: (OfferItem) -> Unit) {
+    val n = list.size
+    var idx by remember { mutableStateOf(0) }
+    var elapsed by remember { mutableStateOf(0L) }
+    var paused by remember { mutableStateOf(false) }
+    val cur = idx.coerceIn(0, (n - 1).coerceAtLeast(0))
+    if (cur != idx) { idx = cur; elapsed = 0L }
+
+    // টাইমার: একটাই অফার থাকলে বা থামানো থাকলে চলে না; শেষ অফারে পৌঁছে ১০ সেকেন্ড পর থেমে যায়, আর এগোয় না
+    LaunchedEffect(cur, n, paused) {
+        if (n <= 1 || paused) return@LaunchedEffect
+        var last = withFrameMillis { it }
+        while (elapsed < STORY_MS) {
+            val t = withFrameMillis { it }
+            elapsed += t - last
+            last = t
+        }
+        elapsed = STORY_MS
+        if (cur < n - 1) { idx = cur + 1; elapsed = 0L }
+    }
+
+    fun go(i: Int) { idx = i; elapsed = 0L }
+
+    Box(Modifier.fillMaxWidth().height(500.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF222222))) {
+        // টাচ স্তর (সবার নিচে, যাতে কেনার বাটন নিজের চাপ পায়)
+        Box(
+            Modifier.matchParentSize().pointerInput(n, cur) {
+                detectTapGestures(
+                    onPress = { paused = true; tryAwaitRelease(); paused = false },
+                    onTap = { pos ->
+                        if (pos.x < size.width * 0.33f) { if (cur > 0) go(cur - 1) else elapsed = 0L }
+                        else { if (cur < n - 1) go(cur + 1) else elapsed = STORY_MS }
+                    },
+                )
+            }
+        )
+        Crossfade(targetState = cur, animationSpec = androidx.compose.animation.core.tween(350), label = "offerStory") { i ->
+            val o = list.getOrNull(i)
+            if (o != null) StorySlide(o, i, blocked) { onBuy(o) }
+        }
+        // ওপরের সেগমেন্ট বার
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (i in 0 until n) {
+                val f = when {
+                    n <= 1 || i < cur -> 1f
+                    i == cur -> (elapsed.toFloat() / STORY_MS).coerceIn(0f, 1f)
+                    else -> 0f
+                }
+                Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.35f))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(f).background(Color.White))
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun OffersScreen(vm: OffersViewModel, dash: DashboardViewModel, onBack: () -> Unit) {
@@ -167,32 +309,31 @@ fun OffersScreen(vm: OffersViewModel, dash: DashboardViewModel, onBack: () -> Un
     val st by dash.state.collectAsState()
     var buy by remember { mutableStateOf<OfferItem?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             H1("🎁 অফার")
             AppBtn("← ফিরুন", color = C.Gray, small = true, onClick = onBack)
         }
         vm.error?.let { StatusLine(false, "⚠️ $it") }
         if (vm.loading && !vm.loaded) Text("লোড হচ্ছে...", fontSize = 14.sp, color = C.Muted)
 
+        // একটা অফার শেষ না হলে (বা কেনার অনুরোধ অপেক্ষায় থাকলে) আরেকটা কেনা যায় না
+        val blocked = vm.pools.isNotEmpty() || vm.pendingOffer
+        val list = remember(vm.offers) { vm.offers.filter { it.active } }
+        if (vm.loaded && list.isEmpty()) Text("এখন কোনো অফার নেই", fontSize = 14.sp, color = C.Muted)
+        if (list.isNotEmpty()) {
+            OfferStory(list, blocked) { buy = it }
+            if (blocked) Small(if (vm.pools.isNotEmpty()) "আপনার অফার চলছে। সেটা শেষ (টাকা ফুরানো বা মেয়াদ শেষ) হলে আরেকটা কিনতে পারবেন।" else "আপনার অফার কেনার অনুরোধ অনুমোদনের অপেক্ষায় আছে।", color = C.Red)
+            Small("ডানে চাপলে পরের অফার, বাঁয়ে চাপলে আগের। চেপে ধরলে থামবে।", color = C.Muted)
+        }
+
         if (vm.pools.isNotEmpty()) {
             H2("আপনার চলমান অফার")
             vm.pools.forEach { p -> InfoCard { OfferPoolLine(p) } }
         }
 
-        H2("কেনার জন্য অফার")
-        val list = vm.offers.filter { it.active }
-        if (vm.loaded && list.isEmpty()) Text("এখন কোনো অফার নেই", fontSize = 14.sp, color = C.Muted)
-        list.forEach { o ->
-            InfoCard {
-                Text(o.name, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                if (o.desc.isNotBlank()) Text(o.desc, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
-                Text(if (o.disc >= 100) "৳${Bn.num(o.price)} → ♾️ আনলিমিটেড এক্সেস, ${o.days} দিন" else "৳${Bn.num(o.price)} → ${o.disc}% ছাড়, ${o.days} দিন", color = C.Red, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
-                Small(offerTerms(o), Modifier.padding(top = 4.dp))
-                // একটা অফার শেষ না হলে (বা কেনার অনুরোধ অপেক্ষায় থাকলে) আরেকটা কেনা যায় না
-                val blocked = vm.pools.isNotEmpty() || vm.pendingOffer
-                AppBtn("🛒 কিনুন (৳${Bn.num(o.price)})", Modifier.fillMaxWidth().padding(top = 10.dp), color = C.Green, enabled = !blocked) { buy = o }
-                if (blocked) Small(if (vm.pools.isNotEmpty()) "আপনার অফার চলছে। সেটা শেষ (টাকা ফুরানো বা মেয়াদ শেষ) হলে আরেকটা কিনতে পারবেন।" else "আপনার অফার কেনার অনুরোধ অনুমোদনের অপেক্ষায় আছে।", Modifier.padding(top = 4.dp), color = C.Red)
-            }
+        if (list.isNotEmpty()) {
+            H2("শর্তাবলি")
+            list.forEach { o -> InfoCard { Text(o.name, fontWeight = FontWeight.Bold, fontSize = 15.sp); Small(offerTerms(o), Modifier.padding(top = 4.dp)) } }
         }
         AppBtn(if (vm.loading) "অপেক্ষা করুন..." else "🔄 রিফ্রেশ", Modifier.fillMaxWidth(), color = C.Gray, enabled = !vm.loading) { vm.load() }
         Spacer(Modifier.height(16.dp))
