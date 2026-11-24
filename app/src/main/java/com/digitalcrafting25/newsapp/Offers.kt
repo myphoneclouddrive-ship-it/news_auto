@@ -55,7 +55,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** একটা অফার: price টাকায় কিনলে মেয়াদ (days) দিনের মধ্যে প্রতিটা কাজের দামে disc% ছাড় */
+/** একটা অফার: price টাকায় কিনলে মেয়াদ (days) দিনের মধ্যে প্রতিটা সার্ভিসের দামে disc% ছাড় */
 data class OfferItem(val id: String, val name: String, val desc: String, val price: Int, val disc: Int, val days: Int, val active: Boolean, val badge: String = "")
 
 /** ইউজারের কেনা চলমান অফার: left = বাকি টাকা; unl = আনলিমিটেড এক্সেস (১০০% ছাড়: টাকা কাটে না, শুধু মেয়াদ) */
@@ -156,9 +156,9 @@ class OffersViewModel(private val app: Application) : AndroidViewModel(app) {
 }
 
 private fun offerTerms(o: OfferItem): String =
-    if (o.disc >= 100) "৳${Bn.num(o.price)} একবারে কিনলে ${o.days} দিন সব কাজ আনলিমিটেড (কোনো টাকা কাটবে না)। মেয়াদ শেষ হলে আগের মতো পুরো রেটে মেইন ব্যালেন্স থেকে কাটবে; কোনো টাকা ফেরত বা ব্যালেন্সে যোগ হবে না।"
-    else "৳${Bn.num(o.price)} একবারে কিনলে ${o.days} দিনের মধ্যে ওই টাকার প্রতিটা খরচে ${o.disc}% ছাড় (যেমন ১০ টাকার কাজে ${Bn.num(10.0 * (100 - o.disc) / 100)} টাকা কাটবে)। " +
-        "টাকা শেষ হলে আগের মতো পুরো রেটে কাটবে। ${o.days} দিনে না ফুরালে বাকি টাকা মেইন ব্যালেন্সে যোগ হবে (সেখানে পুরো রেটে কাটবে)।"
+    if (o.disc >= 100) "৳${Bn.num(o.price)} একবারে কিনলে ${o.days} দিন সব সার্ভিস আনলিমিটেড (কোনো টাকা কাটবে না)। মেয়াদ শেষ হলে আগের মতো পুরো রেটে মেইন ব্যালেন্স থেকে কাটবে; কোনো টাকা ফেরত বা মেইন ব্যালেন্সে যোগ হবে না।"
+    else "৳${Bn.num(o.price)} একবারে কিনলে ${o.days} দিনের মধ্যে ওই টাকার প্রতিটা খরচে ${o.disc}% ছাড় (যেমন ১০ টাকার সার্ভিসে ${Bn.num(10.0 * (100 - o.disc) / 100)} টাকা কাটবে)। " +
+        "টাকা শেষ হলে আগের মতো পুরো রেটে কাটবে। ${o.days} দিনের মধ্যে ছাড়ের টাকা না ফুরালে মেয়াদ শেষে অবশিষ্ট টাকা মেইন ব্যালেন্সে যোগ হবে না, বাতিল হয়ে যাবে; কোনো টাকা ফেরত পাওয়া যাবে না।"
 
 private fun dateBn(ms: Long): String = SimpleDateFormat("d MMM yyyy", Locale.Builder().setLanguage("bn").setRegion("BD").build()).format(Date(ms))
 
@@ -171,7 +171,7 @@ fun OfferPoolLine(p: PoolItem) {
         Text("⏳ ${Bn.num(daysLeft(p.exp))} দিন বাকি", fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
     } else {
         Text("৳ " + Bn.num(p.left), color = C.Green, fontWeight = FontWeight.Bold, fontSize = 22.sp, modifier = Modifier.padding(top = 4.dp))
-        Small("প্রতিটা খরচে ${p.disc}% ছাড় • ⏳ ${Bn.num(daysLeft(p.exp))} দিন বাকি (${dateBn(p.exp)} পর্যন্ত)। না ফুরালে বাকি টাকা মেইন ব্যালেন্সে যোগ হবে।", Modifier.padding(top = 2.dp))
+        Small("প্রতিটা খরচে ${p.disc}% ছাড় • ⏳ ${Bn.num(daysLeft(p.exp))} দিন বাকি (${dateBn(p.exp)} পর্যন্ত)। মেয়াদ শেষে অবশিষ্ট টাকা মেইন ব্যালেন্সে যোগ হবে না।", Modifier.padding(top = 2.dp))
     }
 }
 
@@ -211,13 +211,13 @@ private fun StorySlide(o: OfferItem, i: Int, blockedMsg: String?, onTerms: () ->
             if (o.disc >= 100) {
                 Text("♾️", fontSize = 72.sp, textAlign = TextAlign.Center)
                 Text("আনলিমিটেড", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-                Text("সব কাজ ${Bn.num(o.days)} দিন", color = Color.White.copy(alpha = 0.95f), fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("সব সার্ভিস ${Bn.num(o.days)} দিন", color = Color.White.copy(alpha = 0.95f), fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             } else {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("${Bn.num(o.disc)}%", color = Color.White, fontSize = 88.sp, fontWeight = FontWeight.Black, lineHeight = 92.sp)
                     Text(" ছাড়", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 14.dp))
                 }
-                Text("প্রতিটা কাজের দামে", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("প্রতিটা সার্ভিসের দামে", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(16.dp))
             Text(o.name, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
@@ -256,13 +256,13 @@ private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, hold: Boolean
     val n = list.size
     var idx by remember { mutableStateOf(0) }
     var elapsed by remember { mutableStateOf(0L) }
-    var paused by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
     val cur = idx.coerceIn(0, (n - 1).coerceAtLeast(0))
     if (cur != idx) { idx = cur; elapsed = 0L }
 
     // টাইমার: একটাই অফার থাকলে বা থামানো থাকলে চলে না; শেষ অফারে পৌঁছে ১০ সেকেন্ড পর থেমে যায়, আর এগোয় না
-    LaunchedEffect(cur, n, paused, hold) {
-        if (n <= 1 || paused || hold) return@LaunchedEffect
+    LaunchedEffect(cur, n, held, hold) {
+        if (n <= 1 || held || hold) return@LaunchedEffect
         var last = withFrameMillis { it }
         while (elapsed < STORY_MS) {
             val t = withFrameMillis { it }
@@ -275,12 +275,22 @@ private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, hold: Boolean
 
     fun go(i: Int) { idx = i; elapsed = 0L }
 
-    Box(modifier.clip(RoundedCornerShape(24.dp)).background(Color(0xFF222222))) {
+    Box(
+        modifier.clip(RoundedCornerShape(24.dp)).background(Color(0xFF222222))
+            // স্ক্রিনের যেকোনো জায়গায় (বাটন/লেখার ওপরেও) চেপে ধরলে কাউন্টার থামে; ইভেন্ট খরচ করে না, তাই বাটনও কাজ করে
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        held = ev.changes.any { it.pressed }
+                    }
+                }
+            }
+    ) {
         // টাচ স্তর (সবার নিচে, যাতে কেনার বাটন নিজের চাপ পায়)
         Box(
             Modifier.matchParentSize().pointerInput(n, cur) {
                 detectTapGestures(
-                    onPress = { paused = true; tryAwaitRelease(); paused = false },
                     onTap = { pos ->
                         if (pos.x < size.width * 0.33f) { if (cur > 0) go(cur - 1) else elapsed = 0L }
                         else { if (cur < n - 1) go(cur + 1) else elapsed = STORY_MS }
@@ -291,6 +301,13 @@ private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, hold: Boolean
         Crossfade(targetState = cur, animationSpec = androidx.compose.animation.core.tween(350), label = "offerStory") { i ->
             val o = list.getOrNull(i)
             if (o != null) StorySlide(o, i, blockedMsg, { onTerms(o) }) { onBuy(o) }
+        }
+        // দুই পাশের তীর: পাশে সরানোর ইঙ্গিত (একটাই অফার থাকলে দেখায় না)
+        if (n > 1) {
+            if (cur > 0) Text("‹", color = Color.White.copy(alpha = 0.85f), fontSize = 44.sp, fontWeight = FontWeight.Black,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 6.dp))
+            if (cur < n - 1) Text("›", color = Color.White.copy(alpha = 0.85f), fontSize = 44.sp, fontWeight = FontWeight.Black,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp))
         }
         // ওপরের সেগমেন্ট বার
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
