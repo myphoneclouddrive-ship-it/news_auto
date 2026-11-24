@@ -56,7 +56,7 @@ import java.util.Date
 import java.util.Locale
 
 /** একটা অফার: price টাকায় কিনলে মেয়াদ (days) দিনের মধ্যে প্রতিটা কাজের দামে disc% ছাড় */
-data class OfferItem(val id: String, val name: String, val desc: String, val price: Int, val disc: Int, val days: Int, val active: Boolean)
+data class OfferItem(val id: String, val name: String, val desc: String, val price: Int, val disc: Int, val days: Int, val active: Boolean, val badge: String = "")
 
 /** ইউজারের কেনা চলমান অফার: left = বাকি টাকা; unl = আনলিমিটেড এক্সেস (১০০% ছাড়: টাকা কাটে না, শুধু মেয়াদ) */
 data class PoolItem(val name: String, val left: Double, val disc: Int, val exp: Long, val unl: Boolean = false)
@@ -97,7 +97,7 @@ class OffersViewModel(private val app: Application) : AndroidViewModel(app) {
         offers = buildList {
             if (a != null) for (i in 0 until a.length()) {
                 val o = a.optJSONObject(i) ?: continue
-                add(OfferItem(o.optString("id"), o.optString("name"), o.optString("desc"), o.optInt("price"), o.optInt("disc"), o.optInt("days"), o.optBoolean("active", true)))
+                add(OfferItem(o.optString("id"), o.optString("name"), o.optString("desc"), o.optInt("price"), o.optInt("disc"), o.optInt("days"), o.optBoolean("active", true), o.optString("badge")))
             }
         }
         pools = parsePools(j.optJSONArray("pools"))
@@ -121,12 +121,12 @@ class OffersViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** অ্যাডমিন: নতুন অফার (id = null) বা আগেরটা বদল */
-    fun save(id: String?, name: String, desc: String, price: String, disc: String, days: String, active: Boolean, onDone: () -> Unit) {
+    fun save(id: String?, name: String, desc: String, price: String, disc: String, days: String, active: Boolean, badge: String, onDone: () -> Unit) {
         if (saving) return
         viewModelScope.launch {
             saving = true; error = null; msg = null
             try {
-                val body = JSONObject().put("name", name).put("desc", desc).put("price", price).put("disc", disc).put("days", days).put("active", active)
+                val body = JSONObject().put("name", name).put("desc", desc).put("price", price).put("disc", disc).put("days", days).put("active", active).put("badge", badge.trim())
                 if (!id.isNullOrEmpty()) body.put("id", id)
                 parse(Worker.post(app, "/offer-set", body, 30000))
                 msg = if (id.isNullOrEmpty()) "✅ নতুন অফার যোগ হয়েছে। ইউজাররা অফার আইকনে দেখবে" else "✅ অফার বদলানো হয়েছে"
@@ -205,7 +205,7 @@ private fun StorySlide(o: OfferItem, i: Int, blockedMsg: String?, onTerms: () ->
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.weight(1f))
-            Text("🎁 বিশেষ অফার", color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+            Text("🎁 " + o.badge.ifBlank { "বিশেষ অফার" }, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.20f)).padding(horizontal = 14.dp, vertical = 5.dp))
             Spacer(Modifier.height(14.dp))
             if (o.disc >= 100) {
@@ -252,7 +252,7 @@ private fun StorySlide(o: OfferItem, i: Int, blockedMsg: String?, onTerms: () ->
  * ডানে চাপ = পরের, বাঁয়ে চাপ = আগের, চেপে ধরলে থামে।
  */
 @Composable
-private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, modifier: Modifier, onTerms: (OfferItem) -> Unit, onBuy: (OfferItem) -> Unit) {
+private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, hold: Boolean, modifier: Modifier, onTerms: (OfferItem) -> Unit, onBuy: (OfferItem) -> Unit) {
     val n = list.size
     var idx by remember { mutableStateOf(0) }
     var elapsed by remember { mutableStateOf(0L) }
@@ -261,8 +261,8 @@ private fun OfferStory(list: List<OfferItem>, blockedMsg: String?, modifier: Mod
     if (cur != idx) { idx = cur; elapsed = 0L }
 
     // টাইমার: একটাই অফার থাকলে বা থামানো থাকলে চলে না; শেষ অফারে পৌঁছে ১০ সেকেন্ড পর থেমে যায়, আর এগোয় না
-    LaunchedEffect(cur, n, paused) {
-        if (n <= 1 || paused) return@LaunchedEffect
+    LaunchedEffect(cur, n, paused, hold) {
+        if (n <= 1 || paused || hold) return@LaunchedEffect
         var last = withFrameMillis { it }
         while (elapsed < STORY_MS) {
             val t = withFrameMillis { it }
@@ -324,7 +324,7 @@ fun OffersScreen(vm: OffersViewModel, dash: DashboardViewModel, onBack: () -> Un
             else if (vm.pendingOffer) "আপনার অফার কেনার অনুরোধ অনুমোদনের অপেক্ষায় আছে।" else null
         val list = remember(vm.offers) { vm.offers.filter { it.active } }
         if (vm.loaded && list.isEmpty()) Text("এখন কোনো অফার নেই", fontSize = 14.sp, color = C.Muted)
-        if (list.isNotEmpty()) OfferStory(list, blockedMsg, Modifier.weight(1f).fillMaxWidth(), onTerms = { terms = it }) { buy = it }
+        if (list.isNotEmpty()) OfferStory(list, blockedMsg, terms != null, Modifier.weight(1f).fillMaxWidth(), onTerms = { terms = it }) { buy = it }
     }
     buy?.let { o -> TopupDialog(dash, st.balance, onClose = { buy = null; vm.load() }, offer = o) }
     terms?.let { o ->
@@ -349,8 +349,9 @@ fun AdminOffersScreen(vm: OffersViewModel) {
     var disc by remember { mutableStateOf("50") }
     var days by remember { mutableStateOf("30") }
     var active by remember { mutableStateOf(true) }
+    var badge by remember { mutableStateOf("") }
     var del by remember { mutableStateOf<OfferItem?>(null) }
-    val clear = { editId = null; name = ""; desc = ""; price = "3000"; disc = "50"; days = "30"; active = true }
+    val clear = { editId = null; name = ""; desc = ""; price = "3000"; disc = "50"; days = "30"; active = true; badge = "" }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         H1("🎁 অফার")
@@ -361,6 +362,8 @@ fun AdminOffersScreen(vm: OffersViewModel) {
 
         InfoCard {
             Text(if (editId == null) "➕ নতুন অফার" else "✏️ অফার বদলান", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            FieldLabel("ব্যানারের ট্যাগ (ফাঁকা রাখলে \"বিশেষ অফার\" দেখাবে)")
+            AppField(badge, { badge = it.take(24) }, placeholder = "বিশেষ অফার")
             FieldLabel("অফারের নাম")
             AppField(name, { name = it.take(40) }, placeholder = "যেমন ৩০০০ টাকায় ৫০% ছাড়")
             FieldLabel("বর্ণনা (ঐচ্ছিক)")
@@ -377,7 +380,7 @@ fun AdminOffersScreen(vm: OffersViewModel) {
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppBtn(if (vm.saving) "অপেক্ষা করুন..." else if (editId == null) "➕ অফার যোগ করুন" else "💾 সেভ করুন", Modifier.weight(1f), color = C.Green, enabled = !vm.saving) {
-                    vm.save(editId, name, desc, price, disc, days, active) { clear() }
+                    vm.save(editId, name, desc, price, disc, days, active, badge) { clear() }
                 }
                 if (editId != null) AppBtn("বাতিল", Modifier.weight(1f), color = C.Gray, enabled = !vm.saving) { clear() }
             }
@@ -391,7 +394,7 @@ fun AdminOffersScreen(vm: OffersViewModel) {
                 Small("৳${Bn.num(o.price)} • " + (if (o.disc >= 100) "♾️ আনলিমিটেড এক্সেস (১০০% ছাড়, কোনো টাকা কাটে না)" else "${o.disc}% ছাড়") + " • ${o.days} দিন" + if (o.desc.isNotBlank()) "\n${o.desc}" else "", Modifier.padding(top = 4.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppBtn("✏️ বদলান", Modifier.weight(1f), color = C.Blue, small = true, enabled = !vm.saving) {
-                        editId = o.id; name = o.name; desc = o.desc; price = o.price.toString(); disc = o.disc.toString(); days = o.days.toString(); active = o.active
+                        editId = o.id; name = o.name; desc = o.desc; price = o.price.toString(); disc = o.disc.toString(); days = o.days.toString(); active = o.active; badge = o.badge
                     }
                     AppBtn("🗑️ রিমুভ", Modifier.weight(1f), color = C.Red, small = true, enabled = !vm.saving) { del = o }
                 }

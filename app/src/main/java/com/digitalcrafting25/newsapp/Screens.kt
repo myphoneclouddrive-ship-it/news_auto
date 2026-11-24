@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -246,23 +247,27 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenBookmarks: () -> Unit) {
             Text("⚠️ ডেটা আনা যায়নি: $it\n(Firestore চালু ও Rules ঠিক আছে কিনা দেখুন)", color = C.Red, modifier = Modifier.padding(bottom = 10.dp), fontSize = 14.sp)
         }
 
-        // ব্যালেন্স
-        InfoCard {
-            Text("💰 মূল ব্যালেন্স", fontSize = 13.sp, color = C.Label)
-            Text(
-                (st.mainBal ?: st.balance)?.let { "৳ " + Bn.num(it) } ?: if (st.loading) "..." else "—",
-                fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp),
-            )
-            HBtn("➕ ব্যালেন্স যোগ করুন", Modifier.padding(top = 8.dp), padH = 12.dp, padV = 8.dp) { topup = true }
-        }
-        Spacer(Modifier.height(10.dp))
-        // 🎁 অফার ব্যালেন্স: অফারের নাম, বাকি টাকা, মেয়াদ (আনলিমিটেড হলে শুধু কত দিন বাকি)
-        InfoCard {
-            Text("🎁 অফার ব্যালেন্স", fontSize = 13.sp, color = C.Label)
-            if (st.pools.isEmpty()) Text(if (st.balance == null && st.loading) "..." else "কোনো চলমান অফার নেই", fontSize = 15.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
-            else st.pools.forEachIndexed { i, p ->
-                if (i > 0) HorizontalDivider(color = C.Line, modifier = Modifier.padding(vertical = 8.dp))
-                Column(Modifier.padding(top = 4.dp)) { OfferPoolLine(p) }
+        // ব্যালেন্স: বাঁয়ে মূল ব্যালেন্স, ডানে অফার ব্যালেন্স (পাশাপাশি, সমান উচ্চতা)
+        Row(
+            Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            InfoCard(Modifier.weight(1f).fillMaxHeight()) {
+                Text("💰 মূল ব্যালেন্স", fontSize = 13.sp, color = C.Label)
+                Text(
+                    (st.mainBal ?: st.balance)?.let { "৳ " + Bn.num(it) } ?: if (st.loading) "..." else "—",
+                    fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp),
+                )
+                HBtn("➕ যোগ করুন", Modifier.padding(top = 8.dp), padH = 12.dp, padV = 8.dp) { topup = true }
+            }
+            // 🎁 অফার ব্যালেন্স: অফারের নাম, বাকি টাকা, মেয়াদ (আনলিমিটেড হলে শুধু কত দিন বাকি)
+            InfoCard(Modifier.weight(1f).fillMaxHeight()) {
+                Text("🎁 অফার ব্যালেন্স", fontSize = 13.sp, color = C.Label)
+                if (st.pools.isEmpty()) Text(if (st.balance == null && st.loading) "..." else "কোনো চলমান অফার নেই", fontSize = 14.sp, color = C.Muted, modifier = Modifier.padding(top = 4.dp))
+                else st.pools.forEachIndexed { i, p ->
+                    if (i > 0) HorizontalDivider(color = C.Line, modifier = Modifier.padding(vertical = 8.dp))
+                    Column(Modifier.padding(top = 4.dp)) { OfferPoolLine(p) }
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
