@@ -144,7 +144,7 @@ fun TopBar(offerN: Int = 0, onOffers: () -> Unit = {}, onLogout: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("📰 নিউজ অটো পাবলিশার", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("📰 নিউজ অটো পাবলিশার", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // 🎁 অফার আইকন: চালু অফারের সংখ্যা দেখায়; চাপলে ফুল পেইজ অফার পেইজ খোলে
                 AppBtn("🎁 " + Bn.num(offerN), color = C.Green, small = true, onClick = onOffers)
