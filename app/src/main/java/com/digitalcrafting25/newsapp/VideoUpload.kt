@@ -117,7 +117,7 @@ object VideoUpload {
         if (videoId.isBlank() || jpg.isEmpty()) return false
         repeat(4) { attempt ->
             try {
-                withContext(Dispatchers.IO) { postThumb(ctx, videoId, jpg) }
+                postThumb(ctx, videoId, jpg)
                 return true
             } catch (e: CancellationException) {
                 throw e
@@ -129,7 +129,7 @@ object VideoUpload {
         return false
     }
 
-    private fun postThumb(ctx: Context, videoId: String, jpg: ByteArray): JSONObject {
+    private suspend fun postThumb(ctx: Context, videoId: String, jpg: ByteArray): JSONObject = withContext(Dispatchers.IO) {
         fun go(tok: String): Pair<Int, String> {
             val boundary = "----np" + System.nanoTime()
             val head = ByteArrayOutputStream()
@@ -159,7 +159,7 @@ object VideoUpload {
         if (code == 401) { val r = go(Session.token(ctx, force = true)); code = r.first; text = r.second }
         val j = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
         if (code !in 200..299) throw ApiError(j.optString("error", "").ifBlank { "থাম্বনেইল দেওয়া যায়নি" }, code)
-        return j
+        j
     }
 
     private suspend fun chunk(ctx: Context, session: String, offset: Long, data: ByteArray): JSONObject {
