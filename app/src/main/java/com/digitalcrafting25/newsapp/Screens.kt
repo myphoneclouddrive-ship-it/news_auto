@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Brush
@@ -327,6 +329,7 @@ fun openUrl(ctx: android.content.Context, url: String) {
     runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -> Unit, offer: OfferItem? = null) {
     var amt by remember { mutableStateOf(offer?.price?.toString() ?: "") }   // অফার কিনলে টাকা অফারের দামেই বাঁধা
@@ -339,6 +342,18 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
     var shotMsg by remember { mutableStateOf("") }
     var shotOk by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
+    val clip = LocalClipboardManager.current
+    val payNumber = Regex("\\d{10,}").find(Cfg.PAY_INFO)?.value ?: Cfg.PAY_INFO   // শুধু নম্বরটা কপি হবে
+    // ⌨️ কিবোর্ড ওঠার সময় ট্রানজেকশন আইডি ঘরে থাকলে নিচের দিকে স্ক্রল করে ঘর + বাটন কিবোর্ডের উপরে রাখা হয়
+    val formScroll = rememberScrollState()
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    var trxFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(imeVisible, trxFocused) {
+        if (imeVisible && trxFocused) {
+            kotlinx.coroutines.delay(200); formScroll.animateScrollTo(formScroll.maxValue)
+            kotlinx.coroutines.delay(300); formScroll.animateScrollTo(formScroll.maxValue)   // কিবোর্ডের অ্যানিমেশন শেষে মাপ বদলায়, তাই আবার
+        }
+    }
     // 📷 Send Money-এর স্ক্রিনশট বা USSD-র পর্দার ছবি (গ্যালারি/ক্যামেরা) দিলে AI শুধু TrxID পড়ে বসায়; কত টাকা ও যে নম্বর থেকে পাঠিয়েছেন তা ইউজার নিজে লেখে
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val readShot: (android.net.Uri) -> Unit = { uri ->
@@ -374,7 +389,7 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
         confirmButton = {},
         title = null,
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            Column(Modifier.verticalScroll(formScroll)) {
                 Text(if (offer != null) "🎁 অফার কিনুন: ${offer.name}" else "➕ ব্যালেন্স যোগ করুন", fontWeight = FontWeight.Bold)
                 if (offer != null) Text("৳${Bn.num(offer.price)} পাঠালে ${offer.days} দিনের জন্য প্রতিটা খরচে ${offer.disc}% ছাড়। এই টাকা অফার-ব্যালেন্সে বসবে (মেইন ব্যালেন্সে নয়)।", fontSize = 13.sp, color = C.Green, modifier = Modifier.padding(top = 6.dp))
                 Text(
@@ -391,7 +406,12 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("টাকা পাঠান: ${Cfg.PAY_INFO}", fontSize = 13.sp, color = C.Label)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
+                                Text("টাকা পাঠান: ${Cfg.PAY_INFO}", fontSize = 13.sp, color = C.Label)
+                            }
+                            CopyBtn(payNumber, clip)
+                        }
                         Text("টাকা পাঠিয়ে নিচের ঘরগুলো পূরণ করুন। অ্যাডমিন যাচাই করে অনুমোদন দিলে ব্যালেন্সে যোগ হবে।", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -407,7 +427,7 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                 FieldLabel("যে নম্বর থেকে টাকা পাঠিয়েছেন")
                 AppField(phone, { phone = it }, keyboard = KeyboardOptions(keyboardType = KeyboardType.Phone))
                 FieldLabel("ট্রানজেকশন আইডি (TrxID)")
-                AppField(trx, { trx = it })
+                AppField(trx, { trx = it }, modifier = Modifier.onFocusChanged { trxFocused = it.isFocused })
                 AppBtn(
                     if (busy) "অপেক্ষা করুন..." else "📨 অনুরোধ পাঠান", color = C.Green, enabled = !busy,
                     modifier = Modifier.padding(top = 12.dp),
