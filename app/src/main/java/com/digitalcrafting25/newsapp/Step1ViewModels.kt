@@ -38,13 +38,20 @@ class AuthViewModel(private val app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf("")
         private set
 
-    fun login(email: String, pass: String) {
+    /** remember = "লগইন সেভ রাখুন" টিক: সফল হলে প্রোফাইল সেভ (সর্বোচ্চ ৩টা) */
+    fun login(email: String, pass: String, remember: Boolean = false) {
         if (busy) return
         error = ""
+        val mail = email.trim()
+        if (remember && mail.isNotEmpty() && !Profiles.has(mail) && Profiles.isFull()) {
+            error = "৩টা প্রোফাইল সেভ করা আছে। আগে একটা ডিলিট করুন, অথবা টিক তুলে লগইন করুন"
+            return
+        }
         busy = true
         viewModelScope.launch {
             try {
-                Session.signIn(app, email.trim(), pass)
+                Session.signIn(app, mail, pass)
+                if (remember) Session.saveCurrentProfile(app, mail)
             } catch (e: ApiError) {
                 error = e.message ?: "লগইন হয়নি"
             } catch (e: Exception) {
@@ -54,6 +61,26 @@ class AuthViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /** সেভ করা প্রোফাইলে চেপে পাসওয়ার্ড ছাড়া লগইন; ব্যর্থ হলে onFail (ইমেইল ঘরে বসানোর জন্য) */
+    fun loginProfile(p: SavedProfile, onFail: () -> Unit) {
+        if (busy) return
+        error = ""
+        busy = true
+        viewModelScope.launch {
+            try {
+                Session.signInWithProfile(app, p)
+            } catch (e: ApiError) {
+                error = e.message ?: "লগইন হয়নি"; onFail()
+            } catch (e: Exception) {
+                error = "লগইন হয়নি: ${e.message}"; onFail()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun deleteProfile(email: String) = Profiles.remove(app, email)
 
     fun logout() {
         error = ""

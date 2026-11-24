@@ -224,8 +224,8 @@ data class TickerLayer(
     val text: String = "",
     val color: Int = WHITE,
     val bgColor: Int = 0xFFC62828.toInt(),   // HTML ডিফল্ট ব্যাকগ্রাউন্ড #c62828
-    val barHeightFrac: Float = 0.0595f, // HTML: h × ০.০৮৫ × মাপ(৭০)/১০০
-    val speed: Float = 0.12f,        // HTML: প্রস্থ × ০.০৩ × গতি(৪) = প্রতি সেকেন্ডে প্রস্থের ভগ্নাংশ
+    val barHeightFrac: Float = 0.08f,   // ডিফল্ট: ভিডিওর উচ্চতার ৮% (আগে ০.০৫৯৫)
+    val speed: Float = 0.06f,        // ডিফল্ট: প্রতি সেকেন্ডে প্রস্থের ৬% (আগে ০.১২)
     val bottomFrac: Float = 0f,      // নিচের বিজ্ঞাপনের ওপর থেকে অতিরিক্ত কত উঁচুতে (০ = বিজ্ঞাপনের ঠিক ওপরে, বিজ্ঞাপন না থাকলে একদম নিচে)
 ) : Layer {
     override val kind get() = LayerKind.TICKER

@@ -495,11 +495,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             // স্ক্রলিং লেখা
             step("স্ক্রলিং লেখা") {
-                if (tl.layers.any { it is TickerLayer }) null else {
-                    // সেটিংসে মোবাইল নম্বর থাকলে অটো স্ক্রলিং লেখার শেষে বসে; নিজে যোগ করা স্ক্রলিং লেখায় নম্বর আসে না
-                    val phone = runCatching { withContext(Dispatchers.IO) { Fs.cardCfg(app) }.phone.trim() }.getOrDefault("")
-                    tl.addLayer(LayerKind.TICKER, text = if (phone.isEmpty()) SEED_TICKER else "$SEED_TICKER $phone")
-                }
+                if (tl.layers.any { it is TickerLayer }) null else tl.addLayer(LayerKind.TICKER, text = defaultTickerText(app))
             }
             // নাম/পদবির বার (HTML-এর মতো): মূল ভিডিও শুরুর (ইন্ট্রোর পরের) ১০ সেকেন্ড পর আসে, ৫ সেকেন্ড থাকে।
             // লেখা = সেটিংসের সাইটের নাম + ট্যাগলাইন (পদবির জায়গায়); পরে লেয়ার এডিটে লেখা/সময় বদলানো বা মোছা যায়
@@ -855,3 +851,13 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
 /** নতুন ভিডিওতে নিজে বসা ট্যাগ ও স্ক্রলিং লেখা (HTML VC_DEF_TAG / VC_DEF_TICKER) */
 private const val SEED_TAG = "সংগৃহীত"
 private const val SEED_TICKER = "আপনার ব্যবসার/পণ্যের বিজ্ঞাপন দিতে যোগাযোগ করুন:"
+
+/**
+ * স্ক্রলিং লেখার ডিফল্ট: "…যোগাযোগ করুন: <সেটিংসের মোবাইল নম্বর>" (নম্বর না থাকলে নম্বর ছাড়া)।
+ * নতুন ভিডিওতে অটো বসানোর সময় আর স্ক্রলিং লেখা মুছে আবার "স্ক্রলিং লেখা" যোগ করলেও প্রথমে এটাই আসে।
+ * লেখা মুছে অন্য লেখা বসালে নম্বর আর আসে না (নম্বর শুধু এই ডিফল্ট লেখার অংশ)।
+ */
+suspend fun defaultTickerText(ctx: android.content.Context): String {
+    val phone = runCatching { withContext(Dispatchers.IO) { Fs.cardCfg(ctx) }.phone.trim() }.getOrDefault("")
+    return if (phone.isEmpty()) SEED_TICKER else "$SEED_TICKER $phone"
+}

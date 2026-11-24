@@ -240,7 +240,7 @@ object DraftStore {
             )
             "ticker" -> TickerLayer(
                 id, s, e, o.optString("text"), o.optInt("color", -1), o.optInt("bg", 0xFFD32F2F.toInt()),
-                o.f("barH", 0.08f), o.f("speed", 0.15f), o.f("bottom", 0f),
+                o.f("barH", 0.08f), o.f("speed", 0.06f), o.f("bottom", 0f),
             )
             "name" -> NameBarLayer(
                 id, s, e, o.optString("name"), o.optString("title"),

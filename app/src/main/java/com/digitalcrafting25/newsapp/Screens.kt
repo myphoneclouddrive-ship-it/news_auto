@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,7 +64,10 @@ import kotlinx.coroutines.launch
 fun LoginScreen(vm: AuthViewModel) {
     var email by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
-    val go = { vm.login(email, pass) }
+    var keep by remember { mutableStateOf(true) }   // "লগইন সেভ রাখুন" শুরুতে টিক দেওয়া
+    var del by remember { mutableStateOf<SavedProfile?>(null) }
+    val profiles by Profiles.list.collectAsStateWithLifecycle()
+    val go = { vm.login(email, pass, keep) }
     Column(
         Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(14.dp),
     ) {
@@ -79,10 +84,45 @@ fun LoginScreen(vm: AuthViewModel) {
                     visual = PasswordVisualTransformation(),
                     onDone = { go() },
                 )
-                Text(vm.error, color = C.Red, modifier = Modifier.padding(top = 8.dp).height(24.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable { keep = !keep }.padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = keep, onCheckedChange = { keep = it })
+                    Text("লগইন সেভ রাখুন (লগআউটের পরে পাসওয়ার্ড লাগবে না)", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                }
+                Text(vm.error, color = C.Red, modifier = Modifier.padding(top = 8.dp).heightIn(min = 24.dp))
                 AppBtn(if (vm.busy) "অপেক্ষা করুন..." else "লগইন", enabled = !vm.busy, onClick = { go() })
             }
         }
+        if (profiles.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Surface(shape = RoundedCornerShape(12.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("👤 সেভ করা প্রোফাইল (${profiles.size}/${Profiles.MAX})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("ইমেইলে চাপ দিলে পাসওয়ার্ড ছাড়াই লগইন হবে", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
+                    profiles.forEachIndexed { idx, p ->
+                        if (idx > 0) HorizontalDivider(color = Color(0xFFEEEEEE))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                p.email, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f).clickable(enabled = !vm.busy) { vm.loginProfile(p) { email = p.email } }.padding(vertical = 12.dp),
+                            )
+                            TextButton(onClick = { del = p }, enabled = !vm.busy) { Text("🗑️ ডিলিট", color = C.Red, fontSize = 13.sp) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    del?.let { p ->
+        AlertDialog(
+            onDismissRequest = { del = null },
+            title = { Text("প্রোফাইল ডিলিট করবেন?") },
+            text = { Text("${p.email}\nসেভ করা লগইন মুছে যাবে। পরে ঢুকতে হলে ইমেইল ও পাসওয়ার্ড লাগবে।") },
+            confirmButton = { TextButton(onClick = { vm.deleteProfile(p.email); del = null }) { Text("হ্যাঁ, ডিলিট", color = C.Red, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { del = null }) { Text("না") } },
+        )
     }
 }
 
@@ -90,6 +130,14 @@ fun LoginScreen(vm: AuthViewModel) {
 
 @Composable
 fun TopBar(onLogout: () -> Unit) {
+    var ask by remember { mutableStateOf(false) }
+    if (ask) AlertDialog(
+        onDismissRequest = { ask = false },
+        title = { Text("লগআউট করবেন?") },
+        text = { Text("লগআউট করলে আবার লগইন করতে হবে। এই অ্যাকাউন্ট সেভ করা থাকলে লগইন পেইজে ইমেইলে চাপ দিয়েই ঢুকতে পারবেন।") },
+        confirmButton = { TextButton(onClick = { ask = false; onLogout() }) { Text("হ্যাঁ, লগআউট", color = C.Red, fontWeight = FontWeight.Bold) } },
+        dismissButton = { TextButton(onClick = { ask = false }) { Text("না") } },
+    )
     Column(Modifier.background(Color.White)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -97,7 +145,7 @@ fun TopBar(onLogout: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("📰 নিউজ অটো পাবলিশার", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            AppBtn("লগআউট", color = C.Gray, small = true, onClick = onLogout)
+            AppBtn("লগআউট", color = C.Gray, small = true, onClick = { ask = true })
         }
         HorizontalDivider(color = Color(0xFFE3E3E3))
     }

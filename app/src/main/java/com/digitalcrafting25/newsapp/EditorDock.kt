@@ -220,6 +220,12 @@ fun rememberDockActions(tl: Timeline, onMessage: (String?) -> Unit, onInfo: (Str
                         pendingKind = kind
                         pickNew.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
+                    // স্ক্রলিং লেখা: মুছে আবার যোগ করলেও প্রথমে ডিফল্ট লেখা (সেটিংসের নম্বরসহ); চাইলে লেখা মুছে অন্য লেখা বসানো যায়
+                    LayerKind.TICKER -> scope.launch {
+                        val m = tl.addLayer(kind, text = defaultTickerText(ctx))
+                        if (m == null) tl.selectedId = null
+                        msg(m)
+                    }
                     else -> {
                         val m = tl.addLayer(
                             kind,

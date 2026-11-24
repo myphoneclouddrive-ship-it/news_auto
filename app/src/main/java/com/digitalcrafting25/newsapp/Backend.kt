@@ -81,12 +81,14 @@ object Session {
         idToken = p.getString("id", "") ?: ""
         expiresAt = p.getLong("exp", 0L)
         state.value = uid != null && refreshToken.isNotEmpty()
+        Profiles.load(ctx)   // সেভ করা লগইন প্রোফাইল
     }
 
     private fun persist(ctx: Context) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("uid", uid).putString("refresh", refreshToken)
             .putString("id", idToken).putLong("exp", expiresAt).apply()
+        Profiles.updateToken(ctx, uid, refreshToken)   // এই অ্যাকাউন্ট সেভ করা থাকলে তার token-ও নতুন রাখা
     }
 
     fun signOut(ctx: Context) {
@@ -116,6 +118,26 @@ object Session {
             refreshToken = j.getString("refreshToken")
             uid = j.getString("localId")
             expiresAt = System.currentTimeMillis() + (j.optString("expiresIn", "3600").toLongOrNull() ?: 3600L) * 1000
+            persist(ctx)
+        }
+        state.value = true
+    }
+
+    /** চলতি লগইন "সেভ রাখুন" প্রোফাইলে রাখা; ফেরত false = ৩টা ভরা */
+    fun saveCurrentProfile(ctx: Context, email: String): Boolean = Profiles.save(ctx, email, uid.orEmpty(), refreshToken)
+
+    /** সেভ করা প্রোফাইলে চেপে লগইন: পাসওয়ার্ড ছাড়াই refresh token দিয়ে নতুন সেশন */
+    suspend fun signInWithProfile(ctx: Context, p: SavedProfile) {
+        withContext(Dispatchers.IO) {
+            val form = "grant_type=refresh_token&refresh_token=" + URLEncoder.encode(p.refresh, "UTF-8")
+            val r = httpCall("POST", "https://securetoken.googleapis.com/v1/token?key=${Cfg.API_KEY}", form, contentType = "application/x-www-form-urlencoded")
+            val j = runCatching { JSONObject(r.text) }.getOrDefault(JSONObject())
+            if (r.code in 400..499) throw ApiError("এই প্রোফাইলের সেভ করা লগইনের মেয়াদ শেষ। ইমেইল ও পাসওয়ার্ড দিয়ে লগইন করুন", r.code)
+            if (r.code !in 200..299) throw ApiError("সংযোগে সমস্যা, আবার চেষ্টা করুন", r.code)
+            idToken = j.getString("id_token")
+            refreshToken = j.optString("refresh_token", p.refresh)
+            uid = j.optString("user_id", p.uid)
+            expiresAt = System.currentTimeMillis() + (j.optString("expires_in", "3600").toLongOrNull() ?: 3600L) * 1000
             persist(ctx)
         }
         state.value = true
