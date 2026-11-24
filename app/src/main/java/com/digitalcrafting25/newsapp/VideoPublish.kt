@@ -151,7 +151,9 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                 if (need.fb) {
                     try {
                         rows["fb"] = Row(0, 0, "আপলোড শুরু হচ্ছে...")
-                        val r = VideoUpload.toFacebook(app, outs.getValue("fb").uri, title, title) { p ->
+                        val fbOut = outs.getValue("fb")
+                        val fbThumb = VideoThumb.make(app, fbOut)   // মূল ভিডিও থেকে একটা সিন (ইন্ট্রো/আউট্রো থেকে নয়)
+                        val r = VideoUpload.toFacebook(app, fbOut.uri, title, title) { p ->
                             rows["fb"] = if (p >= 100) Row(0, -1, "আপলোড শেষ, Facebook-এ পোস্ট হচ্ছে...") else Row(0, p, "আপলোড হচ্ছে $p%")
                             UploadKeepAliveService.update(app, if (p >= 100) "Facebook: পোস্ট হচ্ছে…" else "Facebook আপলোড হচ্ছে $p%", if (p >= 100) -1 else p)
                         }
@@ -159,6 +161,12 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                         save(pub.copy(fbId = r.id.ifBlank { "ok" }, fbLink = link))
                         charge(VideoCharge.PUB_FB)
                         rows["fb"] = Row(1, 100, "✅ Facebook-এ পোস্ট হয়েছে", link)
+                        if (fbThumb != null && r.id.isNotBlank()) {
+                            rows["fb"] = Row(1, 100, "✅ Facebook-এ পোস্ট হয়েছে\n🖼️ থাম্বনেইল বসানো হচ্ছে...", link)
+                            val okT = VideoUpload.setFbThumb(app, r.id, fbThumb)
+                            rows["fb"] = if (okT) Row(1, 100, "✅ Facebook-এ পোস্ট হয়েছে (থাম্বনেইল: মূল ভিডিওর সিন)", link)
+                            else Row(3, 100, "✅ Facebook-এ পোস্ট হয়েছে\n⚠️ থাম্বনেইল বসেনি, Facebook নিজে বেছে নিয়েছে। দরকারে ভিডিও এডিট করে বদলান।", link)
+                        }
                     } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         failed += "Facebook"; rows["fb"] = Row(2, 0, "❌ " + (e.message ?: "আপলোড হয়নি"))
                     }
@@ -166,12 +174,19 @@ class VideoPublishState(private val app: Application, private val scope: Corouti
                 if (need.yt) {
                     try {
                         rows["yt"] = Row(0, 0, "আপলোড শুরু হচ্ছে...")
-                        val r = YouTube.upload(app, outs.getValue("yt").uri, title, title, token ?: error("YouTube লগইন হয়নি")) { p ->
+                        val ytOut = outs.getValue("yt")
+                        val ytThumb = VideoThumb.make(app, ytOut)   // মূল ভিডিও থেকে একটা সিন (ইন্ট্রো/আউট্রো থেকে নয়)
+                        val r = YouTube.upload(app, ytOut.uri, title, title, token ?: error("YouTube লগইন হয়নি")) { p ->
                             rows["yt"] = if (p >= 100) Row(0, -1, "আপলোড শেষ, YouTube ভিডিও তৈরি করছে...") else Row(0, p, "আপলোড হচ্ছে $p%")
                             UploadKeepAliveService.update(app, if (p >= 100) "YouTube: ভিডিও তৈরি হচ্ছে…" else "YouTube আপলোড হচ্ছে $p%", if (p >= 100) -1 else p)
                         }
-                        val warn = if (r.privacy.isBlank() || r.privacy == "public") ""
+                        var warn = if (r.privacy.isBlank() || r.privacy == "public") ""
                         else "YouTube ভিডিওটি \"${r.privacy}\" রেখেছে (নতুন API প্রজেক্টের অডিট না হলে এমন হয়)। YouTube Studio থেকে Public করুন, নইলে WordPress-এ চলবে না।"
+                        if (ytThumb != null) {   // WordPress-এর ফিচার ইমেজও ইউটিউবের থাম্বনেইল থেকে আসে, তাই WordPress-এর আগেই
+                            rows["yt"] = Row(0, -1, "থাম্বনেইল বসানো হচ্ছে...")
+                            val tw = YouTube.setThumbnail(token.orEmpty(), r.id, ytThumb)
+                            if (tw != null) warn = (if (warn.isBlank()) "" else warn + "\n") + tw
+                        }
                         save(pub.copy(ytId = r.id, ytWarn = warn))
                         charge(VideoCharge.PUB_YT)
                         rows["yt"] = Row(if (warn.isBlank()) 1 else 3, 100, "✅ YouTube-এ পোস্ট হয়েছে" + if (warn.isBlank()) "" else "\n⚠️ $warn", r.link)

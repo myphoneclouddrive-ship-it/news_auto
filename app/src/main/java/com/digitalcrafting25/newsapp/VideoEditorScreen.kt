@@ -803,11 +803,11 @@ private fun PublishDialog(
                 }
             }
 
-            // HTML pbInfo: দুটোর মাপ আলাদা দেখায়; ফেইসবুকে লেখা (ব্যান্ড) থাকলে উচ্চতা ৭২০ + ২×১০৮ = ৯৩৬
+            // HTML pbInfo: দুটোর মাপ আলাদা দেখায়; ফেইসবুকে লেখা (ব্যান্ড) থাকলে উচ্চতা = ৭২০ + ওপরের ব্যান্ড (বিজ্ঞাপন+স্ক্রলিং লেখা) + নিচের ব্যান্ড (১০৮)
             val fbHasBand = aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || vm.fbTop.isNotBlank() || vm.fbBottom.isNotBlank())
             Text(
                 if (aspect == Aspect.PORTRAIT) "রিলস মাপ: ${aspect.w}×${aspect.h} (৯:১৬); ফেইসবুক ও ইউটিউব দুটোতেই এই মাপ"
-                else "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + 2 * EDITOR_AD_H) else 720) +
+                else "ইউটিউব: 1280×720 (১৬:৯, শুধু নিচের ব্যানার ভিতরে)\nফেইসবুক: 1280×" + (if (fb && fbHasBand) (720 + vm.fbBands().let { it.first + it.second }) else 720) +
                     (if (fb && fbHasBand) " (ব্যানার ও লেখা ভিডিওর বাইরে ওপরে-নিচের সাদা ব্যান্ডে)" else ""),
                 color = dSub, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )

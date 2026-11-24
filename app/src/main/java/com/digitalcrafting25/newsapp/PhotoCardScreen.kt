@@ -262,6 +262,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             FieldLabel("ফোটোকার্ড টেমপ্লেট (যেটা পোস্ট হবে সেটা বেছে নিন)")
             val canEdit = (vm.mode == CAT_PHOTO || quote) && vm.tplReady
             val tpls = menuTpls(vm.mode)   // নিজের কাস্টম + ডাউনলোড করা শেয়ার্ড (ডিফল্ট ৫টা এখন স্টোরে)
+            if (quote && tpls.isEmpty()) HSmall("⚠️ এখনো কোনো বক্তব্য কার্ড টেমপ্লেট ডাউনলোড করা নেই। টেমপ্লেট স্টোরের 💬 বক্তব্য কার্ড ট্যাব থেকে ⬇️ ডাউনলোড করুন; ডাউনলোড করা টেমপ্লেটগুলোই এখানে দেখাবে।", Modifier.padding(vertical = 6.dp))
             // LazyRow: ১০০টা ডাউনলোড করা থাকলেও শুধু স্ক্রিনে দেখা ঘরগুলোই আঁকা হয়
             LazyRow(
                 Modifier.fillMaxWidth().padding(top = 0.dp).alpha(if (locked) 0.6f else 1f),

@@ -41,7 +41,7 @@ object LastRender {
                 val o = arr.getJSONObject(i)
                 val p = File(o.optString("path"))
                 if (!p.exists() || p.length() == 0L) continue   // ফাইল মুছে গেলে বাদ
-                outs += RenderOutput(o.optString("mode"), Uri.fromFile(p), o.optInt("w"), o.optInt("h"), o.optString("name"))
+                outs += RenderOutput(o.optString("mode"), Uri.fromFile(p), o.optInt("w"), o.optInt("h"), o.optString("name"), o.optLong("introMs"), o.optLong("outroMs"))
             }
             if (outs.isEmpty()) return@runCatching null
             outs.sortBy { if (it.mode == "fb") 0 else 1 }
@@ -65,7 +65,7 @@ object LastRender {
             val j = JSONObject().put("title", r.title).put("tgFb", r.tg.fb).put("tgYt", r.tg.yt).put("tgWp", r.tg.wp).put("draftId", r.draftId).put("vid", r.vid)
             j.put("outputs", JSONArray().also { a ->
                 r.outputs.forEach { o ->
-                    a.put(JSONObject().put("mode", o.mode).put("path", o.uri.path.orEmpty()).put("w", o.w).put("h", o.h).put("name", o.fileName))
+                    a.put(JSONObject().put("mode", o.mode).put("path", o.uri.path.orEmpty()).put("w", o.w).put("h", o.h).put("name", o.fileName).put("introMs", o.introMs).put("outroMs", o.outroMs))
                 }
             })
             val p = r.pub

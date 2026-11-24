@@ -271,23 +271,19 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
     var shotMsg by remember { mutableStateOf("") }
     var shotOk by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
-    // 📷 Send Money-এর স্ক্রিনশট বা USSD-র পর্দার ছবি (গ্যালারি/ক্যামেরা) দিলে TrxID ও টাকা নিজে বসে; পাঠানো নম্বর ছবিতে থাকে না, ওটা নিজে লিখতে হয়
+    // 📷 Send Money-এর স্ক্রিনশট বা USSD-র পর্দার ছবি (গ্যালারি/ক্যামেরা) দিলে AI শুধু TrxID পড়ে বসায়; কত টাকা ও যে নম্বর থেকে পাঠিয়েছেন তা ইউজার নিজে লেখে
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val readShot: (android.net.Uri) -> Unit = { uri ->
             reading = true; shotMsg = "⏳ ছবি থেকে পড়া হচ্ছে..."; shotOk = true
             scope.launch {
                 try {
                     val d = vm.readPayShot(uri)
-                    val t = d.optString("trx"); val a = d.optDouble("amount", 0.0); val to = d.optString("to")
-                    if (t.isBlank()) { shotMsg = "⚠️ পড়া যায়নি, হাতে লিখুন"; shotOk = false }
+                    val t = d.optString("trx")
+                    if (t.isBlank()) { shotMsg = "⚠️ ট্রানজেকশন আইডি পড়া যায়নি, হাতে লিখুন"; shotOk = false }
                     else {
-                        trx = t
-                        if (a > 0) amt = a.toLong().toString()
-                        val mine = Regex("01\\d{9}").find(Cfg.PAY_INFO)?.value
-                        val wrongTo = mine != null && to.length >= 10 && to.takeLast(10) != mine.takeLast(10)
-                        shotMsg = "✅ TrxID ও টাকা বসেছে। অক্ষর/সংখ্যা (O-0, I-1) মিলিয়ে দেখুন। পাঠানো নম্বর ছবিতে থাকে না, নিচে নিজে লিখুন।" +
-                            (if (wrongTo) "\n⚠️ ছবির প্রাপক নম্বর ($to) আমাদের নম্বর নয়, ঠিক নম্বরে পাঠিয়েছেন তো?" else "")
-                        shotOk = !wrongTo
+                        trx = t   // শুধু TrxID বসে; টাকা ও নম্বর ইউজার নিজে লেখে
+                        shotMsg = "✅ ট্রানজেকশন আইডি বসেছে। অক্ষর/সংখ্যা (O-0, I-1) মিলিয়ে দেখুন। কত টাকা ও যে নম্বর থেকে পাঠিয়েছেন, নিচে নিজে লিখুন।"
+                        shotOk = true
                     }
                 } catch (e: Exception) { shotMsg = "⚠️ " + (e.message ?: "পড়া যায়নি, হাতে লিখুন"); shotOk = false }
                 finally { reading = false }
@@ -330,7 +326,7 @@ internal fun TopupDialog(vm: DashboardViewModel, balance: Double?, onClose: () -
                         Text("টাকা পাঠিয়ে নিচের ঘরগুলো পূরণ করুন। অ্যাডমিন যাচাই করে অনুমোদন দিলে ব্যালেন্সে যোগ হবে।", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
-                Text("📷 Send Money বা USSD-র ছবি দিলে TrxID ও টাকা নিজে বসবে", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 10.dp))
+                Text("📷 Send Money বা USSD-র ছবি দিলে শুধু ট্রানজেকশন আইডি নিজে বসবে (টাকা ও নম্বর নিজে লিখুন)", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 10.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppBtn(if (reading) "অপেক্ষা..." else "📷 ছবি তুলুন", Modifier.weight(1f), color = C.Blue, small = true, enabled = !reading && !busy) { openCamera() }
                     AppBtn(if (reading) "অপেক্ষা..." else "🖼️ গ্যালারি থেকে", Modifier.weight(1f), color = C.Blue, small = true, enabled = !reading && !busy) { pickShot.launch("image/*") }

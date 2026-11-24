@@ -90,8 +90,8 @@ object TplRegistry {
 
     fun isKnownMenuTpl(id: String) = menuTpls().any { it.first == id }
 
-    /** বক্তব্য কার্ড মেনুর সারি: আসল ডিফল্ট (লাল) + স্টোর থেকে ডাউনলোড করা বক্তব্য কার্ড টেমপ্লেট */
-    fun quoteMenuTpls(): List<Pair<String, String>> = QUOTE_TPLS + SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to it.name }
+    /** বক্তব্য কার্ড মেনুর সারি: শুধু স্টোর থেকে ডাউনলোড করা বক্তব্য কার্ড টেমপ্লেট (ডিফল্ট লাল আর থাকে না; কিছু ডাউনলোড না থাকলে ফাঁকা) */
+    fun quoteMenuTpls(): List<Pair<String, String>> = SharedTpls.list(SharedTpls.CAT_QUOTE).map { it.id to it.name }
 
     fun isKnownQuoteTpl(id: String) = quoteMenuTpls().any { it.first == id }
 

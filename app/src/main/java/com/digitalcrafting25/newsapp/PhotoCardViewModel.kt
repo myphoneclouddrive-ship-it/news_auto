@@ -297,7 +297,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** ফটোকার্ড ↔ বক্তব্য কার্ড; ছবির অবস্থান আর টেমপ্লেট ঐ ধরনের প্রথমটায় ফেরে */
     fun switchMode(m: String) {
         if (m == mode) return
-        mode = m; tplId = menuTpls(m).first().first; fx = 0.5f; fy = 0.5f
+        mode = m; tplId = menuTpls(m).firstOrNull()?.first ?: ""; fx = 0.5f; fy = 0.5f   // বক্তব্য কার্ডে কিছু ডাউনলোড না থাকলে ফাঁকা
     }
 
     fun clearPhoto() { collItems = emptyList(); fileMsg = FC_FILE_HINT; photo = null; hasPhoto = false; fx = 0.5f; fy = 0.5f; photoVer++ }
@@ -409,7 +409,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             delay(60)
             val d = data(); val id = tplId; val ad = adNow()
-            preview = withContext(Dispatchers.Default) { wm(CardRender.render(id, d, 1f, ad)) }
+            preview = if (id.isBlank()) null else withContext(Dispatchers.Default) { wm(CardRender.render(id, d, 1f, ad)) }   // বক্তব্য কার্ডে টেমপ্লেট না থাকলে প্রিভিউ নেই
         }
     }
 
@@ -466,7 +466,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** টেমপ্লেট স্টোরে ডাউনলোড/সরানোর পর: মেনু নতুন করে সাজে */
     fun sharedChanged() {
         if (mode == "photo" && !TplRegistry.isKnownMenuTpl(tplId)) tplId = menuTpls("photo").first().first
-        if (mode == "quote" && !TplRegistry.isKnownQuoteTpl(tplId)) tplId = menuTpls("quote").first().first
+        if (mode == "quote" && !TplRegistry.isKnownQuoteTpl(tplId)) tplId = menuTpls("quote").firstOrNull()?.first ?: ""
         thumbEpoch++; photoVer++
     }
 
@@ -550,6 +550,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** ওয়েবের fcCheck: কিছু বাদ পড়লে কারণ ফেরত দেয় */
     fun problem(skipLink: Boolean = false): String? {
+        if (mode == "quote" && tplId.isBlank()) return "আগে টেমপ্লেট স্টোর থেকে একটি বক্তব্য কার্ড টেমপ্লেট ডাউনলোড করুন"
         if (mode != "morning" && title.isBlank()) return if (mode == "quote") "বক্তব্য লিখুন" else "ফোটোকার্ড টাইটেল লিখুন"
         if (mode != "morning" && !hasPhoto) return "ছবি আপলোড করুন"
         if (!skipLink && mode == "photo" && link.isNotBlank() && !Regex("^https?://\\S+$", RegexOption.IGNORE_CASE).matches(link.trim()))

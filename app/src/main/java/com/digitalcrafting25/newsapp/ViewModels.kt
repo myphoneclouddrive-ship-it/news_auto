@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
     val tl = Timeline()
@@ -601,6 +602,18 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         musicName = displayName(u)
     }
 
+    /**
+     * ফেইসবুক ব্যান্ডের উচ্চতা (ওপরে, নিচে) পিক্সেলে (১২৮০×৭২০ ফ্রেমে)। নিচে = বিজ্ঞাপনের মাপ (১০৮)।
+     * ওপরে = নিচের বিজ্ঞাপন + স্ক্রলিং লেখার বারের মোট উচ্চতা (স্ক্রলিং লেখা না থাকলে ১০৮); জোড় সংখ্যা, এনকোডারের জন্য।
+     */
+    fun fbBands(): Pair<Int, Int> {
+        val h = aspect.h
+        val tick = tl.layers.filterIsInstance<TickerLayer>().maxOfOrNull { h * (it.barHeightFrac + it.bottomFrac) } ?: 0f
+        var top = EDITOR_AD_H + tick.roundToInt()
+        if (top % 2 != 0) top += 1
+        return top to EDITOR_AD_H
+    }
+
     /** সমস্যা থাকলে বার্তা ফেরত দেয়, ঠিক থাকলে রেন্ডার সার্ভিস চালু করে ও null দেয় */
     /**
      * HTML-এর পাবলিশ ডায়ালগের মতো পাস: ফেইসবুক টিক থাকলে আগে ফেইসবুক ভিডিও, ইউটিউব (বা ওয়ার্ডপ্রেস) টিক থাকলে তারপর ইউটিউব ভিডিও —
@@ -627,7 +640,8 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val bottom = if (hasBottomAd) "" else fbBottom.trim()
         // ব্যান্ডের উচ্চতা = ব্যানারের উচ্চতা ১০৮ (HTML-এর pbSize: ৭২০ + ২×sh, sh = ৭২০-এর ১৫%); জোড় সংখ্যা, এনকোডারের জন্য
         // ফেইসবুকে ব্যানারও ভিডিওর বাইরে এই ব্যান্ডে বসে (HTML-এর মতো), তাই ব্যানার বা লেখা — যেকোনো একটা থাকলেই ব্যান্ড চালু
-        val band = if (fb && aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || top.isNotEmpty() || bottom.isNotEmpty())) EDITOR_AD_H else 0
+        // নিচের ব্যান্ড = বিজ্ঞাপনের মাপ (১০৮); ওপরের সাদা ব্যান্ড = নিচের (বিজ্ঞাপন + স্ক্রলিং লেখা) ব্লকের সমান (লেখার মাপ ধরে নয়)
+        val (topBand, band) = if (fb && aspect == Aspect.LANDSCAPE && (hasTopAd || hasBottomAd || top.isNotEmpty() || bottom.isNotEmpty())) fbBands() else (0 to 0)
         val asp = aspect
         FrameAspect.set(asp)
         // ভিডিও টাইটেল আগে থেকে বসে (পরে পেইজে বদলানো যায়); রেন্ডার শেষে সার্ভিস এগুলো দিয়ে "শেষ রেন্ডার" মনে রাখে
@@ -635,7 +649,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         saveDraft()   // রেন্ডার কোন এডিট ড্রাফট থেকে, সেটা মনে রাখতে (ড্রাফট মুছলে এই রেন্ডারও মোছা হয়)
         RenderBus.summary = run {
             val names = tl.layers.filter { !it.isAudio }.joinToString(", ") { it.kind.label }.ifEmpty { "একটাও না" }
-            "রেন্ডারে পাঠানো লেয়ার: $names\nফেইসবুক ব্যান্ড: " + (if (band > 0) "${band}px" else "নেই") +
+            "রেন্ডারে পাঠানো লেয়ার: $names\nফেইসবুক ব্যান্ড: " + (if (band > 0) "ওপরে ${topBand}px, নিচে ${band}px" else "নেই") +
                 (if (top.isNotEmpty()) "\nওপরের লেখা: $top" else "") + (if (bottom.isNotEmpty()) "\nনিচের লেখা: $bottom" else "") +
                 "\nইন্ট্রো: " + (if (tl.cardClip(false) != null) "আছে" else "নেই") + ", আউট্রো: " + (if (tl.cardClip(true) != null) "আছে" else "নেই")
         }
@@ -650,10 +664,10 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
         val fc = fbColor
         val fbg = fbBg
         // পাসের তালিকা: ফেইসবুক আগে, ইউটিউব পরে (HTML-এর মতো)
-        class Plan(val mode: String, val band: Int, val layers: List<Layer>, val fbTop: String, val fbBottom: String)
+        class Plan(val mode: String, val band: Int, val topBand: Int, val layers: List<Layer>, val fbTop: String, val fbBottom: String)
         val plans = ArrayList<Plan>()
-        if (fb) plans += Plan("fb", band, snapLayers, top, bottom)
-        if (yt) plans += Plan("yt", 0, snapLayers.filterNot { it is AdLayer && it.isTop }, "", "")   // ইউটিউবে ওপরের ব্যানার বসে না
+        if (fb) plans += Plan("fb", band, topBand, snapLayers, top, bottom)
+        if (yt) plans += Plan("yt", 0, 0, snapLayers.filterNot { it is AdLayer && it.isTop }, "", "")   // ইউটিউবে ওপরের ব্যানার বসে না
         RenderBus.status.value = RenderStatus.Running(0, 1, plans.size, if (plans.first().mode == "fb") "ফেইসবুক" else "ইউটিউব")
         // রেন্ডার চাপার সঙ্গে সঙ্গেই নোটিফিকেশনে ০% (কার্ড মাপ মেলানোর সময়টাতেও); সার্ভিস চালু হলে এটাই আপডেট হয়
         Notif.progress(app, RenderService.NOTIF_ID, "নিউজ পাবলিশার", "রেন্ডার হচ্ছে — 0%", 0)
@@ -664,7 +678,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                 val cache = HashMap<Int, List<Clip>>()   // ক্যানভাসের উচ্চতা → ক্লিপ (দুই পাসে একই মাপ হলে একবারই বানানো)
                 plans.map { p ->
                     // ব্যান্ড চালু থাকলে কার্ড পুরো ক্যানভাসের মাপে (১২৮০×(৭২০+২×ব্যান্ড)) — ইন্ট্রো/আউট্রোতে ব্যান্ড থাকে না
-                    val th = asp.h + 2 * p.band
+                    val th = asp.h + p.topBand + p.band
                     val clipsForPass = cache.getOrPut(th) {
                         snapClips.map { c ->
                             val s = c.card
@@ -681,7 +695,7 @@ class EditorViewModel(private val app: Application) : AndroidViewModel(app) {
                         p.mode,
                         RenderSpec(
                             clipsForPass, asp, cap, lg, mu, mv, ka, p.layers,
-                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBg = fbg, fbBandPx = p.band, fbAdsInBand = p.band > 0,
+                            fbTop = p.fbTop, fbBottom = p.fbBottom, fbColor = fc, fbBg = fbg, fbBandPx = p.band, fbTopBandPx = p.topBand, fbAdsInBand = p.band > 0,
                         ),
                     )
                 }

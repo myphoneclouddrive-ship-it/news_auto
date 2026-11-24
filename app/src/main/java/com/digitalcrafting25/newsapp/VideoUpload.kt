@@ -109,6 +109,59 @@ object VideoUpload {
         return FbResult(f.optString("id"), f.optString("link"))
     }
 
+    /**
+     * Facebook ভিডিওর থাম্বনেইল (Worker `/vid-fb-thumb`: multipart video_id + file(jpg))। পোস্ট হওয়ার পরপর Facebook প্রসেস করছে বলে
+     * কিছুক্ষণ ব্যর্থ হতে পারে, তাই কয়েকবার চেষ্টা। ব্যর্থ হলে false — পাবলিশ ব্যর্থ ধরা হয় না।
+     */
+    suspend fun setFbThumb(ctx: Context, videoId: String, jpg: ByteArray): Boolean {
+        if (videoId.isBlank() || jpg.isEmpty()) return false
+        repeat(4) { attempt ->
+            try {
+                withContext(Dispatchers.IO) { postThumb(ctx, videoId, jpg) }
+                return true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiError) {
+                if (e.status in 400..499 && e.status != 408 && e.status != 429 && e.status != 400) return false
+            } catch (e: Exception) { /* আবার চেষ্টা */ }
+            delay(4000L * (attempt + 1))
+        }
+        return false
+    }
+
+    private fun postThumb(ctx: Context, videoId: String, jpg: ByteArray): JSONObject {
+        fun go(tok: String): Pair<Int, String> {
+            val boundary = "----np" + System.nanoTime()
+            val head = ByteArrayOutputStream()
+            head.write(("--$boundary\r\nContent-Disposition: form-data; name=\"video_id\"\r\n\r\n$videoId\r\n").toByteArray())
+            head.write(("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"thumb.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n").toByteArray())
+            val tail = "\r\n--$boundary--\r\n".toByteArray()
+            val total = head.size() + jpg.size + tail.size
+            val c = URL(Cfg.WORKER + "/vid-fb-thumb").openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = 60000; c.doOutput = true
+                c.setFixedLengthStreamingMode(total)
+                c.setRequestProperty("Authorization", "Bearer $tok")
+                c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                c.outputStream.use { o -> head.writeTo(o); o.write(jpg); o.write(tail) }
+                val code = c.responseCode
+                val s = if (code in 200..299) c.inputStream else c.errorStream
+                return code to (s?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "")
+            } catch (e: SocketTimeoutException) {
+                throw ApiError("সময় শেষ হয়ে গেছে", 408)
+            } catch (e: IOException) {
+                throw ApiError("ইন্টারনেট সংযোগ নেই", 0)
+            } finally {
+                c.disconnect()
+            }
+        }
+        var (code, text) = go(Session.token(ctx))
+        if (code == 401) { val r = go(Session.token(ctx, force = true)); code = r.first; text = r.second }
+        val j = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
+        if (code !in 200..299) throw ApiError(j.optString("error", "").ifBlank { "থাম্বনেইল দেওয়া যায়নি" }, code)
+        return j
+    }
+
     private suspend fun chunk(ctx: Context, session: String, offset: Long, data: ByteArray): JSONObject {
         var last: ApiError? = null
         repeat(TRIES) { attempt ->

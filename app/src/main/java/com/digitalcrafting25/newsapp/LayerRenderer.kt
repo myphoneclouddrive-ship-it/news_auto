@@ -107,14 +107,20 @@ class LayerFrameRenderer(
         if (yOff > 0) {
             // ইন্ট্রো/আউট্রোতে ব্যান্ড নেই (কার্ড পুরো ক্যানভাস জুড়ে); বাকি সময় সাদা ব্যান্ড + লেখা
             if (!inCard) {
+                val botH = (canvasH - yOff - h).coerceAtLeast(0)   // নিচের ব্যান্ড = বিজ্ঞাপন; ওপরের ব্যান্ড = বিজ্ঞাপন + স্ক্রলিং লেখার সমান (yOff)
                 cv.drawRect(0f, 0f, w.toFloat(), yOff.toFloat(), fill(fbBg))
                 cv.drawRect(0f, (yOff + h).toFloat(), w.toFloat(), canvasH.toFloat(), fill(fbBg))
                 drawBandText(cv, fbTop, 0f, yOff.toFloat())
-                drawBandText(cv, fbBottom, (yOff + h).toFloat(), yOff.toFloat())
-                // ব্যানার: ওপরেরটা ওপরের ব্যান্ডে, নিচেরটা নিচের ব্যান্ডে (HTML-এর ফেইসবুক পাস); ছবি পুরো ব্যান্ড ভরে
+                drawBandText(cv, fbBottom, (yOff + h).toFloat(), botH.toFloat())
+                // ব্যানার: ওপরেরটা ওপরের ব্যান্ডে (একদম ওপরের কিনারায়), নিচেরটা নিচের ব্যান্ডে (একদম নিচের কিনারায়); ছবি বিকৃত হয় না — বিজ্ঞাপনের নিজের উচ্চতাতেই বসে, ওপরের বাকি অংশ সাদাই থাকে
                 if (adsInBand) for (l in active) if (l is AdLayer) {
-                    val top = if (l.isTop) 0f else (yOff + h).toFloat()
-                    drawAdAt(cv, l, RectF(0f, top, w.toFloat(), top + yOff), ms)
+                    if (l.isTop) {
+                        val ah = minOf(botH.takeIf { it > 0 } ?: yOff, yOff).toFloat()
+                        drawAdAt(cv, l, RectF(0f, 0f, w.toFloat(), ah), ms)
+                    } else {
+                        val top = (yOff + h).toFloat()
+                        drawAdAt(cv, l, RectF(0f, top, w.toFloat(), top + botH), ms)
+                    }
                 }
             }
             cv.save()
@@ -158,12 +164,29 @@ class LayerFrameRenderer(
         return bmp
     }
 
-    /** ব্যান্ডের লেখা (HTML ftxt): সর্বোচ্চ ২ লাইন, মাঝে, বোল্ড; ১ লাইনে ব্যান্ডের ০.৪২, ২ লাইনে ০.৩ মাপ; চওড়া হলে ০.৯৪ প্রস্থে আঁটা পর্যন্ত ছোট */
+    /**
+     * ব্যান্ডের লেখা: সর্বোচ্চ ২ লাইন, মাঝে, বোল্ড। ১ লাইনে ব্যান্ডের ০.৫, ২ লাইনে ০.৩৬ মাপ (আগে ০.৪২ / ০.৩)।
+     * এক লাইনের লেখা চওড়া হলে ছোট না করে আগে ২ লাইনে ভাঙা হয় (শব্দের মাঝখানে); তবুও না আঁটলে ০.৯৪ প্রস্থে আঁটা পর্যন্ত ছোট।
+     */
     private fun drawBandText(cv: Canvas, text: String, top: Float, bandH: Float) {
-        val ls = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.take(2)
+        if (bandH <= 0f) return
+        var ls = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.take(2)
         if (ls.isEmpty()) return
-        val tp = textPaint(fbColor, bandH * (if (ls.size > 1) 0.3f else 0.42f), true).apply { textAlign = Paint.Align.CENTER }
-        while (tp.textSize > 10f && ls.maxOf { tp.measureText(it) } > w * 0.94f) tp.textSize -= 2f
+        val maxW = w * 0.94f
+        val tp = textPaint(fbColor, bandH * 0.5f, true).apply { textAlign = Paint.Align.CENTER }
+        if (ls.size == 1 && tp.measureText(ls[0]) > maxW) {
+            val words = ls[0].split(Regex("\\s+"))
+            if (words.size > 1) {   // মাঝের কাছাকাছি ফাঁকায় ভেঙে দুই লাইন (দুই লাইনের চওড়া যতটা কম হয়)
+                var bestK = 1; var bestW = Float.MAX_VALUE
+                for (k in 1 until words.size) {
+                    val mw = max(tp.measureText(words.take(k).joinToString(" ")), tp.measureText(words.drop(k).joinToString(" ")))
+                    if (mw < bestW) { bestW = mw; bestK = k }
+                }
+                ls = listOf(words.take(bestK).joinToString(" "), words.drop(bestK).joinToString(" "))
+            }
+        }
+        tp.textSize = bandH * (if (ls.size > 1) 0.36f else 0.5f)
+        while (tp.textSize > 10f && ls.maxOf { tp.measureText(it) } > maxW) tp.textSize -= 2f
         val lh = tp.textSize * 1.2f
         val fm = tp.fontMetrics
         val first = top + bandH / 2f - lh * (ls.size - 1) / 2f

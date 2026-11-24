@@ -62,10 +62,16 @@ data class RenderSpec(
     val fbBottom: String = "",
     val fbColor: Int = 0xFF000000.toInt(),
     val fbBg: Int = 0xFFFFFFFF.toInt(),   // ফেইসবুক ব্যান্ডের ব্যাকগ্রাউন্ড রং (ডিফল্ট সাদা)
-    val fbBandPx: Int = 0,
+    val fbBandPx: Int = 0,            // নিচের সাদা ব্যান্ডের উচ্চতা (বিজ্ঞাপনের মাপ)
+    val fbTopBandPx: Int = -1,        // ওপরের সাদা ব্যান্ডের উচ্চতা: নিচের (বিজ্ঞাপন + স্ক্রলিং লেখা) ব্লকের সমান; -১ = নিচেরটার সমান
     // true হলে বিজ্ঞাপন (ব্যানার) ভিডিওর ভেতরে নয়, ওপরে-নিচের সাদা ব্যান্ডে বসে (HTML-এর ফেইসবুক পাস)
     val fbAdsInBand: Boolean = false,
 )
+
+/** ওপরের/নিচের ব্যান্ড ও পুরো ক্যানভাসের উচ্চতা (ব্যান্ড না থাকলে aspect.h) */
+fun RenderSpec.bandBottom(): Int = fbBandPx.coerceAtLeast(0)
+fun RenderSpec.bandTop(): Int = if (fbBandPx <= 0) 0 else if (fbTopBandPx >= 0) fbTopBandPx else fbBandPx
+fun RenderSpec.canvasH(): Int = aspect.h + bandTop() + bandBottom()
 
 /** একটা রেন্ডার পাস (HTML pbPass): mode "fb" = ফেইসবুক (ব্যান্ডসহ হতে পারে), "yt" = ইউটিউব ১৬:৯ */
 data class RenderPass(val mode: String, val spec: RenderSpec) {
@@ -73,7 +79,7 @@ data class RenderPass(val mode: String, val spec: RenderSpec) {
 }
 
 /** রেন্ডার হয়ে গ্যালারিতে সেভ হওয়া একটা ভিডিও */
-data class RenderOutput(val mode: String, val uri: Uri, val w: Int, val h: Int, val fileName: String = "") {
+data class RenderOutput(val mode: String, val uri: Uri, val w: Int, val h: Int, val fileName: String = "", val introMs: Long = 0L, val outroMs: Long = 0L) {   // introMs/outroMs = শুরুর ইন্ট্রো ও শেষের আউট্রো কার্ডের দৈর্ঘ্য (থাম্বনেইল মূল ভিডিও থেকে নিতে)
     val label: String get() = if (mode == "fb") "ফেইসবুক" else "ইউটিউব"
 }
 

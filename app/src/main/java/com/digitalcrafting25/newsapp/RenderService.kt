@@ -212,7 +212,9 @@ class RenderService : Service() {
                 handler.post {
                     if (!running) { file.delete(); return@post }
                     val sp = pass.spec
-                    outputs += RenderOutput(pass.mode, uri, sp.aspect.w, sp.aspect.h + 2 * sp.fbBandPx.coerceAtLeast(0), name)
+                    val introMs = sp.clips.firstOrNull { it.card?.outro == false }?.lengthMs() ?: 0L
+                    val outroMs = sp.clips.firstOrNull { it.card?.outro == true }?.lengthMs() ?: 0L
+                    outputs += RenderOutput(pass.mode, uri, sp.aspect.w, sp.canvasH(), name, introMs, outroMs)
                     passIdx++
                     runCatching { mixFile?.delete() }
                     mixFile = null

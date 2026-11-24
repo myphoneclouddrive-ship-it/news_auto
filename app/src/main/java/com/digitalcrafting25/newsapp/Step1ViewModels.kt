@@ -119,7 +119,7 @@ class DashboardViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 📷 Send Money-এর স্ক্রিনশট থেকে TrxID ও টাকা পড়া — Worker /pay-ocr (ঘণ্টায় ৩, দিনে ৬ বার)। ফেরত JSON: trx, amount, to, time */
+    /** 📷 Send Money-এর স্ক্রিনশট থেকে শুধু TrxID পড়া — Worker /pay-ocr (ঘণ্টায় ৩, দিনে ৬ বার)। ফেরত JSON: trx */
     suspend fun readPayShot(uri: android.net.Uri): JSONObject {
         val img = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }

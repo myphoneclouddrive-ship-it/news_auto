@@ -175,6 +175,34 @@ object YouTube {
         } finally { runCatching { ins.close() } }
     }
 
+    /**
+     * ইউটিউব থাম্বনেইল (thumbnails.set): আপলোডের পর ভিডিওর id দিয়ে JPEG পাঠানো। চ্যানেল ভেরিফাইড না হলে ইউটিউব না করে (403)।
+     * ফেরত: null = হয়েছে, নইলে কারণ (পাবলিশ ব্যর্থ ধরা হয় না)।
+     */
+    suspend fun setThumbnail(token: String, videoId: String, jpg: ByteArray): String? = withContext(Dispatchers.IO) {
+        if (videoId.isBlank() || jpg.isEmpty()) return@withContext "থাম্বনেইল বানানো যায়নি"
+        var last = "থাম্বনেইল দেওয়া যায়নি"
+        repeat(3) { attempt ->
+            val c = URL("https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=$videoId&uploadType=media").openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"; c.connectTimeout = 20000; c.readTimeout = 60000; c.doOutput = true
+                c.setFixedLengthStreamingMode(jpg.size)
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.setRequestProperty("Content-Type", "image/jpeg")
+                c.outputStream.use { it.write(jpg) }
+                val code = c.responseCode
+                if (code in 200..299) return@withContext null
+                val e = err(code, c.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty())
+                last = if (code == 403) "ইউটিউব কাস্টম থাম্বনেইল নেয়নি (চ্যানেল ভেরিফাই করা না থাকলে এমন হয়)" else e.message ?: last
+                if (code in 400..499 && code != 408 && code != 429) return@withContext last
+            } catch (e: IOException) {
+                last = "নেটওয়ার্ক সমস্যায় থাম্বনেইল দেওয়া যায়নি"
+            } finally { c.disconnect() }
+            delay(3000L * (attempt + 1))
+        }
+        last
+    }
+
     private fun err(code: Int, text: String): ApiError {
         val e = runCatching { JSONObject(text).optJSONObject("error") }.getOrNull()
         val why = e?.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()

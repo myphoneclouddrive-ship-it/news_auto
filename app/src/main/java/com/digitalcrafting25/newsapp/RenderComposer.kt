@@ -58,15 +58,16 @@ object RenderComposer {
     fun build(ctx: Context, spec: RenderSpec, mixedAudio: Uri? = null): Composition {
         val w = spec.aspect.w
         val h = spec.aspect.h
-        val band = spec.fbBandPx.coerceAtLeast(0)
-        val outH = h + 2 * band
+        val band = spec.bandBottom()
+        val topBand = spec.bandTop()
+        val outH = spec.canvasH()   // ওপরের ব্যান্ড + ভিডিও + নিচের ব্যান্ড
 
         // পুরোনো শিরোনাম-বার/লোগো + সব ভিজ্যুয়াল লেয়ার: প্রতি ফ্রেমের সময় অনুযায়ী একটা ওভারলে
         val totalMs = spec.clips.sumOf { it.lengthMs() }
         val visible = spec.layers.filter { !it.isAudio && it.startMs < totalMs || (it is NameBarLayer && it.repeatSec > 0) }
         val renderer = LayerFrameRenderer(
             ctx, w, h, makeOverlay(ctx, spec, w, h), visible, repeatStopMs(spec.clips), totalMs,
-            canvasH = outH, yOff = band, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor, fbBg = spec.fbBg,
+            canvasH = outH, yOff = topBand, fbTop = spec.fbTop, fbBottom = spec.fbBottom, fbColor = spec.fbColor, fbBg = spec.fbBg,
             adsInBand = spec.fbAdsInBand && band > 0,
             cardRanges = cardRangesMs(spec.clips),
             cuts = ClipTr.cuts(spec.clips),
@@ -118,6 +119,12 @@ object RenderComposer {
                 if (c.hasTransform()) fxList += clipTransform(c)
                 // ফেইসবুক ব্যান্ড: ১২৮০×৭২০ ফ্রেমটা লম্বা ক্যানভাসের মাঝে বসে, ওপরে-নিচে কালো জায়গা (সেখানে সাদা ব্যান্ড + লেখা আঁকা হয়)
                 if (band > 0) fxList += Presentation.createForWidthAndHeight(w, outH, Presentation.LAYOUT_SCALE_TO_FIT)
+                // ওপরের ব্যান্ড নিচেরটার চেয়ে উঁচু হলে ফ্রেম ক্যানভাসের মাঝে নয়, ওপরের ব্যান্ডের ঠিক নিচে বসাতে (topBand − band)/২ পিক্সেল নিচে নামানো (NDC-তে −y)
+                if (topBand != band) {
+                    val ty = -(topBand - band).toFloat() / outH
+                    val sh = Matrix().apply { setTranslate(0f, ty) }
+                    fxList += object : MatrixTransformation { override fun getMatrix(presentationTimeUs: Long): Matrix = sh }
+                }
             }
             fxList += tailFx()
             val fit = Effects(emptyList(), fxList)
