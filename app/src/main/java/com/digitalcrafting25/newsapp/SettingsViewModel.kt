@@ -170,7 +170,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Instagram সেটাপ-সুইচ চালু/বন্ধ (সঙ্গে সঙ্গে সেভ হয়) */
-    fun setIgOn(on: Boolean) = run("igOn") {
+    fun updateIgOn(on: Boolean) = run("igOn") {
         Worker.post(app, "/creds-save", JSONObject().put("values", JSONObject().put("IG_ENABLED", if (on) "1" else "0")), 20000)
         loadCreds()
     }

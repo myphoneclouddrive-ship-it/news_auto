@@ -378,7 +378,7 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             Small("আলাদা কিছু বসাতে হয় না। Facebook পেইজের সাথে যুক্ত Instagram Business/Creator অ্যাকাউন্টে, উপরের Facebook টোকেন দিয়েই ছবি ও কমেন্ট যায়।", Modifier.padding(top = 6.dp))
             GuideLink("📖 Instagram সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", IG_GUIDE)
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = vm.igOn, onCheckedChange = { vm.setIgOn(it) }, enabled = vm.busy == null && vm.fbOk())
+                Switch(checked = vm.igOn, onCheckedChange = { vm.updateIgOn(it) }, enabled = vm.busy == null && vm.fbOk())
                 Text("  Instagram সেটাপ করা হয়েছে", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             Small("চালু থাকলে পোস্ট করার আগে “Instagram-এও পোস্ট করুন” টিক বক্স আসবে (এক্সট্রা ${Rates.taka("ps")}, পোস্ট হলে কাটে)। যাচাই সফল হলে এটা নিজেই চালু হয়ে যায়।", Modifier.padding(top = 4.dp))
