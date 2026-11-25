@@ -301,6 +301,8 @@ private fun FormatBar(vm: NewPostViewModel, manual: Boolean) {
 
 @Composable
 fun NewPostScreen(vm: NewPostViewModel, ads: AdsViewModel, onOpenVideo: () -> Unit, onScheduled: () -> Unit, onDelete: () -> Unit = {}, header: @Composable () -> Unit = {}) {
+    val socialCtx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { SocialPrefs.refresh(socialCtx) }   // Instagram/Threads সেটাপ হয়েছে কিনা (টিক বক্সের জন্য)
     LaunchedEffect(Unit) { vm.load(force = true) }   // সাইট ট্যাবে লোগো/নাম বদলালে এখানে নতুনটা আসে
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
     LaunchedEffect(vm.cardTitle, vm.title, vm.category, vm.tag, vm.tplId, vm.photoVer, vm.useAd, vm.nextAdId, vm.step) { if (vm.step in 3..4) vm.refresh() }
@@ -726,6 +728,7 @@ private fun Step4(vm: NewPostViewModel, onSchedule: () -> Unit, onClear: () -> U
     vm.preview?.let { Image(it.asImageBitmap(), contentDescription = "কার্ড", modifier = Modifier.fillMaxWidth().aspectRatio(CardRender.aspect(vm.tplId)).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Fit) }
     Text(vm.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
     Text("কনফার্ম করলে WordPress-এ পোস্ট হবে আর Facebook-এ ফোটোকার্ডসহ শেয়ার হবে।", fontSize = 13.sp, color = C.Label, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+    SocialCheck(vm.social) { vm.social = it }
     AppBtn(if (vm.busy) "⏳ অপেক্ষা করুন…" else "✅ কনফার্ম ও পাবলিশ করুন", color = C.Green, enabled = !vm.busy) { vm.publish() }
     AppBtn(if (vm.editItem != null) "⏰ সিডিউল আপডেট করুন" else "⏰ সিডিউল পোস্ট", Modifier.padding(top = 10.dp), color = C.Blue, enabled = !vm.busy, onClick = onSchedule)
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -746,6 +749,7 @@ private fun Step5(vm: NewPostViewModel) {
             runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(vm.pubLink))) }
         })
         vm.pubNotes.forEach { Text(it, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp), color = if (it.startsWith("⚠️")) Color(0xFFB26A00) else C.Text) }
+        vm.socialFails.forEach { f -> SocialFailRow(f, busy = vm.socialBusy == f.which, anyBusy = vm.socialBusy != null) { vm.retrySocial(f) } }
     }
     AppBtn("➕ নতুন পোস্ট শুরু করুন", Modifier.padding(top = 14.dp), color = C.Green) { vm.clearAll() }
 }

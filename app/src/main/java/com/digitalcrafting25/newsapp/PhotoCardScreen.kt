@@ -114,6 +114,8 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
     var tplEdit by remember { mutableStateOf<String?>(null) }
     var tplReset by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.refreshBalance() }
+    val socialCtx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { SocialPrefs.refresh(socialCtx) }   // Instagram/Threads সেটাপ হয়েছে কিনা (টিক বক্সের জন্য)
     LaunchedEffect(vm.adTick) { if (vm.adTick > 0) ads.load(force = true) }
 
     val morning = vm.mode == CAT_MORNING
@@ -397,6 +399,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
             if (cost.isNotEmpty()) HSmall(cost, Modifier.padding(top = 10.dp))
 
             // ── পোস্ট / সিডিউল / সেভ ──
+            SocialCheck(vm.social) { vm.social = it }
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NavBtn(if (vm.fcBusy) "⏳ অপেক্ষা করুন…" else "📘 এখনই Facebook-এ পোস্ট", Modifier.weight(1f), color = C.Green, enabled = !vm.fcBusy && !vm.used && vm.preview != null) {
                     vm.problem()?.let { vm.fcOut = "❌ $it"; vm.fcFbUrl = null } ?: run { vm.fcOut = null; confirmPost = true }
@@ -425,6 +428,7 @@ fun PhotoCardScreen(vm: PhotoCardViewModel, ads: AdsViewModel, np: NewPostViewMo
                     }
                 }
             }
+            vm.fcSocial.forEach { f -> SocialFailRow(f, busy = vm.fcSocialBusy == f.which, anyBusy = vm.fcSocialBusy != null) { vm.retrySocial(f) } }
             vm.notice?.let { Text(it, modifier = Modifier.padding(top = 10.dp), fontSize = 14.sp, color = if (it.startsWith("❌")) C.Red else C.Green) }
             HBtn("🧹 ক্লিয়ার (নতুন করে শুরু)", Modifier.fillMaxWidth().padding(top = 10.dp), color = C.Gray) {
                 if (vm.hasPhoto || vm.title.isNotBlank()) confirmClear = true else vm.clearAll()

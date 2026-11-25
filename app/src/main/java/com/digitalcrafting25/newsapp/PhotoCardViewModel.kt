@@ -508,6 +508,12 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     var ocrText by mutableStateOf("")
     var ocrBusy by mutableStateOf(false)
     var collVertical by mutableStateOf(false)
+    var fcSocial by mutableStateOf<List<SocialFail>>(emptyList())   // Instagram/Threads-এ যায়নি: প্রতিটার পাশে 🔁 রিট্রাই
+    var fcSocialBusy by mutableStateOf<String?>(null)
+    /** "Instagram ও Threads-এও পোস্ট করুন" টিক বক্স (ডিফল্ট টিক; সেটাপ না থাকলে দেখায় না) */
+    var social by mutableStateOf(true)
+    private var lastFb = ""
+    private var lastLink = ""
     var fcFbUrl by mutableStateOf<String?>(null)   // পোস্টের পর "ফেসবুক পোস্ট দেখুন" লিংক
     var fileMsg by mutableStateOf(FC_FILE_HINT)
     /** কোলাজের প্রতিটি ছবি নিজের জুম/পজিশনসহ (কোলাজ না হলে ফাঁকা) */
@@ -581,7 +587,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun task(block: suspend () -> Unit) {
         if (fcBusy) return
-        fcBusy = true; fcOut = null; fcFbUrl = null
+        fcBusy = true; fcOut = null; fcFbUrl = null; fcSocial = emptyList()
         viewModelScope.launch {
             try { block() } catch (e: Exception) { fcOut = "❌ " + (e.message ?: "সমস্যা হয়েছে") } finally { fcBusy = false }
         }
@@ -591,7 +597,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     fun postNow() = task {
         problem()?.let { throw ApiError(it) }
         val usedAd = adNow() != null
-        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("sid", sid)
+        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("sid", sid).put("social", SocialPrefs.avail && social)
         val d = Worker.post(app, "/photocard", body, 90000)
         paid = true; used = true
         if (d.has("balance")) balance = d.optDouble("balance")
@@ -601,10 +607,27 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
             if (d.optBoolean("comment_ok")) "✅ ফোটোকার্ড পোস্ট হয়েছে আর কমেন্টে লিংক দেওয়া হয়েছে। "
             else "⚠️ ফোটোকার্ড পোস্ট হয়েছে, কিন্তু কমেন্টে লিংক যায়নি (" + d.optString("comment_error").ifBlank { "কারণ অজানা" } + ")। হাতে কমেন্ট করুন। "
         } else "✅ ফোটোকার্ড পোস্ট হয়েছে। "
-        fcOut = head
+        fcOut = head + Social.okNotes(d).joinToString(" ")
         fcFbUrl = if (fb.isNotBlank()) "https://www.facebook.com/$fb" else null
+        fcSocial = Social.fails(d); lastFb = fb; lastLink = link.trim()
         ensureEmail()
         runCatching { Fs.addPost(app, postTitle(), link.trim(), fb, email) }.onFailure { fcOut += "\nপোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: " + (it.message ?: "") }
+    }
+
+    /** 🔁 ব্যর্থ Instagram/Threads ইউজার নিজে আবার চেষ্টা করে (Facebook ছোঁয়া হয় না, টাকা কাটে না) */
+    fun retrySocial(f: SocialFail) {
+        if (fcSocialBusy != null) return
+        fcSocialBusy = f.which
+        viewModelScope.launch {
+            try {
+                val d = Social.retry(app, f, lastFb, "", lastLink)
+                if (d.optBoolean("ok", false)) fcOut = (fcOut ?: "") + " ✅ ${f.name}-এও পোস্ট হয়েছে।" + (Social.chargeNote(d.optInt("charged", 0))?.let { " $it" } ?: "")
+                if (d.has("balance")) balance = d.optDouble("balance")
+                fcSocial = Social.apply(fcSocial, f, d)
+            } catch (e: Exception) {
+                fcSocial = fcSocial.map { if (it.which == f.which) it.copy(error = e.message ?: "সমস্যা হয়েছে") else it }
+            } finally { fcSocialBusy = null }
+        }
     }
 
     /** ⏰ সিডিউল পোস্ট: Worker নিজেই সময়মতো পোস্ট করে (অ্যাপ বন্ধ থাকলেও) */
@@ -612,7 +635,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
         problem()?.let { throw ApiError(it) }
         if (atMs < System.currentTimeMillis() + 60000) throw ApiError("অন্তত ১ মিনিট পরের সময় দিন")
         val usedAd = adNow() != null
-        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("at", atMs).put("sid", sid)
+        val body = JSONObject().put("kind", "card").put("title", postTitle()).put("link", link.trim()).put("card", cardDataUrl()).put("at", atMs).put("sid", sid).put("social", SocialPrefs.avail && social)
         val d = Worker.post(app, "/schedule", body, 60000)
         paid = true; used = true
         if (d.has("balance")) balance = d.optDouble("balance")
@@ -636,7 +659,7 @@ class PhotoCardViewModel(private val app: Application) : AndroidViewModel(app) {
     /** 🧹 ক্লিয়ার (নতুন করে শুরু): সব খালি, নতুন সেশন */
     fun clearAll() {
         title = ""; name = ""; role = ""; rashi = ""; link = ""; photo = null; hasPhoto = false; picked = emptyList()
-        collItems = emptyList(); fileMsg = FC_FILE_HINT; fcFbUrl = null; ocrAsk = null; cropUndo = null
+        collItems = emptyList(); fileMsg = FC_FILE_HINT; fcFbUrl = null; fcSocial = emptyList(); social = true; ocrAsk = null; cropUndo = null
         fx = 0.5f; fy = 0.5f; photoVer++; savedUri = null; savedSig = ""
         sid = PostUtil.newSid(); paid = false; used = false; fcOut = null; notice = null
         aiMsg = ""; aiPrompt = ""; ocrMsg = ""; ocrText = ""

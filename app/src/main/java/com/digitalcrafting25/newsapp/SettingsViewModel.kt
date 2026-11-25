@@ -101,6 +101,9 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     var fbToken by mutableStateOf("")
     var thToken by mutableStateOf("")
     var thId by mutableStateOf("")
+    /** "Instagram সেটাপ করা হয়েছে" সুইচ: চালু থাকলে পোস্টের আগে "Instagram ও Threads-এও পোস্ট করুন" টিক বক্স আসে */
+    var igOn by mutableStateOf(false)
+        private set
 
     /** (সফল?, লেখা) */
     var wpMsg by mutableStateOf<Pair<Boolean, String>?>(null)
@@ -115,6 +118,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     private val wpKeys = listOf("WP_URL", "WP_USER", "WP_APP_PASS")
     private val fbKeys = listOf("FB_PAGE_ID", "FB_TOKEN")
     private val thKeys = listOf("THREADS_USER_ID", "THREADS_TOKEN")
+    private val igKeys = listOf("IG_ENABLED")
 
     fun credSet(keys: List<String>) = keys.all { creds[it]?.set == true }
     fun wpOk() = credSet(wpKeys)
@@ -129,7 +133,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val d = Worker.post(app, "/creds-get", JSONObject(), 20000)
                 val f = d.optJSONObject("fields") ?: JSONObject()
-                for (k in wpKeys + fbKeys + thKeys) {
+                for (k in wpKeys + fbKeys + thKeys + igKeys) {
                     val x = f.optJSONObject(k)
                     creds[k] = CredInfo(
                         set = x?.optBoolean("set") == true,
@@ -142,6 +146,8 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (wpUser.isBlank()) wpUser = creds["WP_USER"]?.value.orEmpty()
                 if (fbPage.isBlank()) fbPage = creds["FB_PAGE_ID"]?.value.orEmpty()
                 if (thId.isBlank()) thId = creds["THREADS_USER_ID"]?.value.orEmpty()
+                igOn = creds["IG_ENABLED"]?.value == "1"
+                SocialPrefs.fromCreds(f)
                 kvOk = d.optBoolean("kv", true)
                 credsErr = null
             } catch (e: Exception) {
@@ -163,6 +169,12 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         notice = "✅ সংযোগের তথ্য সেভ হয়েছে। এবার \"টেস্ট করুন\" চেপে দেখে নিন।"
     }
 
+    /** Instagram সেটাপ-সুইচ চালু/বন্ধ (সঙ্গে সঙ্গে সেভ হয়) */
+    fun setIgOn(on: Boolean) = run("igOn") {
+        Worker.post(app, "/creds-save", JSONObject().put("values", JSONObject().put("IG_ENABLED", if (on) "1" else "0")), 20000)
+        loadCreds()
+    }
+
     /** which: wp | fb | ig (Facebook টেস্টই, ফল Instagram অংশে দেখায়) | threads | threads-refresh */
     fun testCred(which: String) = run("test$which") {
         fun set(m: Pair<Boolean, String>?) {
@@ -178,6 +190,11 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
             val d = Worker.post(app, "/creds-test", JSONObject().put("which", if (which == "ig") "fb" else which), 40000)
             set(true to d.optString("message", "✅ ঠিক আছে"))
             if (which == "threads-refresh") loadCreds()
+            // Instagram যুক্ত পাওয়া গেলে সেটাপ-সুইচ নিজেই চালু হয়ে যায়
+            if (which == "ig" && !igOn && d.optString("message").contains("Instagram যুক্ত আছে")) {
+                Worker.post(app, "/creds-save", JSONObject().put("values", JSONObject().put("IG_ENABLED", "1")), 20000)
+                loadCreds()
+            }
         } catch (e: Exception) {
             set(false to "⚠️ " + (e.message ?: "পরীক্ষা ব্যর্থ"))
         }

@@ -111,6 +111,13 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
     // ধাপ ৫
     var pubLink by mutableStateOf("")
     var pubNotes by mutableStateOf<List<String>>(emptyList())
+    /** Instagram/Threads-এ যায়নি এমন তালিকা; প্রতিটার পাশে ইউজারের 🔁 রিট্রাই বাটন */
+    var socialFails by mutableStateOf<List<SocialFail>>(emptyList())
+    var socialBusy by mutableStateOf<String?>(null)
+    /** "Instagram ও Threads-এও পোস্ট করুন" টিক বক্স (ডিফল্ট টিক; সেটাপ না থাকলে দেখায় না) */
+    var social by mutableStateOf(true)
+    private var pubFb = ""
+    private var pubCaption = ""
 
     private var cfg = CardCfg()
     private var logoBmp: Bitmap? = null
@@ -156,7 +163,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
         title = ""; body = TextFieldValue(""); cardTitle = ""; category = ""; tag = ""; tplId = "dark"; useAd = true
         imgMode = "upload"; imgUrl = ""; aiPrompt = ""; promptEdited = false; imgMsg = ""; refUrl = ""; refBmp = null
         photo = null; hasPhoto = false; collItems = emptyList(); cropUndo = null; fx = 0.5f; fy = 0.5f; photoVer++; preview = null; thumbs = emptyMap()
-        busy = false; error = null; notice = null; balance = null; pubLink = ""; pubNotes = emptyList()
+        busy = false; error = null; notice = null; balance = null; pubLink = ""; pubNotes = emptyList(); socialFails = emptyList(); socialBusy = null; social = true; pubFb = ""; pubCaption = ""
         loaded = false; ads = emptyList(); adLast = ""; curAd = null; adBmp = null; logoBmp = null; iconBmp = null; cfg = CardCfg(); email = ""; TplRegistry.reset(); tplDirty = false
         undo.clear()
         prefs.edit().remove("draft").apply()
@@ -1184,6 +1191,7 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
             .put("category", PostUtil.catParts(category).joinToString(", "))
             .put("featured", PostUtil.featured(photo!!, cfg))
             .put("card", PostUtil.toDataUrl(card, 90))
+            .put("social", SocialPrefs.avail && social)   // Instagram/Threads টিক বক্স
     }
 
     /** ✅ কনফার্ম ও পাবলিশ (WordPress + Facebook ফোটোকার্ড + কমেন্টে লিংক) */
@@ -1201,6 +1209,9 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                     notes.add("⚠️ WordPress-এ পোস্ট হয়েছে, কিন্তু Facebook-এ ফোটোকার্ড যায়নি (${d.optString("facebook_error")})। আবার পাবলিশ করবেন না (ডুপ্লিকেট হবে), ফেসবুকে হাতে দিন।")
                 else if (d.optBoolean("comment_ok")) notes.add("✅ Facebook-এ ফোটোকার্ড পোস্ট হয়েছে আর তার কমেন্টে WordPress লিংক দেওয়া হয়েছে। https://www.facebook.com/" + d.optString("facebook_post"))
                 else notes.add("⚠️ ফোটোকার্ড Facebook-এ পোস্ট হয়েছে, কিন্তু কমেন্টে লিংক দেওয়া যায়নি (${d.optString("comment_error").ifBlank { "কারণ অজানা" }})। লিংকটা হাতে কমেন্ট করুন।")
+                notes.addAll(Social.okNotes(d))
+                if (d.has("balance")) balance = d.optDouble("balance")
+                socialFails = Social.fails(d); pubFb = d.optString("facebook_post"); pubCaption = title.trim()
                 try { Fs.addPost(app, title.trim(), link, d.optString("facebook_post"), email) }
                 catch (e: Exception) { notes.add("পোস্ট হয়েছে, কিন্তু ড্যাশবোর্ডের হিসাবে সেভ হয়নি: ${e.message}") }
                 cancelOld()?.let { notes.add("⚠️ পুরনো সিডিউলটা মোছা যায়নি ($it)। সিডিউল ট্যাবে গিয়ে সেটা মুছে দিন, নইলে একই পোস্ট আবার হয়ে যাবে।") }
@@ -1211,6 +1222,22 @@ class NewPostViewModel(private val app: Application) : AndroidViewModel(app), Tp
                 category = keepCat; tag = keepTag
                 step = 5
             } catch (e: Exception) { fail(e) } finally { endBusy() }
+        }
+    }
+
+    /** 🔁 ব্যর্থ Instagram/Threads ইউজার নিজে আবার চেষ্টা করে (Facebook/WordPress ছোঁয়া হয় না, টাকা কাটে না) */
+    fun retrySocial(f: SocialFail) {
+        if (socialBusy != null) return
+        socialBusy = f.which
+        viewModelScope.launch {
+            try {
+                val d = Social.retry(app, f, pubFb, pubCaption, pubLink)
+                if (d.optBoolean("ok", false)) pubNotes = pubNotes + listOfNotNull("✅ ${f.name}-এও পোস্ট হয়েছে।", Social.chargeNote(d.optInt("charged", 0)))
+                if (d.has("balance")) balance = d.optDouble("balance")
+                socialFails = Social.apply(socialFails, f, d)
+            } catch (e: Exception) {
+                socialFails = socialFails.map { if (it.which == f.which) it.copy(error = e.message ?: "সমস্যা হয়েছে") else it }
+            } finally { socialBusy = null }
         }
     }
 

@@ -377,6 +377,11 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
             Text("📸 Instagram", fontWeight = FontWeight.Bold)
             Small("আলাদা কিছু বসাতে হয় না। Facebook পেইজের সাথে যুক্ত Instagram Business/Creator অ্যাকাউন্টে, উপরের Facebook টোকেন দিয়েই ছবি ও কমেন্ট যায়।", Modifier.padding(top = 6.dp))
             GuideLink("📖 Instagram সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", IG_GUIDE)
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = vm.igOn, onCheckedChange = { vm.setIgOn(it) }, enabled = vm.busy == null && vm.fbOk())
+                Text("  Instagram সেটাপ করা হয়েছে", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+            Small("চালু থাকলে পোস্ট করার আগে “Instagram-এও পোস্ট করুন” টিক বক্স আসবে (এক্সট্রা ${Rates.taka("ps")}, পোস্ট হলে কাটে)। যাচাই সফল হলে এটা নিজেই চালু হয়ে যায়।", Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(10.dp))
             AppBtn("🔌 Instagram যাচাই করুন", color = C.Gray, small = true, enabled = vm.busy == null && vm.fbOk(), onClick = { vm.testCred("ig") })
             if (!vm.fbOk()) Small("আগে উপরে Facebook সংযোগ সেভ করুন।", Modifier.padding(top = 6.dp))
@@ -410,7 +415,7 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
                     ask(Ask("Threads-এর সেভ করা তথ্য মুছে ফেলবেন?") { vm.clearCreds("th") })
                 })
             }
-            Small("টোকেনের মেয়াদ ৬০ দিন। প্রতি ~৫০ দিনে “মেয়াদ বাড়ান” চাপুন।", Modifier.padding(top = 8.dp))
+            Small("টোকেনের মেয়াদ ৬০ দিন। প্রতি ~৫০ দিনে “মেয়াদ বাড়ান” চাপুন। টোকেন সেভ থাকলেই পোস্টের আগে “Threads-এও পোস্ট করুন” টিক বক্স আসবে (এক্সট্রা ${Rates.taka("ps")}, পোস্ট হলে কাটে)।", Modifier.padding(top = 8.dp))
             vm.thMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
         }
 
