@@ -78,7 +78,8 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         busy = null; notice = null
         creds.clear(); kvOk = true; credsErr = null
         wpUrl = ""; wpUser = ""; wpPass = ""; fbPage = ""; fbToken = ""
-        wpMsg = null; fbMsg = null
+        thToken = ""; thId = ""
+        wpMsg = null; fbMsg = null; thMsg = null; igMsg = null
         aiOwner = null; aiStatus = ""; aiStatusOk = false
         aiKeys.clear(); aiChecks.clear(); aiInputs.clear()
         groqModel = ""; cfModel = ""; geminiModels = ""
@@ -98,19 +99,28 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
     var wpPass by mutableStateOf("")
     var fbPage by mutableStateOf("")
     var fbToken by mutableStateOf("")
+    var thToken by mutableStateOf("")
+    var thId by mutableStateOf("")
 
     /** (সফল?, লেখা) */
     var wpMsg by mutableStateOf<Pair<Boolean, String>?>(null)
         private set
     var fbMsg by mutableStateOf<Pair<Boolean, String>?>(null)
         private set
+    var thMsg by mutableStateOf<Pair<Boolean, String>?>(null)
+        private set
+    var igMsg by mutableStateOf<Pair<Boolean, String>?>(null)
+        private set
 
     private val wpKeys = listOf("WP_URL", "WP_USER", "WP_APP_PASS")
     private val fbKeys = listOf("FB_PAGE_ID", "FB_TOKEN")
+    private val thKeys = listOf("THREADS_USER_ID", "THREADS_TOKEN")
 
     fun credSet(keys: List<String>) = keys.all { creds[it]?.set == true }
     fun wpOk() = credSet(wpKeys)
     fun fbOk() = credSet(fbKeys)
+    /** Threads-এ শুধু টোকেন লাগে; User ID ফাঁকা থাকলে Worker নিজে বের করে নেয় */
+    fun thOk() = creds["THREADS_TOKEN"]?.set == true
     fun credEnv(keys: List<String>) = keys.any { creds[it]?.fromEnv == true }
     fun secretHint(key: String): String? = creds[key]?.takeIf { it.set }?.value
 
@@ -119,7 +129,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 val d = Worker.post(app, "/creds-get", JSONObject(), 20000)
                 val f = d.optJSONObject("fields") ?: JSONObject()
-                for (k in wpKeys + fbKeys) {
+                for (k in wpKeys + fbKeys + thKeys) {
                     val x = f.optJSONObject(k)
                     creds[k] = CredInfo(
                         set = x?.optBoolean("set") == true,
@@ -131,6 +141,7 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (wpUrl.isBlank()) wpUrl = creds["WP_URL"]?.value.orEmpty()
                 if (wpUser.isBlank()) wpUser = creds["WP_USER"]?.value.orEmpty()
                 if (fbPage.isBlank()) fbPage = creds["FB_PAGE_ID"]?.value.orEmpty()
+                if (thId.isBlank()) thId = creds["THREADS_USER_ID"]?.value.orEmpty()
                 kvOk = d.optBoolean("kv", true)
                 credsErr = null
             } catch (e: Exception) {
@@ -144,30 +155,42 @@ class SettingsViewModel(private val app: Application) : AndroidViewModel(app) {
         fun put(k: String, v: String) { if (v.isNotBlank()) values.put(k, v.trim()) }
         put("WP_URL", wpUrl); put("WP_USER", wpUser); put("WP_APP_PASS", wpPass)
         put("FB_PAGE_ID", fbPage); put("FB_TOKEN", fbToken)
+        put("THREADS_USER_ID", thId); put("THREADS_TOKEN", thToken)
         if (values.length() == 0) throw ApiError("কোনো নতুন তথ্য দেননি")
         Worker.post(app, "/creds-save", JSONObject().put("values", values), 20000)
-        wpPass = ""; fbToken = ""
+        wpPass = ""; fbToken = ""; thToken = ""
         loadCreds()
         notice = "✅ সংযোগের তথ্য সেভ হয়েছে। এবার \"টেস্ট করুন\" চেপে দেখে নিন।"
     }
 
+    /** which: wp | fb | ig (Facebook টেস্টই, ফল Instagram অংশে দেখায়) | threads | threads-refresh */
     fun testCred(which: String) = run("test$which") {
         fun set(m: Pair<Boolean, String>?) {
-            if (which == "wp") wpMsg = m else fbMsg = m
+            when (which) {
+                "wp" -> wpMsg = m
+                "threads", "threads-refresh" -> thMsg = m
+                "ig" -> igMsg = m
+                else -> fbMsg = m
+            }
         }
         set(true to "পরীক্ষা চলছে...")
         try {
-            val d = Worker.post(app, "/creds-test", JSONObject().put("which", which), 30000)
+            val d = Worker.post(app, "/creds-test", JSONObject().put("which", if (which == "ig") "fb" else which), 40000)
             set(true to d.optString("message", "✅ ঠিক আছে"))
+            if (which == "threads-refresh") loadCreds()
         } catch (e: Exception) {
             set(false to "⚠️ " + (e.message ?: "পরীক্ষা ব্যর্থ"))
         }
     }
 
     fun clearCreds(which: String) = run("clear$which") {
-        val fields = if (which == "wp") wpKeys else fbKeys
+        val fields = when (which) { "wp" -> wpKeys; "th" -> thKeys; else -> fbKeys }
         Worker.post(app, "/creds-clear", JSONObject().put("fields", JSONArray(fields)), 20000)
-        if (which == "wp") { wpUrl = ""; wpUser = ""; wpPass = ""; wpMsg = null } else { fbPage = ""; fbToken = ""; fbMsg = null }
+        when (which) {
+            "wp" -> { wpUrl = ""; wpUser = ""; wpPass = ""; wpMsg = null }
+            "th" -> { thToken = ""; thId = ""; thMsg = null }
+            else -> { fbPage = ""; fbToken = ""; fbMsg = null; igMsg = null }
+        }
         loadCreds()
     }
 

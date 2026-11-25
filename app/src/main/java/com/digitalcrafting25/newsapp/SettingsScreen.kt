@@ -294,25 +294,10 @@ internal fun StatusLine(ok: Boolean, text: String) {
 internal fun Small(text: String, modifier: Modifier = Modifier, color: Color = C.Muted) =
     Text(text, color = color, fontSize = 12.sp, lineHeight = 17.sp, modifier = modifier)
 
-/** ওয়েবের <details class="guide"> */
+/** আগে নিচে খুলত; এখন চাপলে আলাদা ফুল পেইজে গাইড খোলে (GuidePage.kt)। শুধু সাধারণ লাইনের তালিকার জন্য। */
 @Composable
 internal fun Guide(title: String, lines: List<String>) {
-    var open by rememberSaveable(title) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-        Text(
-            (if (open) "▾ " else "▸ ") + title,
-            color = C.Blue, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-            modifier = Modifier.clickable { open = !open }.padding(vertical = 6.dp),
-        )
-        if (open) {
-            Column(
-                Modifier.fillMaxWidth().background(Color(0xFFF7F8FA), RoundedCornerShape(8.dp)).padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                lines.forEach { l -> Text(l, fontSize = 13.sp, lineHeight = 19.sp, color = Color(0xFF333333)) }
-            }
-        }
-    }
+    GuideLink(title, GDoc(title = title.removePrefix("📖").trim(), plain = lines))
 }
 
 // ───────────────────────── সংযোগ: WordPress ও Facebook ─────────────────────────
@@ -322,6 +307,7 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth()) {
             Small("এখানে নিজের সাইট ও পেইজের তথ্য দিন। তথ্যগুলো Worker-এ এনক্রিপ্ট করে থাকে, অ্যাপে আর ফেরত আসে না। এই সংযোগ শুধু আপনার লগইন অ্যাকাউন্টের।", Modifier.padding(top = 4.dp))
+            GuideLink("📘 সব সংযোগের গাইড (এক নজরে)", OVERVIEW_GUIDE)
             vm.credsErr?.let { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ $it") }
             if (!vm.kvOk) { Spacer(Modifier.height(8.dp)); StatusLine(false, "⚠️ Worker-এ KV (SCHEDULE) বাইন্ডিং নেই, তাই এখান থেকে সেভ হবে না") }
         }
@@ -346,18 +332,7 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
                 keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visual = PasswordVisualTransformation(),
             )
-            Guide(
-                "📖 এগুলো কোথায় পাবেন (ধাপে ধাপে)",
-                listOf(
-                    "১. আপনার WordPress ড্যাশবোর্ডে (আপনারসাইট.com/wp-admin) লগইন করুন।",
-                    "২. বাঁ মেনু থেকে Users → Profile (নিজের ইউজার) খুলুন।",
-                    "৩. একদম নিচে Application Passwords অংশে যেকোনো নাম দিন (যেমন News App), তারপর Add New Application Password চাপুন।",
-                    "৪. যে পাসওয়ার্ডটি দেখাবে (স্পেসসহ ২৪ অক্ষর) সঙ্গে সঙ্গে কপি করে উপরের ঘরে বসান। এটা দ্বিতীয়বার দেখাবে না।",
-                    "৫. ইউজারনেম হলো ওই প্রোফাইলের Username ঘরের লেখা, এটা আপনার লগইন পাসওয়ার্ড নয়।",
-                    "৬. সাইটের URL https:// দিয়ে লিখুন, শেষে / লাগবে না।",
-                    "সমস্যা হলে: Application Passwords অংশ না দেখালে সাইটে HTTPS চালু আছে কিনা দেখুন; কিছু সিকিউরিটি প্লাগিনও এটা বন্ধ রাখে। ইউজারের রোল Author, Editor বা Administrator হতে হবে। \"টেস্ট করুন\" চাপলে ভুল কোথায় তা বলে দেবে।",
-                ),
-            )
+            GuideLink("📖 WordPress সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", WP_GUIDE)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppBtn("🔌 টেস্ট করুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = { vm.testCred("wp") })
@@ -386,19 +361,7 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
                 keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visual = PasswordVisualTransformation(),
             )
-            Guide(
-                "📖 Page ID ও টোকেন কীভাবে পাবেন (সংক্ষেপে)",
-                listOf(
-                    "১. developers.facebook.com-এ লগইন করুন (অ্যাকাউন্টটি ওই পেইজের অ্যাডমিন হতে হবে)।",
-                    "২. My Apps → Create App। Use cases-এ Manage everything on your Page বেছে অ্যাপ বানান।",
-                    "৩. Tools → Graph API Explorer খুলে ডানে আপনার অ্যাপটি বেছে নিন।",
-                    "৪. শুধু এই চারটা পারমিশন দিন: pages_show_list, pages_read_engagement, pages_manage_posts, pages_manage_engagement।",
-                    "৫. Generate Access Token চেপে পপআপে আপনার পেইজটি টিক দিয়ে অনুমতি দিন (পেইজ টিক না দিলে me/accounts ফাঁকা আসবে)।",
-                    "৬. টোকেন স্থায়ী করতে Access Token Debugger-এ গিয়ে Extend Access Token করুন, তারপর Graph API Explorer-এ ওই লম্বা টোকেন বসিয়ে me/accounts লিখে Submit চাপুন।",
-                    "৭. ফলাফলে আপনার পেইজের access_token হলো Page Access Token, আর id হলো Page ID। দুটো উপরের ঘরে বসিয়ে সেভ করুন।",
-                    "মনে রাখুন: অ্যাপ Live মোডে না থাকলে পোস্ট সবাই দেখতে পায় না (App Settings → Basic-এ Privacy Policy URL দিয়ে Live করুন)। পাসওয়ার্ড বদলালে বা পেইজের অ্যাডমিন থেকে সরে গেলে টোকেন বাতিল হয়। টোকেন কারও সাথে শেয়ার করবেন না।",
-                ),
-            )
+            GuideLink("📖 Facebook সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", FB_GUIDE)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppBtn("🔌 টেস্ট করুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = { vm.testCred("fb") })
@@ -407,6 +370,48 @@ private fun ConnBody(vm: SettingsViewModel, ask: (Ask) -> Unit) {
                 })
             }
             vm.fbMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
+        }
+
+        // ── Instagram (Facebook পেইজের সাথে যুক্ত অ্যাকাউন্ট; আলাদা টোকেন লাগে না) ──
+        CrGroup {
+            Text("📸 Instagram", fontWeight = FontWeight.Bold)
+            Small("আলাদা কিছু বসাতে হয় না। Facebook পেইজের সাথে যুক্ত Instagram Business/Creator অ্যাকাউন্টে, উপরের Facebook টোকেন দিয়েই ছবি ও কমেন্ট যায়।", Modifier.padding(top = 6.dp))
+            GuideLink("📖 Instagram সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", IG_GUIDE)
+            Spacer(Modifier.height(10.dp))
+            AppBtn("🔌 Instagram যাচাই করুন", color = C.Gray, small = true, enabled = vm.busy == null && vm.fbOk(), onClick = { vm.testCred("ig") })
+            if (!vm.fbOk()) Small("আগে উপরে Facebook সংযোগ সেভ করুন।", Modifier.padding(top = 6.dp))
+            vm.igMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
+        }
+
+        // ── Threads ──
+        CrGroup {
+            Text("🧵 Threads", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            StatusLine(
+                vm.thOk(),
+                if (vm.thOk()) "✅ সেট করা আছে" + (if (vm.credEnv(listOf("THREADS_TOKEN"))) " (Worker ভ্যারিয়েবল থেকে)" else "")
+                else "❌ সেট করা নেই (ঐচ্ছিক। না দিলে Threads-এ পোস্ট যাবে না)",
+            )
+            FieldLabel("Threads Access Token")
+            AppField(
+                vm.thToken, { vm.thToken = it },
+                placeholder = vm.secretHint("THREADS_TOKEN")?.let { "$it (বদলাতে চাইলে নতুনটা বসান)" } ?: "THAA...",
+                keyboard = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visual = PasswordVisualTransformation(),
+            )
+            FieldLabel("Threads User ID (ঐচ্ছিক)")
+            AppField(vm.thId, { vm.thId = it }, placeholder = "ফাঁকা রাখলে টোকেন থেকে নিজে বের করবে", keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+            GuideLink("📖 Threads সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", TH_GUIDE)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppBtn("🔌 টেস্ট করুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = { vm.testCred("threads") })
+                AppBtn("🔁 মেয়াদ বাড়ান", color = C.Gray, small = true, enabled = vm.busy == null && vm.thOk(), onClick = { vm.testCred("threads-refresh") })
+                AppBtn("🗑️ মুছুন", color = C.Gray, small = true, enabled = vm.busy == null, onClick = {
+                    ask(Ask("Threads-এর সেভ করা তথ্য মুছে ফেলবেন?") { vm.clearCreds("th") })
+                })
+            }
+            Small("টোকেনের মেয়াদ ৬০ দিন। প্রতি ~৫০ দিনে “মেয়াদ বাড়ান” চাপুন।", Modifier.padding(top = 8.dp))
+            vm.thMsg?.let { (ok, t) -> Text(t, color = if (ok) C.Green else C.Red, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
         }
 
         // ── YouTube (HTML সেটিংসের "▶️ YouTube (ভিডিও পাবলিশের জন্য)") ──
@@ -444,17 +449,7 @@ private fun YtCard(ask: (Ask) -> Unit) {
                 Text(sha.ifBlank { "পাওয়া যায়নি" }, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
             }
         }
-        Guide(
-            "📖 YouTube কীভাবে যোগ করবেন (ধাপে ধাপে)",
-            listOf(
-                "১. console.cloud.google.com-এ সেই Google অ্যাকাউন্টে লগইন করুন, যে অ্যাকাউন্টে আপনার YouTube চ্যানেল আছে। HTML-এর জন্য আগে প্রজেক্ট বানানো থাকলে সেটাই ব্যবহার করুন (নইলে New Project)।",
-                "২. APIs & Services → Library থেকে YouTube Data API v3 খুঁজে Enable করুন (আগে করা থাকলে লাগবে না)।",
-                "৩. OAuth consent screen (নতুন ডিজাইনে Google Auth Platform): External, অ্যাপের নাম ও ইমেইল দিন। Scopes-এ .../auth/youtube.upload যোগ করুন। Test users-এ নিজের Google ইমেইল দিন। অ্যাপ Testing অবস্থায় রাখলেই চলবে। (HTML-এর জন্য করা থাকলে এই ধাপ আবার লাগবে না।)",
-                "৪. Credentials → Create Credentials → OAuth client ID। Application type: Android। Package name ও SHA-1 ঘরে ওপরের দুটো মান হুবহু বসান। Create চাপুন। কোথাও কিছু কপি করে অ্যাপে দিতে হবে না।",
-                "৫. নিচে \"লগইন টেস্ট\" চাপুন। Google পপআপে চ্যানেলের অ্যাকাউন্ট বাছুন। \"Google hasn’t verified this app\" দেখালে Advanced → Go to ... চেপে অনুমতি দিন। এটা নিজের অ্যাপ, তাই নিরাপদ।",
-                "জেনে রাখুন: ফোনে Google Play services থাকতে হবে। নতুন API প্রজেক্ট থেকে আপলোড করা ভিডিও Google অডিট না করা পর্যন্ত প্রাইভেট থেকে যেতে পারে; তখন YouTube Studio থেকে হাতে Public করতে হবে, অথবা Google-এর YouTube API Services Audit ফর্ম জমা দিন। ডিফল্ট কোটায় দিনে প্রায় ৬টা ভিডিও আপলোড করা যায়। পাবলিশের সময় লগইন লাগতে পারে; পপআপ এলে অনুমতি দিন। অ্যাপ নতুন কী (keystore) দিয়ে বিল্ড হলে SHA-1 বদলে যায়, তখন ধাপ ৪ আবার করতে হবে।",
-            ),
-        )
+        GuideLink("📖 YouTube সংযোগের পূর্ণ গাইড (ধাপে ধাপে)", YT_GUIDE)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppBtn("🔌 লগইন টেস্ট", color = C.Gray, small = true, enabled = !busy, onClick = {
